@@ -56,7 +56,7 @@ If a requirement needs human judgment, prepare the example or demonstration and 
 
 When the enclosing flow authorizes publication, apply [Draft PRs and readiness](../shared/pr-lifecycle.md). At the first significant change, inspect the intended diff, run appropriate targeted checks, and commit a coherent checkpoint. Full implementation checks and final self-review still apply before the completed implementation handoff.
 
-Return the checkpoint to the coordinator for [submit-pr](submit-pr.md), with the worktree, branch, base, committed head, checks, remaining work, and next action. State that implementation is incomplete when it is. Resume implementation on the same branch after draft publication; do not push or open the PR yourself. For a standalone local-only request, continue locally without this publication handoff.
+When the handoff authorizes you to continue into [submit-pr](submit-pr.md), commit the checkpoint and publish it as a draft through that reference in the same session, then resume implementation on the same branch. Before the completed implementation handoff, publish the final commits to the same draft under the same authorization. Otherwise, return the checkpoint to the coordinator for [submit-pr](submit-pr.md), with the worktree, branch, base, committed head, checks, remaining work, and next action, and do not push or open the PR yourself. State that implementation is incomplete when it is. For a standalone local-only request, continue locally without this publication handoff.
 
 ## Review and commit
 
