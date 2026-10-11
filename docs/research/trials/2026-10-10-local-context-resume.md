@@ -48,6 +48,6 @@ This was one bounded retry, with an existing server cache and no cold baseline. 
 
 ## Artifacts
 
-[The trial directory](/private/tmp/ghflow-resume-grumtw4t) retains the fixture, prompt, instruction hashes, raw events, runtime metadata, session export, metrics, and assessment. `run-metadata.json` records timeout and selection. `assessment.json` separates actor actions from observer checks.
+The local trial directory `/private/tmp/ghflow-resume-grumtw4t` retains the fixture, prompt, instruction hashes, raw events, runtime metadata, session export, metrics, and assessment. These temporary artifacts are available only on the trial machine; they are not part of this repository. `run-metadata.json` records timeout and selection. `assessment.json` separates actor actions from observer checks.
 
 [Local decision samples](../../../evals/results/2026-10-11-local-context.md) assess decisions separately from this execution trial.
