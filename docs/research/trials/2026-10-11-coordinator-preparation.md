@@ -44,6 +44,7 @@ This content review does not establish a verified different-model comparison.
 Automatic approval review rejected the proposed Claude Sonnet evaluations because they would send repository guidance and scenario prompts to an external provider.
 The author requested specific user approval for that disclosure.
 Behavioral scenario runs remain unperformed pending that approval.
+Les later approved the runs. [Coordinator preparation](../../../evals/results/2026-10-11-coordinator-preparation.md), [regression](../../../evals/results/2026-10-11-coordinator-preparation-regression.md), and [round 2](../../../evals/results/2026-10-11-coordinator-preparation-round2.md) record the results.
 Repository checks passed: 144 CLI tests, 51 script tests, Markdown links, scenario index, and whitespace checks.
 The general skill validator lacked PyYAML; the repository checker separately examined the skill frontmatter.
 

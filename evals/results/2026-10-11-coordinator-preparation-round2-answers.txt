@@ -1,0 +1,107 @@
+Batch: /tmp/pr62-round2-implementation-handoff-operation-scope (selected model claude-sonnet-5-5, source 066cb277f3dd540fd3eb21fb9be56f6219f87ef3)
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 0a6b2b13-3b3e-42dd-aa29-d026db2a82e5
+
+**Next step:** I dispatch the `implement-issue` subagent. I don't implement, create a worktree, or interview anyone myself. The dispatch is local-only, with no push and no PR.
+
+**Skill rules that decide it:**
+- **express-issue, "Implement and publish draft progress":** The review path is already prepared, so I dispatch implement-issue now. The handoff follows the Handoffs section of coordination.md. I also tell the worker to return the first significant committed checkpoint without waiting for the full task.
+- **coordination.md, Handoffs and Roles:** The parent dispatches subject-repository work and does not do it. The worker creates the task worktree and branch, not me.
+
+**What the handoff carries:**
+- **Operation:** implement-issue, with the resolved entry skill, task-reference and CLI paths.
+- **Source:** the full source commit used for instructions and tools.
+- **Subject:** the issue #997 URL, the target checkout, and the project instructions path. I link the issue instead of copying its detailed changes and tests.
+- **Base:** the base commit. No worktree exists yet, so there are no existing-work fields.
+- **Confirmed decisions:** the user's out-of-issue decision to preserve the compatibility option. The worker can't recover this from the issue text, so I state it explicitly.
+- **Review plan:** the fresh reviewer path and its model metadata.
+- **Flow authorization:** through PR review follow-up, without merge. This operation is local implementation only.
+- **Return:** the first committed checkpoint, plus the actual results, evidence limits, and local base and head verification.
+
+**What happens after the checkpoint:**
+- I dispatch `submit-pr` as a draft, with check evidence, remaining work, and publication authorization.
+- I resume the same worker in the same worktree and branch, carrying the PR URL.
+- Before the PR is marked ready, `review-changes` runs in a fresh context on the exact base and head.
+- Ready submission is followed by the parent's `address-pr-review` dispatch.
+- I don't merge.
+
+I don't run interview-issue because the user's decision is already settled and the issue is clear.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 379d842a-06a9-4a15-acef-69f75bacec8f
+
+**Next step:** I dispatch the `implement-issue` subagent. I don't implement in the parent, I don't create the worktree myself, and I don't ask the user anything.
+
+**Why this is next:**
+- **Task and endpoint.** The endpoint is already set: through PR review follow-up, without merge. I'm in the "Implement and publish draft progress" stage of `express-issue.md`. The review path and its model metadata already exist, so "Prepare required review" is done. The issue is clear and the user's out-of-issue decision is already settled. That means no `interview-issue`, `define-issue`, or `reconsider-issue` step is needed.
+- **No existing work.** There is no worktree, branch, or PR, so there is nothing to resume. The implementation worker creates the worktree and branch.
+- **Parent versus subagent.** `coordination.md` says the parent arranges the work and receives the result. It doesn't do subject-repository work itself.
+
+**What the handoff contains**, following the `coordination.md#handoffs` form:
+- **Skill and tool paths:** the resolved entry skill, `implement-issue` task reference, and CLI paths.
+- **Source:** the source checkout and its full commit, which supply the instructions and tools.
+- **Subject:** the issue #997 URL, the target checkout, and the project instructions path. I link to the issue for the detailed changes and tests rather than copying its body.
+- **Base:** the base commit. There is no worktree, branch, or head yet.
+- **Confirmed decisions:** the user's decision to preserve the compatibility option. The worker can't recover this from the issue text, so I state it explicitly.
+- **Review plan:** the fresh reviewer path and its model metadata.
+- **Flow authorization:** through PR review follow-up, without merge.
+- **This operation:** local implementation only, with no push and no PR.
+- **Return:** the first significant committed checkpoint, without waiting for the full task, plus the checks run, local base/head verification, and remaining work.
+- **Notes:** the task-notes path, if one exists.
+
+**After the checkpoint:**
+1. I verify the base and head locally.
+2. I dispatch `submit-pr` with draft status, the current check evidence, the remaining work, and the publication authorization.
+3. I resume `implement-issue` in the same worktree and branch with the PR URL.
+4. A draft checkpoint does not complete the endpoint. Fresh-context `review-changes` runs before the PR is marked ready, and `address-pr-review` is dispatched later by the parent.
+
+**Deciding rule:** "Implement and publish draft progress" in `express-issue.md`. It says to dispatch `implement-issue` with the Handoffs contents, including the confirmed decisions and the established review path. It also says to tell the worker to return the first significant committed checkpoint for draft publication.
+
+Batch: /tmp/pr62-round2-coordinator-ready-to-dispatch (selected model claude-sonnet-5-5, source 066cb277f3dd540fd3eb21fb9be56f6219f87ef3)
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: 9b1f67a4-e197-400d-a921-dedff5acfc9e
+
+**Next step:** I dispatch `implement-issue` to the general implementation worker now. I don't copy the project instructions into the handoff, and I don't do the implementation myself.
+
+**Why:** The deciding rule is in `shared/coordination.md`, under Handoffs, and `express-issue.md:27` points to it. It says: "Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures or the full issue body." The sample handoff form has a field for this: `project instructions at PROJECT_INSTRUCTIONS`. `implement-issue.md:11` also tells the worker to read the project instructions, the issue body and the comments as its first step. So the worker recovers the instructions from their source, and my doubt about whether it will obey them doesn't change the handoff. I don't need to restate the instructions or replace them with a summary of my own.
+
+The handoff should contain:
+- **Paths and revision:** the resolved entry skill, task-reference and CLI paths, and the source revision.
+- **Subject and base:** the issue URL, the target checkout, the project-instructions path, the base commit, and any existing worktree, branch, head or publication state.
+- **Decisions and review plan:** the confirmed decisions, plus the review plan prepared under the `review.md#prepare-required-review` rule.
+- **Authorization and scope:** the flow's authorization and its limits. This operation is local implementation only, with no push or PR.
+- **Checkpoint:** return the first significant committed checkpoint, so I can publish it as a draft through `submit-pr`.
+- **Evidence and notes:** the relevant checks with their commits, and the notes path if there is one.
+- **Return format:** the result, the evidence limits, and local base and head verification.
+
+I also don't take the work over because I'm unsure the worker will comply. The same section says, "Do not do the subject-repository work in the parent instead." Keeping to the standard handoff form is the right response to that doubt.
+
+I haven't read `review-changes`, `submit-pr` or `address-pr-review` yet. I'll read each one when its stage starts, as `express-issue.md:15` says to.
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: 816e675f-cc5e-4c0a-8862-79a0deddf096
+
+**Next step:** I dispatch `implement-issue` to the general implementation worker now. I don't implement the issue myself, and I don't copy the project instructions into the prompt.
+
+**Why:**
+
+- **Worker reliability.** The worry is that a general worker might ignore project instructions. The skill answers this in two places.
+  - `implement-issue.md:11` makes the worker's first step "Read the project instructions, the issue body, and relevant comments."
+  - `shared/coordination.md` (Handoffs, line 21) says to "Link to the issue and project instructions instead of copying their procedures or the full issue body." The handoff template carries a `project instructions at PROJECT_INSTRUCTIONS` field for this.
+  - So I put the project-instructions path in the handoff and tell the worker to execute `implement-issue` without selecting another operation. I don't paste or paraphrase the rules.
+
+- **No self-implementation.** Coordination line 37 says "Do not do the subject-repository work in the parent instead." Coordination line 17 says ownership means "arranging the task and receiving its result, not performing subject-repository work."
+
+- **Review path is already settled.** `express-issue.md:27` requires applying "Prepare required review" before substantial dependent implementation. The recorded metadata already establishes the agreed review path, so that precondition is met. I pass the review plan along, with any exception and the model evidence. I don't re-derive it.
+
+- **Handoff contents** (`express-issue.md:27`, Coordination template):
+  - Resolved entry skill, task-reference and CLI paths, and the source revision.
+  - The target checkout, the issue URL, the current base, and any existing work.
+  - Confirmed decisions, and the review plan or approved exception.
+  - Flow authorization and its limits, and the endpoint (PR review follow-up, no merge).
+  - The local-only limit for this operation: do not push or open a PR.
+  - A request to return the first significant committed checkpoint, so I can dispatch `submit-pr` for a draft (`express-issue.md:29`).
+
+- **Later procedures.** I haven't read `submit-pr`, `review-changes`, or `address-pr-review`. Per `express-issue.md:15`, I read each when its step becomes relevant. After the checkpoint comes back, I verify the base and head locally and then publish the draft.
