@@ -237,3 +237,10 @@ Runtime measurements and trial outcomes belong in evaluation or trial records, w
 The [local decision samples](../../evals/results/2026-10-11-local-context.md) all timed out without answers and remain ungraded.
 The execution trial read notes and relevant guidance but stopped before implementation.
 These runs establish no efficiency gain.
+
+## Tackle as a delivery request
+
+On 2026-10-11, Les specified that "tackle issue 999" means "deliver issue 999."
+The [entry point](../../SKILL.md) includes the synonym in discovery text and routes it to express-issue.
+The existing default endpoint remains review follow-up with the PR open. Merge still needs explicit authorization.
+The [scenario](../../evals/scenarios/tackle-issue-delivery.md) records the expected endpoint. It remains unevaluated and does not establish blind entry-point discovery.

@@ -1,6 +1,6 @@
 ---
 name: ghflow
-description: Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate explicitly requested delivery. Use for Git and GitHub project workflow tasks. Merge requires explicit authorization; do not select backlog work unless requested.
+description: Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate explicitly requested delivery. Use for Git and GitHub project tasks, including requests to tackle or deliver an issue. Merge requires explicit authorization; do not select backlog work unless requested.
 ---
 
 # GitHub workflow
@@ -36,7 +36,7 @@ Match the user's explicit request to the operation below. Identify the subject r
 | Publish committed changes as a PR | [submit-pr](references/tasks/submit-pr.md) |
 | Address PR feedback and repair CI | [address-pr-review](references/tasks/address-pr-review.md) |
 | Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) |
-| Deliver one selected issue | [express-issue](references/tasks/express-issue.md) |
+| Deliver or tackle one selected issue | [express-issue](references/tasks/express-issue.md) |
 | Deliver an agreed parent issue | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) |
 | Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) |
 | Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) |

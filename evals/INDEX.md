@@ -104,6 +104,7 @@ These scenarios have no structured run record in the reports. This does not prov
 - [followup-current-head-pending](scenarios/followup-current-head-pending.md)
 - [implementation-local-only](scenarios/implementation-local-only.md)
 - [submit-pr-no-default-copilot](scenarios/submit-pr-no-default-copilot.md)
+- [tackle-issue-delivery](scenarios/tackle-issue-delivery.md)
 - [task-notes-changed-evidence](scenarios/task-notes-changed-evidence.md)
 - [task-notes-location-handoff](scenarios/task-notes-location-handoff.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
