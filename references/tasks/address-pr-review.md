@@ -4,11 +4,13 @@ Take an existing PR through one review cycle and CI repair, and return the final
 
 Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
+Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
+
 ## Establish the task
 
 Apply any [user-approved exception](../shared/review.md#user-approved-exceptions) before arranging review or a fallback below. Preserve the agreed review plan while still reading feedback and checking CI.
 
-Read the issue, PR, project instructions, current branch, and any supplied review report. Confirm the current head.
+Read the issue, PR, project instructions, current branch, and any supplied review report. Apply [Task notes](../shared/task-notes.md) to preserve findings, repair attempts, and the next action across interruptions. Confirm the current head.
 
 If the parent reports an external branch update, read the actual PR head and compare the changes before continuing. Reassess checks, review coverage, and unresolved findings under [Evidence](../shared/evidence.md#results-belong-to-a-commit). Preserve the original review deadline and one-cycle limit.
 

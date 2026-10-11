@@ -1,11 +1,11 @@
 ---
 name: ghflow
-description: Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate explicitly requested delivery. Use for Git and GitHub project workflow tasks. Merge requires explicit authorization; do not select backlog work unless requested.
+description: Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate explicitly requested delivery. Use for Git and GitHub project tasks, including requests to tackle or deliver an issue. Merge requires explicit authorization; do not select backlog work unless requested.
 ---
 
 # GitHub workflow
 
-Select the requested operation and follow its task reference. Each operation works on an ordinary issue or PR without earlier ghflow tasks. Load only the task and shared rules needed now.
+Select the requested operation and follow its task reference. Each operation works on an ordinary issue or PR without earlier ghflow tasks. Load only the task and shared rules needed now. Apply [Working context and tool output](references/shared/context.md) to reference loading, searches, and handoffs.
 
 ## Locate the source and tools
 
@@ -36,7 +36,7 @@ Match the user's explicit request to the operation below. Identify the subject r
 | Publish committed changes as a PR | [submit-pr](references/tasks/submit-pr.md) |
 | Address PR feedback and repair CI | [address-pr-review](references/tasks/address-pr-review.md) |
 | Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) |
-| Deliver one selected issue | [express-issue](references/tasks/express-issue.md) |
+| Deliver or tackle one selected issue | [express-issue](references/tasks/express-issue.md) |
 | Deliver an agreed parent issue | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) |
 | Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) |
 | Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) |
@@ -49,6 +49,8 @@ Match the user's explicit request to the operation below. Identify the subject r
 | Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
 
 ## Execute and hand off
+
+For sustained work or findings that would be costly to reconstruct, apply [Task notes](references/shared/task-notes.md). On resumption or after context compaction, read the task's existing notes before repeating research or reopening decisions.
 
 Follow the selected reference's scope and stopping point. Carry existing authorization across included tasks. Draft-only and read-only limits still apply; implementation or submission never implies merge permission.
 

@@ -27,12 +27,14 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [closed-children-parent-incomplete](scenarios/closed-children-parent-incomplete.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [commented-review-empty](scenarios/commented-review-empty.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [commented-review-no-findings](scenarios/commented-review-no-findings.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | regression | [2026-10-03-cleanup-and-review-substitute.md](results/2026-10-03-cleanup-and-review-substitute.md): Evaluated commit after change not stated. |
+| [context-complete-inventory](scenarios/context-complete-inventory.md) | 2026-10-11 | unknown | OpenCode 1.19.0 | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | unknown | sample | [2026-10-11-local-context.md](results/2026-10-11-local-context.md): 180-second timeout without answer; temporary source commit bac47cb2d2ba2041ad19c80edba99f94fb597d4a; selected model matches endpoint inventory, runtime model unreported. |
 | [copilot-automatic-request](scenarios/copilot-automatic-request.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [copilot-needs-closer-look](scenarios/copilot-needs-closer-look.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-cleanup-and-review-substitute.md](results/2026-10-03-cleanup-and-review-substitute.md): Evaluated commit after change not stated. |
 | [copilot-request-silent-local-covers](scenarios/copilot-request-silent-local-covers.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated. |
 | [copilot-unavailable-head-changed](scenarios/copilot-unavailable-head-changed.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [definition-hits-dependency](scenarios/definition-hits-dependency.md) | 2026-10-08 | c96332a | Claude Code general-purpose subagent | unknown | Pass (2/2) | sample | [2026-10-08-blocked-parked-labels.md](results/2026-10-08-blocked-parked-labels.md): Actor model unreported; report only guesses inheritance from parent. |
 | [draft-only-limit](scenarios/draft-only-limit.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
+| [draft-pr-ready-transition](scenarios/draft-pr-ready-transition.md) | 2026-10-11 | unknown | OpenCode 1.19.0 | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | unknown | sample | [2026-10-11-local-context.md](results/2026-10-11-local-context.md): 180-second timeout without answer; temporary source commit bac47cb2d2ba2041ad19c80edba99f94fb597d4a; selected model matches endpoint inventory, runtime model unreported. |
 | [dry-run-pushes](scenarios/dry-run-pushes.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [express-default-endpoint](scenarios/express-default-endpoint.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [filing-parent-link-failed](scenarios/filing-parent-link-failed.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
@@ -83,6 +85,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [submit-pr-sandbox-auth-context](scenarios/submit-pr-sandbox-auth-context.md) | unknown | fa2ca6e1bb9f03d0ed4084a4188743edc0dc10e1 | collaboration agents | gpt-6.1-sol | Pass (2/2) | changed skill | [2026-10-09-sandbox-auth-context.md](results/2026-10-09-sandbox-auth-context.md): Dispatch selection only. Run date not stated; filename alone does not establish chronology. |
 | [sweep-material-choice](scenarios/sweep-material-choice.md) | unknown | 3373adb41d4b370af72d59fbd1078bccd4a456b0 | collaboration.spawn_agent | gpt-6.1-sol | Pass | sample | [2026-10-08-definition-sweep.md](results/2026-10-08-definition-sweep.md): Dispatch selection, no runtime model attestation. Run date not stated; filename alone does not establish chronology. |
 | [sweep-small-definition](scenarios/sweep-small-definition.md) | unknown | 3373adb41d4b370af72d59fbd1078bccd4a456b0 | collaboration.spawn_agent | gpt-6.1-sol | Pass | sample | [2026-10-08-definition-sweep.md](results/2026-10-08-definition-sweep.md): Dispatch selection, no runtime model attestation. Run date not stated; filename alone does not establish chronology. |
+| [task-notes-resume](scenarios/task-notes-resume.md) | 2026-10-11 | unknown | OpenCode 1.19.0 | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | unknown | sample | [2026-10-11-local-context.md](results/2026-10-11-local-context.md): 180-second timeout without answer; temporary source commit bac47cb2d2ba2041ad19c80edba99f94fb597d4a; selected model matches endpoint inventory, runtime model unreported. |
 | [trace-helper-callers](scenarios/trace-helper-callers.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-02-retro.md](results/2026-10-02-retro.md): Evaluated commit after revision not stated; pilot regression is not another baseline run. |
 | [unpublished-local-commit-mismatch](scenarios/unpublished-local-commit-mismatch.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
 | [unpublished-local-commit-missing](scenarios/unpublished-local-commit-missing.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
@@ -93,5 +96,16 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
+- [context-read-selected-task](scenarios/context-read-selected-task.md)
+- [context-reuse-implementation-worker](scenarios/context-reuse-implementation-worker.md)
+- [delivery-early-draft](scenarios/delivery-early-draft.md)
+- [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
+- [draft-pr-resume-progress](scenarios/draft-pr-resume-progress.md)
 - [followup-current-head-pending](scenarios/followup-current-head-pending.md)
+- [implementation-local-only](scenarios/implementation-local-only.md)
 - [submit-pr-no-default-copilot](scenarios/submit-pr-no-default-copilot.md)
+- [tackle-issue-delivery](scenarios/tackle-issue-delivery.md)
+- [task-notes-changed-evidence](scenarios/task-notes-changed-evidence.md)
+- [task-notes-location-handoff](scenarios/task-notes-location-handoff.md)
+- [task-notes-read-only](scenarios/task-notes-read-only.md)
+- [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)

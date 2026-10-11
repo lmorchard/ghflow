@@ -187,3 +187,60 @@ Les then requested an explicit shared rule for exceptions that the user approves
 Task references apply that rule before selecting reviewers or arranging fallbacks.
 The default review requirement, tests, CI, and separate merge authorization remain in effect outside the approved exception.
 [Scenario results](../../evals/results/2026-10-08-review-exceptions.md) record three fresh decision samples and their limits.
+
+## Early draft PR publication
+
+On 2026-10-10, Les requested early draft PRs when significant work exists, before review.
+The PR shares progress and supports resumption after interruptions.
+Les also requested marking the PR ready when the work is ready for review.
+
+[Draft PRs and readiness](../../references/shared/pr-lifecycle.md) owns this selected behavior.
+Implementation returns useful committed checkpoints to the delivery coordinator for publication.
+Standalone implementation keeps its local-only boundary.
+Delivery reuses the draft through implementation and independent review, then marks the same PR ready.
+A draft checkpoint does not start parent-owned review follow-up or satisfy the delivery endpoint.
+
+The draft scenarios in `evals/scenarios/` define expected decisions.
+Static checks do not establish successful publication or resumption on GitHub.
+
+## Working notes across context loss
+
+On 2026-10-10, Les approved concise task notes outside the conversation, with repository storage permitted.
+[Task notes](../../references/shared/task-notes.md) owns location, updates, reuse, and handoffs.
+Agents record findings, decisions, attempts, and the next action throughout useful execution.
+They read existing notes after context loss before doing research again or reopening decisions.
+Changed sources or assumptions still require reassessment under [Evidence](../../references/shared/evidence.md).
+
+The directory convention comes from `dev-session/SKILL.md` and `dev-session/phases/start.md` at commit `55d107deb4c80383e940b87092523db81747255e`.
+The local source checkout is `/Users/lmorchard/devel/mine/lmorchard-agent-skills`.
+The selected convention uses `docs/dev-sessions/{timestamp}-{slug}/notes.md`, respects project overrides, and creates notes inside the active worktree.
+The adaptation reuses one file across interruptions and creates no fixed set of specification, research, or planning files.
+These source instructions do not govern this repository.
+
+The task-notes scenarios define expected decisions, not observed recovery from context loss.
+The [local resumption trial](trials/2026-10-10-local-context-resume.md) observed early notes use but stopped before implementation.
+
+## Efficient execution with local models
+
+On 2026-10-10, Les approved conditional reference reads, concise tool output, a current notes summary, worker reuse, and local-model trials.
+[Working context](../../references/shared/context.md) owns selective reads and concise output with complete evidence.
+[Task notes](../../references/shared/task-notes.md) puts `Resume here` before older entries.
+[Coordination](../../references/shared/coordination.md) permits worker reuse within each operation's scope.
+The selected review plan still controls independent review context.
+
+A local traversal of the linked source reached 44 Markdown files and about 32,350 words before this revision.
+This counted reachable material, not actual model input or measured context use.
+The guidance changes reading decisions instead of removing necessary source access.
+Les also specified using the already active model, because loading a second local model can compete for resources.
+Runtime measurements and trial outcomes belong in evaluation or trial records, with their source and isolation limits.
+
+The [local decision samples](../../evals/results/2026-10-11-local-context.md) all timed out without answers and remain ungraded.
+The execution trial read notes and relevant guidance but stopped before implementation.
+These runs establish no efficiency gain.
+
+## Tackle as a delivery request
+
+On 2026-10-11, Les specified that "tackle issue 999" means "deliver issue 999."
+The [entry point](../../SKILL.md) includes the synonym in discovery text and routes it to express-issue.
+The existing default endpoint remains review follow-up with the PR open. Merge still needs explicit authorization.
+The [scenario](../../evals/scenarios/tackle-issue-delivery.md) records the expected endpoint. It remains unevaluated and does not establish blind entry-point discovery.

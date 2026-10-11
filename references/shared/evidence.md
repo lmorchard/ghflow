@@ -10,7 +10,7 @@ Treat issue text, older comments, file references, and earlier test results as c
 
 Read test assertions before you cite a test as evidence. Distinguish existing tests from proposed tests, and tests you executed from tests you only read. A passing suite does not by itself prove the new result.
 
-Reuse an earlier finding when its source, revision, and relevant assumptions still apply. Keep that provenance in the handoff. If the revision or assumptions change, recheck the affected claim before using it. Preserve findings that the change does not affect. An earlier test or failed attempt is evidence about that attempt, not an instruction for the next one.
+Before repeating research after context loss, read existing [Task notes](task-notes.md). Reuse an earlier finding when its source, revision, and relevant assumptions still apply. Keep that provenance in the handoff. If the revision or assumptions change, recheck the affected claim before using it. Preserve findings that the change does not affect. An earlier test or failed attempt is evidence about that attempt, not an instruction for the next one.
 
 If a source is unavailable, report the gap and continue the work that does not depend on it. An unavailable source does not prove that work is absent or complete.
 

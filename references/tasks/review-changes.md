@@ -4,6 +4,8 @@ Assess proposed changes against their issue and the current code. Report defects
 
 Apply [Evidence](../shared/evidence.md) and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
+Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
+
 ## Set up the reviewer
 
 The parent starts this review in a fresh context. It supplies the repository, issue, project instructions, and exact base and head commits. Give the reviewer the necessary facts, not the author's conversation or conclusions.

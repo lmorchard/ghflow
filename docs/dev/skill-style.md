@@ -11,8 +11,11 @@ Use these shared references instead of restating their rules:
 - [Authorization](../../references/shared/authorization.md): permission, scope, and how authorization carries between tasks.
 - [Coordination](../../references/shared/coordination.md): parent and subagent roles, dispatch, handoffs, and PR follow-up ownership.
 - [Decisions](../../references/shared/decisions.md): factual research, routine choices, and questions that need user judgment.
+- [Working context and tool output](../../references/shared/context.md): conditional reference reads, targeted inspection, complete inventories, and concise handoffs.
+- [Task notes](../../references/shared/task-notes.md): concise working notes, their location, updates, and reuse after context loss.
 - [Evidence](../../references/shared/evidence.md): source revisions, check states, hosted CI, and honest reports.
 - [GitHub writes](../../references/shared/github-writes.md): duplicate prevention, saved-result readback, retries, and intervening changes.
+- [Draft PRs and readiness](../../references/shared/pr-lifecycle.md): early progress publication, draft updates, and readiness.
 - [Review](../../references/shared/review.md): review sources, model identity, Copilot request state, and what counts as affirmative review.
 - [Board status](../../references/shared/board-status.md): moving an issue between project-board states.
 - [Triage labels](../../references/shared/triage-labels.md): the `triage:*` labels, their meanings, and blocked and parked issues.

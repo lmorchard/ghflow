@@ -78,7 +78,15 @@ Claude Code runs with restricted file tools, a strict empty MCP configuration, a
 
 Codex runs with an isolated configuration and authentication directory, a read-only sandbox, and integrations disabled. The installed Codex CLI has no tool allowlist. It may run shell commands if it chooses to; the prompt forbids commands, and provenance records this as prompt-only. The read-only sandbox blocks edits and network access, but it does not confine reads to the source snapshot. The prompt and provenance state this source limit.
 
-Both runners call their model provider over the network. Neither receives identity or GitHub credentials. The prompt forbids user questions and agent dispatch; provenance identifies whether a control is enforced by the CLI or only by the prompt.
+OpenCode can use an existing local OpenAI-compatible server. It checks the exact singleton model inventory before each repeat, configures the main and small model identically, and uses only source-file reads under deny-all permissions. Temporary HOME and XDG directories isolate user configuration and credentials. It refuses system managed configuration that could override these controls. The [local runner instructions](../../evals/README.md#use-an-existing-local-model) state the model-state and permission limits. Do not launch a second model to run a trial while the user's local model is active.
+
+All runners call their model provider over the network. None receives identity or GitHub credentials. The prompt forbids user questions and agent dispatch; provenance identifies whether a control is enforced by the CLI or only by the prompt.
+
+### Measure local efficiency
+
+Use a small decision sample with the user's actual model, quantization, and runtime before a full sweep. Start with one run at a time. Record elapsed time, emitted token and tool counts, repeated reads, tool failures, and decision quality. OpenCode records source-relative read paths, with `null` for unknown paths, and counts tool errors separately from provider errors. A read call does not establish that the agent used or understood its result. Token usage and elapsed time include the CLI's work; they do not isolate server prompt processing or generation. Inspect server cache timings only when the existing runtime already exposes them. Do not change its settings for a trial without authorization.
+
+A decision scenario starts fresh. It cannot establish whether an agent resumes implementation after context loss. Use a separate interrupted implementation trial for that question, with the issue, draft PR, and notes supplied to the resumed agent. Record repeated research and reopened decisions, as well as whether the task completes.
 
 ## Grade the answers
 
