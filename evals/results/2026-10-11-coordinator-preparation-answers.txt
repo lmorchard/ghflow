@@ -1,0 +1,292 @@
+Batch: /tmp/pr62-alias-coordinator-ready-to-dispatch (selected model sonnet)
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: a35eb5b9-9d91-45b8-82f2-fe5f85ce64e8
+
+**Next step:** I dispatch `implement-issue` to a general implementation worker. I don't write the code myself, and I don't paste or restate the project's rules into the handoff. The handoff points the worker at the project instructions and carries what it can't recover from them.
+
+**Why a general worker is enough:** The skills don't require a special worker to make it follow project instructions. `implement-issue.md` line 11 has the worker read the project instructions, the issue and its comments itself. `coordination.md` (Handoffs) says to "Link to the issue and project instructions instead of copying their procedures or the full issue body." So the deciding rule is the Handoffs rule in `coordination.md`, as applied by `express-issue.md` under "Implement and publish draft progress." Whether the worker will obey is handled by giving it the path and the operation, not by me re-explaining the rules.
+
+**What the handoff contains**, following the `coordination.md` template:
+- **Operation:** `implement-issue`, with the resolved entry skill, task-reference and CLI paths, and the source revision.
+- **Project instructions:** the `PROJECT_INSTRUCTIONS` path, the issue URL and the target checkout.
+- **Base and existing work:** the current base, plus any worktree, branch and head if resuming.
+- **Confirmed decisions and review plan:** the recorded review path, which I prepare first under `review.md#prepare-required-review`. There are no unresolved requirements to pass along.
+- **Authorization:** the endpoint is PR review follow-up without merge. This operation is local implementation only.
+- **Checkpoint:** return the first significant committed checkpoint for me to publish as a draft. The worker doesn't push or open a PR.
+- **Return:** actual results, evidence limits and local base/head verification.
+
+**What happens after dispatch:**
+- I read `submit-pr`, `review-changes`, and `address-pr-review` only when each becomes relevant, as `express-issue.md` line 15 says.
+- I check the worker's report against the project instructions, which `evidence.md` and `review.md` support, instead of assuming it complied.
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: e417d282-8c02-4f6a-b98a-626611610f78
+
+**Next step:** I dispatch `implement-issue` to a subagent now. I don't implement in the parent, and I don't copy the project instructions into the handoff or add an enforcement step of my own.
+
+**Rules that decide it**
+- **Coordination, Handoffs** (`shared/coordination.md:19-21`): "Link to the issue and project instructions instead of copying their procedures." The handoff gives the worker the path in `PROJECT_INSTRUCTIONS`. `implement-issue.md:11` makes the worker's first step to read those instructions, so a general worker doesn't need me to restate them or vouch that it will obey them.
+- **Coordination, Roles** (`shared/coordination.md:7`, `:37`): subject-repository work belongs to subagents. The parent doesn't do it, even if I doubt the worker.
+- **express-issue, "Implement and publish draft progress"** (`express-issue.md:27-29`): the dispatch carries the issue, confirmed scope, existing work, authorization, and the established review path or explicit exception. The review path is already recorded, so it goes into the handoff. I also tell the worker to return the first significant committed checkpoint instead of waiting for the full task.
+
+**What the handoff contains** (following the `coordination.md:25-35` template)
+- The operation, `implement-issue`, with the resolved skill, task-reference and CLI paths and the source revision.
+- The issue URL, the target checkout, the project instructions path, the base commit, and any existing worktree or branch.
+- The confirmed decisions and the recorded review plan.
+- The endpoint, "through PR review follow-up, without merge", and the limit for this operation: local implementation only, with no push and no PR.
+- A request to return the first committed checkpoint, the test results, the local base and head verification, and the remaining work.
+
+**What I leave alone for now:** I don't read `submit-pr`, `review-changes`, or `address-pr-review` yet. Per `express-issue.md:15`, I read each when its task becomes relevant. `submit-pr` comes after the checkpoint returns, and `address-pr-review` is the parent's job after ready submission.
+
+Batch: /tmp/pr62-coordinator-ready-to-dispatch (selected model claude-sonnet-5-5)
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: 77ea8f0a-8e19-45b7-8921-1b32bea0f60b
+
+**Next step:** I dispatch `implement-issue` now. I don't copy the project instructions into the handoff, I don't add a step to check whether the worker will obey them, and I don't read the later task procedures yet.
+
+**Rule that decides it:** Coordination → Handoffs (`shared/coordination.md:19-21`). Together with `express-issue.md:15, 27-29`, it covers three points:
+
+- **Link, don't copy.** "Link to the issue and project instructions instead of copying their procedures." The handoff gives the worker the path to the project instructions. `implement-issue.md:11` already makes the worker's first step "Read the project instructions, the issue body, and relevant comments." A general worker that is given the path and the entry-skill and task-reference paths doesn't need me to pre-digest the instructions. Pasting them in would also go against the context rule (`context.md:7`) that a link is a route and not something to load recursively.
+- **Pass what the worker can't recover itself.** The handoff carries:
+  - the resolved entry-skill, task-reference and CLI paths, and the source revision;
+  - the target checkout and the issue;
+  - the current base and any existing work;
+  - the confirmed decisions, which here is that no requirement is unresolved;
+  - the recorded review path from the metadata, which `express-issue.md:27` requires ("established review path or explicit exception");
+  - the authorization limits and the endpoint (through PR review follow-up, no merge);
+  - "this operation: local implementation only."
+- **Ask for the first checkpoint.** I tell the worker to return the first significant committed checkpoint without pushing or opening a PR. I then publish it as a draft through `submit-pr` and resume the same worker in the same worktree (`express-issue.md:29`).
+
+**Why not do something else:**
+- **Read the later procedures first.** `express-issue.md:15` says to read each linked reference "when its task becomes relevant." I've located review, submission and follow-up, and I read them when I dispatch them.
+- **Do the work myself, or swap in my own procedure.** `coordination.md:37` forbids doing subject-repository work in the parent.
+- **Ask the user.** The situation says nothing unresolved affects implementation.
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: e57c4e62-0347-4518-8c67-81ba5970de49
+
+**Next step:** I dispatch `implement-issue` to a subagent now. I don't implement in the parent, and I don't add a pre-check or a copy of the project instructions to cover the worry about obedience. I'd leave the later references (`submit-pr`, `review-changes`, `address-pr-review`) unread until their stages come up.
+
+**Rules that decide it**
+- **`express-issue.md`, "Implement and publish draft progress":** Review preparation comes before substantial dependent implementation. Here the recorded metadata already establishes the review path, so that step is done. I dispatch `implement-issue` with the issue, confirmed scope, existing work, authorization, and the review path. I also tell the worker to return the first significant committed checkpoint without waiting for the whole task.
+- **`express-issue.md`, "Establish the task and endpoint":** Linked task references are read when their task becomes relevant. That is why I leave the later procedures unread.
+- **`coordination.md`, "Handoffs":** The handoff links to the issue and the project instructions. It doesn't copy their procedures. It also tells the worker to execute that one operation without selecting another. This is the rule that answers the concern about obedience.
+- **`implement-issue.md`, line 11:** The worker's first step is to read the project instructions and the issue. A general worker is therefore bound to the instructions by the link and its own task reference, not by my paraphrase.
+- **`coordination.md`, "Roles" and the unavailable-delegation paragraph:** Subject-repository work belongs to subagents. If delegation were unavailable, I would report that limit and not do the work in the parent.
+
+**Handoff contents**
+- The operation, plus the entry-skill, task-reference and CLI paths.
+- The source revision.
+- The issue URL and the target checkout.
+- The project-instructions path.
+- The base and any existing work.
+- The confirmed decisions.
+- The review plan, with its model evidence or limit, and any user-approved exception.
+- The endpoint (PR review follow-up, no merge) and its limits.
+- A note that this operation is local implementation only.
+- A request to return the checkpoint for me to publish, with no push and no PR from the worker.
+- A request to report the results, evidence limits, and local base and head verification.
+
+**After the checkpoint**
+When the checkpoint comes back, I read `submit-pr` and dispatch it with draft status. I then resume the same worker in the same worktree and branch.
+
+Batch: /tmp/pr62-implementation-handoff-operation-scope (selected model claude-sonnet-5-5)
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 740cbab2-e29e-4887-8fd1-6c88efcdccf0
+
+**Next step: dispatch `implement-issue` for #997. I would first read `implement-issue.md` and the shared review and pr-lifecycle references.**
+
+The deciding rule is "Implement and publish draft progress" in `express-issue.md`. It says to dispatch `implement-issue` when implementation remains, "with the issue, confirmed scope, existing work, authorization, and established review path or explicit exception."
+
+**What the dispatch carries**
+- **Issue:** the issue URL. The issue already holds the detailed changes and tests, so I would point to it and not restate it.
+- **Scope:** the confirmed scope, with the user's out-of-issue decision to preserve the compatibility option written in explicitly. The implementer can't see that decision in the issue text. "Establish the task" says to read user decisions, and the decision is already made. I therefore don't need `interview-issue`, and it goes in as confirmed scope.
+- **Existing work:** none. No worktree exists yet, so the implementer creates the branch and worktree from the base commit. I would not create another branch or PR.
+- **Authorization:** through PR review follow-up, without merge.
+- **Review path:** the fresh reviewer path and its model metadata, which are already established. That meets "Prepare required review" before substantial dependent implementation. I would pass it along, and any exception with it.
+- **Checkpoint:** a request to return the first significant committed checkpoint without waiting for the full task.
+
+**What happens after the checkpoint**
+1. I dispatch `submit-pr` as a draft, with current check evidence, remaining work, and publication authorization.
+2. I resume `implement-issue` in the same worktree and branch, carrying the PR URL.
+3. Before the PR is marked ready, I dispatch `review-changes` in a fresh context for the exact base and head. The reviewer gets the issue and the necessary facts, not the author's conclusions.
+4. Reviewed work then goes through `submit-pr` to mark the same PR ready.
+
+The draft checkpoint does not complete the endpoint. If I am a delegated coordinator, I stop at the ready-submission handoff to the parent, who runs `address-pr-review`. I do not merge.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: ffdaca1d-454e-41e7-9905-a935087e12b1
+
+**Next step:** I dispatch `implement-issue` now. I don't create the worktree myself, and I don't ask the user anything. I'd send these items in the dispatch:
+
+- the issue URL and the confirmed scope
+- the project instructions
+- the base commit and the source and target checkouts
+- the endpoint: through PR review follow-up, without merge
+- authorization to publish a draft
+- the established fresh-reviewer path and its model metadata
+- the user's compatibility-preservation decision, stated as a confirmed decision the implementer must not redefine
+- an instruction to return the first significant committed checkpoint without waiting for the full task, so I can send it to `submit-pr` as a draft
+
+**Why:**
+
+- **Rule that decides it:** the "Implement and publish draft progress" section of `express-issue.md` says to apply "Prepare required review" before substantial dependent implementation. It then says to dispatch `implement-issue` with the issue, confirmed scope, existing work, authorization, and the established review path.
+- **Review is already prepared:** the reviewer path and model metadata exist, so that precondition is met.
+- **Worktree:** `implement-issue` creates the isolated worktree and branch, and it can do that because none exists. The coordinator doesn't do it.
+- **Compatibility decision:** the section "Resume from evidence" says material decisions are settled in the parent. This one is already settled, so I pass it along as a confirmed decision. That fits `implement-issue`, which returns decisions about the intended result to the parent instead of redefining the issue. No `interview-issue`, `define-issue` or `reconsider-issue` step is needed, because the issue is clear.
+- **Draft publication:** the first committed checkpoint goes to `submit-pr` as a draft. I then resume `implement-issue` in the same worktree and branch, carrying the PR URL. A draft doesn't complete the endpoint.
+- **Review and handoff:** after the draft, I dispatch `review-changes` in a fresh context for the exact base and head, and I don't review the changes myself. If I'm a delegated coordinator, I stop at ready submission and hand off to the parent. The parent then dispatches `address-pr-review` and doesn't merge.
+
+Batch: /tmp/pr62-implementation-handoff-operation-scope-rerun (selected model claude-sonnet-5-5)
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 8b100a8a-2010-4225-8e67-2ee2f62fb3ed
+
+**Next step:** I dispatch `implement-issue` for #997 now. I don't create the worktree myself, and I don't ask the user anything. I haven't run or dispatched anything yet.
+
+**Rule that decides it:** the "Implement and publish draft progress" section of `express-issue.md`. It says to apply "Prepare required review" before substantial dependent implementation, then dispatch `implement-issue` when implementation remains.
+
+**Why now:**
+- **Endpoint:** The user authorized "through PR review follow-up, without merge." That is the skill's default endpoint, so nothing further needs settling.
+- **Review path:** The fresh reviewer path and its model metadata already exist. That is the preparation the skill requires before dependent work, so nothing blocks the dispatch.
+- **Worktree:** None exists yet, and `implement-issue` creates it. That skill also forbids reusing another session's worktree and forbids resetting the shared checkout.
+- **Compatibility option:** This is a user decision that isn't in the issue text. The skill says material decisions are settled in the parent, and the user has already settled this one. So I carry it into the dispatch as a confirmed decision and don't reopen it. The implementer shouldn't have to rediscover it.
+
+**What the dispatch contains:**
+- The issue URL, the source and base commits, the target checkout, and the project instructions.
+- The confirmed scope, with the issue's detailed changes and tests, plus the compatibility-preservation decision.
+- The authorization and endpoint.
+- The established review path or exception. The implementer must record its own model from session metadata so the reviewer can be a different model.
+- An instruction to return the first significant committed checkpoint, with its worktree, branch, base, head, checks, and remaining work, without waiting for the full task. The implementer must not push or open the PR.
+
+**After the checkpoint comes back:**
+1. I dispatch `submit-pr` as a draft, with the check evidence, remaining work, and publication authorization.
+2. I resume `implement-issue` in the same worktree and branch, carrying the PR URL.
+3. Before marking the PR ready, I dispatch `review-changes` in a fresh context for the exact base and head.
+4. I run `submit-pr` again to mark the same PR ready.
+5. If I'm a delegated coordinator, I stop at that handoff. The parent then dispatches `address-pr-review`.
+
+I don't merge at any point.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 940d9ce6-df86-4b1d-925f-07876354a980
+
+**Next step:** I dispatch `implement-issue` as a subagent for #997. I don't create the worktree or write code in the parent. The implementer creates the worktree and branch from the base commit and returns the first significant committed checkpoint. I publish that checkpoint as a draft through `submit-pr`.
+
+**Rules that decide it**
+- **express-issue, "Implement and publish draft progress":** "Dispatch implement-issue when implementation remains, with the issue, confirmed scope, existing work, authorization, and established review path." The review path is already established, so "Prepare required review" is done. Nothing in the situation points to `reconsider-issue`, `define-issue` or `interview-issue`. The issue is detailed and the user already made the compatibility decision.
+- **Coordination, "Handoffs":** The parent doesn't do subject-repository work itself. The handoff is specific to this operation and carries only what the worker can't recover from the issue.
+- **implement-issue, "Prepare an isolated workspace":** Creating the worktree is the implementer's job, so I don't create it first.
+
+**What the handoff contains**
+- The operation: implement-issue only, local implementation. The worker doesn't push or open a PR.
+- The resolved skill, task-reference and CLI paths. The full source commit. The target checkout, issue URL, project instructions and base commit.
+- No existing worktree, branch or PR. The task notes path, if one exists.
+- **The user's compatibility decision, stated explicitly.** It isn't in the issue text, so the worker can't find it elsewhere. I frame it as a confirmed decision and a scope constraint.
+- The review plan: the fresh reviewer path and its model metadata. The implementer must record its own model, so review uses a different one.
+- The endpoint: through PR review follow-up, without merge. Publication of a draft is authorized.
+- An instruction to return the first significant committed checkpoint without waiting for the full task. It should include the worktree, branch, base, full head, checks run, remaining work and next action. It should also say plainly that the implementation is incomplete.
+
+**What happens after**
+1. I dispatch `submit-pr` for a draft only, with the checkpoint's check evidence and the remaining work.
+2. I resume the same implementation worker in the same worktree and branch, carrying the PR URL.
+3. After implementation is complete, `review-changes` runs in a fresh context against the exact base and head.
+4. `submit-pr` then marks the PR ready.
+5. Follow-up goes to `address-pr-review`. I don't merge.
+
+Batch: /tmp/pr62-same-model-request-identity-gap (selected model claude-sonnet-5-5)
+
+Scenario: same-model-request-identity-gap
+Session ID: 1ed9df2c-8228-4e72-a1bd-0eccabbf1b34
+
+**Next step:** I send the preparation report to the conversation parent. I don't start implementation, and I don't dispatch the reviewer. The report states that the review path is not fully established, and it asks the parent to resolve that. In the meantime I carry on with any preparation that doesn't depend on model identity.
+
+**Deciding rule:** "Prepare required review" in `shared/review.md`, applied together with the explicit same-model request under "User-approved exceptions".
+
+- **The exception is already in place.** The user explicitly asked for the same model for implementation and for fresh-context review. That waives the different-model requirement, so I don't need to ask for approval again. I record the instruction and its scope and carry it forward.
+- **The review method stays the same.** It remains a fresh-context `review-changes`, and I don't replace it with self-review.
+- **A shared configuration default isn't evidence.** The rule says a shared agent type or configuration default alone does not establish that both workers ran the same model. The session names provider-x/model-a and the global default is provider-y/model-b. Neither says what a general worker will use, and the dispatch interface has no model selector or identity metadata.
+- **The question can't be resolved from here.** I have already inspected the session metadata, the dispatch metadata and the configuration, and none of them answers it. The rule says not to repeat speculative searches.
+- **The waiver covers model difference, not evidence.** The rule says the exception "waives model difference, not accurate evidence reporting".
+
+**What the report to the parent says:**
+- **Exception:** the user's same-model instruction and its scope.
+- **Evidence found:** the session names provider-x/model-a and the global default is provider-y/model-b. Dispatch exposes no selector or identity, and there is no per-agent configuration.
+- **Unmet requirement:** I can't select or verify the same model for both workers, so the same-model configuration is unconfirmed. I will not claim that both workers ran the same model.
+- **Next action for the parent:**
+  - Either obtain a way to select or identify the model, or
+  - Decide whether to proceed with the identity limit recorded. If it proceeds, the actual selection and any returned model evidence get recorded at dispatch time, labeled as an identity limit.
+
+Scenario: same-model-request-identity-gap
+Session ID: 78030e30-5434-43a3-9d9d-49cf004e3344
+
+**Next step:** I send the preparation report to the conversation parent now. I dispatch nothing yet, and I don't start substantial implementation that depends on review.
+
+The report would say:
+- **Exception:** The user explicitly approved same-model implementation and fresh-context review. I record that instruction and its scope for #997. It waives the different-model requirement, and I carry it through implementation, reviewer selection, submission and follow-up.
+- **What is available:** General-agent dispatch exists for both the implementer and the fresh-context reviewer.
+- **What is missing:** No tool exposes a model selector or runtime model identity for a general worker. The session names provider-x/model-a. The global configuration default is provider-y/model-b. Nothing says which model a worker will actually use, and there is no per-agent configuration.
+- **Limit:** I can't confirm that both workers will run the same model. I report that as an identity limit and don't repeat searches.
+- **Next action for the parent:** Either supply a way to pin or read worker model identity, or accept the recorded limit and proceed.
+- **Meanwhile:** I continue preparation that doesn't depend on model identity.
+
+**Deciding rule:** "Prepare required review" in `shared/review.md`. It has two relevant parts:
+- For an explicit same-model request, I preserve the requested method and fresh context. I select the same configuration for both workers only when the dispatch controls permit it. Here they don't.
+- A shared agent type or configuration default alone does not establish that both workers ran the same model. So I can't claim that provider-x/model-a, provider-y/model-b or the default applies to the workers. If the metadata can't resolve the question, I report the identity limit under the missing-evidence rule.
+
+`review-changes.md` ("Set up the reviewer") supports this. It requires recording both model identities and their sources, plus the exception. At dispatch I record the actual selection and any returned evidence, along with the remaining identity limit.
+
+**What I don't do:**
+- I don't guess an identity from the session name or the default.
+- I don't self-review.
+- I don't ask the user, since I can't, and the rules route this to the parent.
+- I don't treat the exception as covering a false claim. It waives model difference, not accurate evidence reporting.
+
+Batch: /tmp/pr62-submission-parent-followup (selected model claude-sonnet-5-5)
+
+Scenario: submission-parent-followup
+Session ID: 3ae709a4-3046-493c-aaff-5839eb4c72c2
+
+**What I do next:** I stop and hand off to the parent. I don't start the next queue issue, I don't dispatch or wait on `address-pr-review`, and I don't review the code myself.
+
+The handoff goes to the conversation parent and contains:
+- **PR and commit:** PR #950, published head `a1b2c3d`, still open.
+- **Source revision:** `b47c9d5088f471da5d7b35a56ecda6078dee02be`, used for the instructions and tools.
+- **Local review:** the independent local review of `a1b2c3d`, with its findings and recorded model identities.
+- **CI:** the required check is still pending, tied to `a1b2c3d`. I report it as pending, not passed.
+- **Requested review:** the original request time, deadline, and prior review identifiers, unchanged. I don't re-request it or reset the deadline.
+- **Remaining work:** the endpoint is review follow-up, so submission is incomplete. This also covers the remaining selected queue issues, including the independent ready one, and my authorization limits (through review follow-up, PR left open, no merge).
+
+**Why, and which rules decide it:**
+- **Decisive rule:** `express-issue.md`, "Submit and hand off". A delegated coordinator returns the submission result and remaining endpoint to the parent. It must "stop at this handoff instead of dispatching or waiting for a nested address-pr-review worker."
+- **Supporting rule:** `coordination.md`, "PR follow-up ownership". The parent directly dispatches `address-pr-review` and receives its final report. Submission alone doesn't complete a review-follow-up endpoint.
+- **Queue rule:** `burndown-ready-queue.md`, step 3. A delegated queue coordinator relays the handoff, the remaining selected issue IDs, the endpoint, and the authorization limits to the parent, then stops. It resumes from the parent's endpoint result before selecting another issue.
+- **Why not take the next issue:** PR #950 hasn't reached its endpoint, and the pending CI and review are unresolved. The next issue being independent and ready doesn't change that. Queue selection resumes only after the parent returns the endpoint result.
+- **Why preserve the review record:** `submit-pr.md` requires preserving the original review request times, deadlines, and identifiers. Pending CI and a pending review aren't favorable evidence and aren't failures. I report them as they stand.
+
+Scenario: submission-parent-followup
+Session ID: 95ac1450-67e5-4630-8f78-7f701a3f4f46
+
+**Next step:** I stop and hand off to the parent. I don't dispatch `address-pr-review`, I don't wait on CI or the review, and I don't start the next queue issue.
+
+**Rule that decides it:** `burndown-ready-queue.md`, Deliver issues sequentially, step 3, says to relay the handoff, remaining selected issue IDs, endpoint and authorization limits to the conversation parent and then stop. `express-issue.md`, Submit and hand off, and `coordination.md`, PR follow-up ownership, agree. A delegated coordinator stops at the ready-submission handoff and does not dispatch or wait for a nested `address-pr-review` worker. The parent dispatches follow-up directly and receives its final report. Submission alone does not complete the review-follow-up endpoint.
+
+**Why the other options are out:**
+- **Start the next independent issue:** The queue skill says to resume only from the parent's endpoint result before selecting another issue. PR #950 has not reached the endpoint of review follow-up with the PR left open. The next issue being independent and ready doesn't change that.
+- **Wait for the pending CI check:** A pending required check is not a failure and not a reason to wait. I report it as pending and tie it to commit `a1b2c3d`. Follow-up and CI repair belong to the parent's `address-pr-review` worker.
+- **Review it myself:** The independent local review of `a1b2c3d` already satisfies the review plan, so no new review is needed.
+- **Make edits or merge:** Merge is not authorized, and the PR stays open.
+
+**Handoff contents:**
+- **Links and commits:** The issue and PR #950 URLs, the base commit, and the published head `a1b2c3d`.
+- **Source revision:** `b47c9d5088f471da5d7b35a56ecda6078dee02be`, which submission used for instructions and tools.
+- **Local review:** It covers `a1b2c3d`. I include its findings and the recorded reviewer and implementation model identities.
+- **CI:** One required check is pending on `a1b2c3d`. I list the checks that have finished, each tied to its commit.
+- **Requested review:** The original request time, the deadline, and the prior review identifiers, all preserved unchanged. I do not re-request the review or reset the clock.
+- **Board status:** The result of the In review transition.
+- **Remaining work:** The follow-up endpoint is marked incomplete. The remaining selected issue IDs, including the next independent ready issue, plus the endpoint and authorization limits go to the parent.
+
+I resume only after the parent returns the verified endpoint result for PR #950.
