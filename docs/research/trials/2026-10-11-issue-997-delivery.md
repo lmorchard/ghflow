@@ -34,7 +34,9 @@ This reverses the operation-scope decision in the preparation review, which kept
 
 Scenarios added: `express-complete-return`, `corrections-same-worker`, and `followup-already-green`. Scenarios updated: `delivery-early-draft`, `draft-pr-ready-transition`, `express-default-endpoint`, and `implementation-handoff-operation-scope`.
 
-The remaining observations are not yet changes. They concern test assertions that must be unique to the new behavior, empirical checks of library behavior, notes written before results exist, the board status read, submission command details, and reviewer access to PR comments.
+implement-issue now requires each new assertion to be specific to the behavior under test and a check that the test fails when that behavior is disabled. review-changes asks the reviewer to check each new assertion against the pre-change output and neighboring code paths. Scenarios: `new-test-passes-on-old-text` and `review-new-test-nearby-substitute`.
+
+The remaining observations are not yet changes. They concern empirical checks of library behavior, notes written before results exist, the board status read, submission command details, and reviewer access to PR comments.
 
 ## Evidence limits
 

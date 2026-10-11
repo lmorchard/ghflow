@@ -30,7 +30,7 @@ Focus on these questions:
 
 - Does the change satisfy the issue without changing the agreed scope?
 - Do callers, error paths, permissions, and data handling remain correct?
-- Do tests establish the intended behavior rather than a nearby substitute?
+- Do tests establish the intended behavior rather than a nearby substitute? For each new assertion, check whether the pre-change output or a neighboring code path also satisfies it. Where the environment permits, run the test with the covered behavior disabled in an isolated copy; a test that still passes does not cover it.
 - Do builds and generated files match the code that users receive?
 - Do documentation and setup instructions match the change?
 

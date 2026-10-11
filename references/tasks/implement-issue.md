@@ -46,6 +46,8 @@ Follow the project's test-first rules. For a bug fix, demonstrate the failure be
 
 Make the smallest change that satisfies the issue. Add tests for the intended behavior and relevant error cases. Leave unrelated cleanup out.
 
+Make each new assertion specific to the behavior under test. Assert text or values that the pre-change output and neighboring code paths do not produce; a word that the old output already contains proves nothing. After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, before you commit.
+
 Run targeted tests first during implementation iterations to maintain fast feedback. Run the broader test suite and project checks once the implementation is in place, before self-review and commit. Do not repeatedly run the entire test suite on intermediate edits when targeted tests are sufficient.
 
 Change a test when the intended behavior requires it, and explain why. Do not remove useful assertions to make the suite pass. If an issue requirement itself is wrong, return that decision to the parent or user.
