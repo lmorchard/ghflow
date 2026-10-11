@@ -24,7 +24,7 @@ Changes to the selected issue can stay within the agreed flow. Creating a new ch
 
 ## Implement and publish draft progress
 
-Before substantial dependent implementation, apply [Prepare required review](../shared/review.md#prepare-required-review) for this delivery endpoint. Dispatch [implement-issue](implement-issue.md) when implementation remains, with the issue, confirmed scope, existing work, authorization, and established review path or explicit exception.
+Before substantial dependent implementation, apply [Prepare required review](../shared/review.md#prepare-required-review) for this delivery endpoint. Dispatch [implement-issue](implement-issue.md) when implementation remains. Give it the contents in [Handoffs](../shared/coordination.md#handoffs), including the source revision, the confirmed scope and decisions, existing work, the established review path or explicit exception, the flow authorization and its limits, and the local-only limit for this operation. Request its actual results and evidence limits.
 
 Apply [Draft PRs and readiness](../shared/pr-lifecycle.md) during implementation. Tell the implementation agent to return the first significant committed checkpoint without waiting for the full task. Dispatch [submit-pr](submit-pr.md) with draft status, current check evidence, remaining work, and publication authorization. Then resume [implement-issue](implement-issue.md) in the same worktree and branch, carrying the PR URL. Use later useful checkpoints to update the same draft.
 

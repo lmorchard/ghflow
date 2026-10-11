@@ -127,7 +127,7 @@ def check_scenario_skills(root=ROOT):
     tasks = {
         path.stem for path in (root / "references/tasks").glob("*.md")
         if path.name != "research.md"
-    }
+    } | {"ghflow"}
     scenarios = root / "evals/scenarios"
     for path in sorted(scenarios.glob("*.md")):
         skills = scenario_skills(path.read_text())

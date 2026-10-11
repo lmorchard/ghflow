@@ -1,5 +1,5 @@
 ---
-skills: [express-issue]
+skills: [ghflow]
 source: Les decision on 2026-10-11; SKILL.md
 ---
 

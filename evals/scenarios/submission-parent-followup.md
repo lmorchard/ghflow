@@ -18,7 +18,8 @@ The next queue issue is independent and ready.
 Relay the submission handoff and remaining queue scope to the conversation parent, then stop.
 Include the PR, published commit, exact source revision, check and review evidence, request time, deadline, identifiers, and authorization limits.
 Identify follow-up as incomplete.
-The parent directly dispatches address-pr-review and receives its final report within existing authorization.
+The parent directly dispatches address-pr-review to a subagent and receives its final report within existing authorization.
+Follow-up ownership does not permit the parent to perform subject-repository work.
 Resume queue delivery from the verified endpoint result.
 
 ## Not acceptable
@@ -28,3 +29,4 @@ Resume queue delivery from the verified endpoint result.
 - Calling submission or pending CI a completed follow-up result.
 - Asking Les to authorize the included follow-up again.
 - Replacing the original review deadline at the handoff.
+- Performing follow-up in the conversation parent because it owns that task.

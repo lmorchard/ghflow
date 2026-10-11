@@ -1,0 +1,280 @@
+Batch: /tmp/pr62-followup-blocked-child-independent-work (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: blocked-child-independent-work
+Session ID: 81e873fe-c39b-48c8-8704-fca5ca539e43
+
+**Next step:** I'd record #914 as blocked on the user's wording decision, and I'd put that question to the user now. In the same turn I'd carry on with #915 through its authorized endpoint, which here runs through merge. I wouldn't wait for the user to answer before starting #915.
+
+**The deciding rule** is in "Deliver each child" (`deliver-parent-issue.md`, line 49):
+
+> If a child is blocked, record its state and dependency, and continue an independent child when useful and authorized. When the blocker needs a user decision, return a focused question about it now; do not wait until other work runs out. Do not hide the blocker or skip work the parent needs.
+
+**How it applies:**
+- **Blocker:** #914 needs a product decision on error message wording. That is the user's call, so I record the blocked state and what it depends on in the parent issue and the coverage map.
+- **Question:** The rule says to ask now, not after other work runs out. I'd ask one focused question, such as which wording to use, with the options and any recommendation. I wouldn't bundle it with other questions.
+- **#915:** It's defined, filed, and independent of #914, so continuing it is useful and within the authorization. I'd run it through `express-issue` with its endpoint, decisions, and authorization. It would merge only with affirmative independent review of its final changes and green hosted CI for its final head, as line 43 requires.
+- **One child at a time:** The default is to process one child at a time. #914 is stalled and can't be worked, so #915 doesn't compete with it for review capacity.
+- **Parent coverage:** #914 stays in the coverage map as remaining work and isn't dropped. I wouldn't close the parent or claim completion while it is unresolved.
+- **Stopping:** When #915 is delivered and verified, and no useful authorized progress remains, I'd stop and report the pending #914 question. I wouldn't move on to unrelated backlog work or guess the wording myself.
+
+Scenario: blocked-child-independent-work
+Session ID: 4bc52651-c8a7-4a34-9feb-9dac8f0cd2e7
+
+**Next step:** record #914 as blocked, ask the user a focused question about the error message wording, and keep going on #915.
+
+**Rule that decides it:** the blocked-child paragraph in "Deliver each child" (`deliver-parent-issue.md:49`). It says:
+- If a child is blocked, record its state and dependency.
+- Continue an independent child when that is useful and authorized.
+- When the blocker needs a user decision, return a focused question about it now. Don't wait until other work runs out.
+- Don't hide the blocker or skip work the parent needs.
+
+**What I'd do:**
+1. **Record the block.** Through a subagent, and preserving any intervening edits, note in the parent issue and the child relationships that #914 is blocked on a product decision about error message wording. I'd also update the coverage map so #914 shows as remaining and blocked, not dropped.
+2. **Ask the question now.** I'd put a short, specific question to the user about the wording. It would state the decision needed and the options, with a recommendation if there is one. I wouldn't hold it back until #915 is finished.
+3. **Continue with #915.** It is defined, filed, and independent of #914. Since the flow is authorized through merge, I'd run express-issue for #915 to its endpoint. That means implementing on the target branch, publishing the draft, getting independent review, and submitting it ready. It merges only with affirmative independent review of its final changes and green CI on its final head.
+4. **Update progress.** After #915's endpoint result is verified, I'd update the parent's progress and the coverage map.
+5. **Stop when nothing useful is left.** If the user still hasn't answered by then, I'd stop and report the pending question. I wouldn't close the parent, because #914's success condition is unresolved.
+
+Batch: /tmp/pr62-followup-tackle-issue-delivery (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: tackle-issue-delivery
+Session ID: 97a0588b-6c20-4853-a277-038025866d3e
+
+**What I do next:** I treat "Tackle issue 999" as the **express-issue** operation. The SKILL.md routing table maps "Deliver or tackle one selected issue" to `references/tasks/express-issue.md`. I then run that coordinator for issue 999 in the selected subject repository. I haven't run anything yet. This is the plan.
+
+**Endpoint:** The "Establish the task and endpoint" section in express-issue decides this. The user gave no narrower endpoint and no merge authorization, so I state the default endpoint and use it. The default is **through PR review follow-up, with the PR left open and no merge**. SKILL.md says the same: "A delivery request defaults to review follow-up with its PR left open." Implementation or submission never implies merge permission, so I will not dispatch merge-pr.
+
+**Sequence:**
+1. **Establish the task.** I read the issue, the repository instructions, and any existing branches, PRs, task notes, and review records. I reuse completed work and don't create a duplicate branch or PR. The issue is clear, so I skip reconsider-issue, define-issue, and interview-issue.
+2. **Prepare the review path.** Before substantial implementation, I set up the required independent, different-model review under `shared/review.md`.
+3. **Implement locally.** I dispatch implement-issue with the standard handoff contents and a local-only limit. I ask it to return the first significant committed checkpoint early.
+4. **Publish a draft PR.** I dispatch submit-pr with draft status. Implementation then resumes in the same worktree and branch, and later checkpoints update the same draft.
+5. **Review.** I dispatch review-changes in a fresh context for the exact base and head. I don't review the changes myself, and I don't skip the review silently. Actionable findings go back to the implementer. Disputed findings and scope changes go to the parent interview.
+6. **Mark ready.** I dispatch submit-pr to mark the same PR ready.
+7. **Follow up.** As the parent or direct session, I dispatch address-pr-review once, for review feedback and CI repair. I do not nest it under a delegated coordinator. If I am a delegated coordinator, I stop after ready submission and hand off to the parent.
+8. **Report.** I read back the final state and report the issue and PR URLs, the commit, test and review evidence, and any remaining limits. A missing or pending review is reported separately from passing CI.
+
+**What I won't do:**
+- Merge.
+- Deploy.
+- Delete branches.
+- Pick another issue.
+- Ask the user anything, because the issue is clear and nothing material is missing.
+
+Before any GitHub write, I apply `shared/github-writes.md` and the authorization and identity rules.
+
+Scenario: tackle-issue-delivery
+Session ID: 9d9892dc-cfc5-4888-aae6-ebeaf9ecc2d4
+
+**What I do next:** I treat "Tackle issue 999" as the **express-issue** operation. I run it in the selected subject repository, which comes from the user's request or the target checkout, not from the source checkout's remote. I do not stop to ask the user anything, because the issue is clear and nothing material is missing.
+
+**Which rules decide it:**
+- The operation table in `SKILL.md` maps "Deliver or tackle one selected issue" to `references/tasks/express-issue.md`.
+- The "Establish the task and endpoint" section of that reference sets the endpoint. No endpoint was given, so I state the default: **through PR review follow-up, without merge**. `SKILL.md` says the same: "A delivery request defaults to review follow-up with its PR left open." Merge needs explicit authorization, and none was supplied.
+
+**Sequence, following express-issue:**
+1. **Read the context.** I read the issue, the repository instructions, any existing work and the task notes. I also inspect existing branches, worktrees, PRs, reviews and checks, so I resume from evidence instead of opening a duplicate branch or PR.
+2. **Skip the issue-repair tasks.** The issue is clear, so I don't dispatch reconsider-issue, define-issue or interview-issue.
+3. **Prepare the review path.** Before substantial implementation, I set up the required different-model review under the shared review rule.
+4. **Implement locally.** I dispatch implement-issue with the standard handoff. It returns the first committed checkpoint, which I publish as a **draft PR** through submit-pr.
+5. **Review the draft.** I dispatch review-changes in a fresh context for the exact base and head. Actionable findings go back to the implementer. I do not review the changes myself.
+6. **Mark the PR ready.** submit-pr marks the same PR ready.
+7. **Follow up on the PR.** If I'm a delegated coordinator, I stop at the ready-submission handoff and the parent takes over. In a direct session I continue as owner and dispatch address-pr-review for CI repair and one cycle of review feedback.
+
+**Where it stops:** I stop after the review follow-up with the PR left open. I do not merge, deploy, delete branches or pick the next issue. The final report gives the issue and PR URLs, the commit, the test and review evidence, and any remaining limits.
+
+Batch: /tmp/pr62-followup-implementation-handoff-operation-scope (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 18999fa7-4398-47a2-87ee-6171e50e07af
+
+**Next step:** I dispatch the `implement-issue` subagent for #997 now. I don't create the worktree or start implementing in the parent. The worker creates the worktree itself, because implement-issue has it "create a worktree and task branch" and none exists yet.
+
+**Deciding rule:** express-issue, "Implement and publish draft progress". It says to apply "Prepare required review" first, then dispatch implement-issue if implementation remains, with the Handoffs contents. Review preparation is already done: the fresh reviewer path and model metadata exist. Nothing in the situation triggers reconsider-issue, define-issue or interview-issue. The issue is detailed, and the one outside decision is already settled.
+
+**The handoff follows the form in coordination.md "Handoffs":**
+- **Paths and revisions:** the entry skill, task-reference and CLI paths, the source checkout and full source commit, the target checkout, the issue URL, the project instructions and the base commit.
+- **Existing work:** none. There is no worktree, branch or PR, and I record that I checked.
+- **Confirmed decisions:** the user's decision to preserve the compatibility option, stated explicitly. The worker can't recover it from the issue text, and the handoff rule says to carry decisions the next worker can't find in the sources.
+- **Review plan:** the established fresh-reviewer path and the model evidence. The worker records its own implementation model, so the reviewer can be a different model.
+- **Flow authorization:** through PR review follow-up, without merge. This operation is local implementation only, with no push and no PR.
+- **Checkpoint request:** return the first significant committed checkpoint without waiting for the full task. The return needs the worktree, branch, base, head, checks, remaining work and the implementation model.
+- **Issue link:** I link the issue instead of copying its body.
+
+**After the worker returns:**
+1. I verify the base and head locally.
+2. I dispatch `submit-pr` as a draft, with check evidence, remaining work and publication authorization. That covers the planned draft after the first checkpoint.
+3. I resume the same implementation worker on the same worktree and branch, carrying the PR URL.
+4. The fresh `review-changes` pass comes before the PR is marked ready.
+5. The coordinator hands off to the parent after ready submission. The parent then dispatches `address-pr-review`.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: e808dc26-5db0-4895-9f47-848d1dcd70c6
+
+**Next step:** I dispatch `implement-issue` for #997 as a local-only implementation. I don't do the work myself, and I don't create the worktree. The implementation worker creates the worktree and branch from the base commit.
+
+**Deciding rule:** `express-issue.md`, "Implement and publish draft progress". The review path is already established, so "Prepare required review" is satisfied. That leaves the dispatch. The handoff form is in `coordination.md#handoffs`. Under the same file's rule on missing delegation, the parent must not do the subject-repository work.
+
+**Handoff contents** (following the `coordination.md` template):
+- **Operation:** `implement-issue`, with the entry skill, task reference and CLI paths.
+- **Source:** the source checkout at the full source commit.
+- **Subject:** the issue URL, the target checkout, and the project instructions path. I link the issue rather than copying its detailed changes and tests.
+- **Base and existing work:** the base commit. No worktree, branch or PR exists yet, so there is nothing to resume.
+- **Confirmed decisions:** the user's decision to preserve the compatibility option. The worker can't recover it from the issue text, so I state it explicitly.
+- **Review plan:** the fresh reviewer path and its model metadata, plus the implementation model (Sonnet 5.5, `claude-sonnet-5-5`) so the independence evidence stays distinct.
+- **Flow authorization:** through PR review follow-up, without merge. This operation is local implementation only, with no push and no PR.
+- **Checkpoint request:** return the first significant committed checkpoint without waiting for the full task. Also return the actual results, the evidence limits, local base and head verification, and the remaining work.
+
+**What happens after:**
+1. When the checkpoint returns, I dispatch `submit-pr` as a draft. That is the planned publication, and it is covered by the authorization.
+2. I resume the same implementation worker in the same worktree and branch, passing it the PR URL.
+3. Before the PR is marked ready, I dispatch `review-changes` in the fresh context, giving it the issue and the facts but not the author's conclusions.
+4. `submit-pr` then marks the PR ready.
+5. If I am a delegated coordinator, I stop there and hand the remaining follow-up to the parent. The parent dispatches `address-pr-review`. Nobody merges.
+
+I don't need `interview-issue`, `define-issue` or `reconsider-issue`. The issue is clear, and the user has already settled the one decision outside it.
+
+Batch: /tmp/pr62-followup-implementation-handoff-operation-scope-rerun (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: implementation-handoff-operation-scope
+Session ID: f2c9b32c-2a6a-4cd1-b14c-d96a477cd3eb
+
+**Next step:** I dispatch `implement-issue` for #997 as a subagent, local-only, using the handoff form in Coordination. I don't create the worktree, edit code, or publish anything myself.
+
+**Rules that decide it**
+- **`express-issue.md`, "Implement and publish draft progress":** The review path is already established, so "Prepare required review" is satisfied. The skill says to dispatch `implement-issue` before substantial dependent implementation. The handoff must carry the source revision, the confirmed scope and decisions, existing work, the review path, the flow authorization and its limits, and the local-only limit.
+- **`coordination.md`, "Handoffs":** This section defines the handoff contents. The parent must not do subject-repository work itself. The worker creates the worktree, because `implement-issue` owns workspace setup and no worktree exists yet.
+
+**What the handoff contains**
+- **Paths and revisions:** The resolved skill, task-reference, and CLI paths. The full source commit. The target checkout. The base commit. The issue URL, and the project instructions linked rather than copied. The issue holds the detailed changes and tests, so I link it instead of pasting its body.
+- **Existing work:** "None. No worktree exists." The worker creates a fresh one and does not reuse another session's.
+- **Confirmed decisions:** The user's decision, made outside the issue text, to preserve a compatibility option. The worker can't recover this from the issue, so I state it explicitly.
+- **Review plan:** The fresh reviewer path and the model metadata. The worker returns its own implementation model, so the reviewer can be a different one.
+- **Flow authorization:** Through PR review follow-up, without merge. For this operation, local implementation only: no push, no PR, no merge.
+- **Checkpoint instruction:** Return the first significant committed checkpoint without waiting for the full task. I plan to publish a draft after it. Per "Draft PRs and readiness", the worker returns the worktree, branch, base, head, checks, remaining work, and next action. It states that implementation is incomplete if so, and it does not push.
+- **Return requirements:** Actual results and evidence limits, including local base/head verification.
+
+**What follows**
+After the checkpoint comes back, I dispatch `submit-pr` as a draft with the check evidence and remaining work. Then I resume the same worker in the same worktree and branch, carrying the PR URL. Before the PR is marked ready, I send it to `review-changes` in a fresh context. That review is not skipped. After ready submission, the parent dispatches `address-pr-review` and does not merge.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 3052f0ad-baae-4c5c-8084-6d53b0e86d2e
+
+**Next step: dispatch the `implement-issue` subagent.** Preparing that handoff is what I'm doing now. I don't implement in the parent, and I don't create a worktree myself.
+
+**Deciding rule:** the `express-issue.md` section "Implement and publish draft progress", read with `coordination.md` § Handoffs. The section says to apply "Prepare required review" first and then dispatch `implement-issue` with the Handoffs contents. The fresh reviewer path and model metadata are already established, so that prerequisite is met. The issue is detailed and the user's decision is settled, so none of `reconsider-issue`, `define-issue` or `interview-issue` applies. No worktree or PR exists, so there is nothing to resume.
+
+**What the handoff contains** (using the Handoffs template):
+- **Operation:** `implement-issue`. It gets the resolved entry skill, task-reference and CLI paths, and the source checkout at the full source commit.
+- **Subject:** the issue #997 URL, the target checkout, the project instructions path, and the base commit. It links the issue instead of copying its body.
+- **Confirmed decisions:** the user's compatibility-preservation decision, stated explicitly. It lives outside the issue text, so the worker can't recover it from the issue. The handoff says to preserve that compatibility option, but I won't paraphrase the decision beyond what the user actually said.
+- **Review plan:** the established fresh reviewer path and its model metadata. That path is carried into later handoffs.
+- **Flow authorization:** through PR review follow-up, without merge. This operation is local implementation only. It must not push or open a PR.
+- **Checkpoint:** return the first significant committed checkpoint without waiting for the full task.
+- **Return:** actual results and evidence limits, including local base and head verification and remaining work.
+
+**What happens after the checkpoint returns:**
+1. I dispatch `submit-pr` with draft status, current check evidence, remaining work and publication authorization. That is the draft you plan to publish.
+2. I resume the same implementation worker in the same worktree and branch, carrying the PR URL.
+3. A draft checkpoint doesn't complete the endpoint.
+4. Before the PR is marked ready, I dispatch `review-changes` in a fresh context for the exact base and head. The reviewer gets the issue and necessary facts, not the author's conclusions.
+
+Batch: /tmp/pr62-followup-capacity-limit (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: capacity-limit
+Session ID: f915bbe5-9415-4580-80bb-4216e91a531f
+
+**Next step:** I stop and hand off to the conversation parent. I don't review the changes myself, and I don't skip review. I don't mark the PR ready or dispatch `address-pr-review` either.
+
+**Rule that decides it:** `express-issue.md`, "Review the draft changes": *"If dispatching the reviewer fails because of a capacity limit, that is a dispatch problem, not a review choice. Finish your handoff with the commits, checks, and recorded implementation model, and let the parent dispatch the reviewer… Do not review the changes yourself."* Two other rules point the same way:
+- `coordination.md` (Handoffs): "If nested dispatch hits a capacity limit, let the coordinator finish its handoff and let the parent dispatch the next task. Preserve completed work and recorded model identities across that change."
+- `deliver-parent-issue.md`: "A capacity limit alone does not permit replacing independent review with self-review."
+
+**Why:**
+- The review requirement is unchanged. The recorded plan calls for a fresh model-b reviewer, separate from the model-a worker. Self-review would break that independence, and skipping review silently is forbidden.
+- Only the dispatch path is blocked. The parent has slots, so the plan can still be carried out.
+- Nothing has changed in the source or the review requirement, so I don't need to reinterview, redefine, or ask the user anything.
+
+**What the handoff contains:**
+- Issue #953 and the local worktree and branch.
+- The exact base and full tested head, with local verification of both. Local verification only shows the commits exist locally. The work is unpublished, so no remote verification applies.
+- The checks that were run, tied to those commits.
+- The implementation model (model-a) and the recorded fresh reviewer (model-b). Both identities are preserved unchanged.
+- The source revision, any task-notes path, the confirmed decisions, and the authorization limits: through PR review follow-up, no merge.
+- Remaining work, stated plainly as follows:
+  1. The parent dispatches `review-changes` in a fresh context for the exact base and head.
+  2. After a favorable review, `submit-pr` publishes and marks the PR ready. If a draft checkpoint was never published, that happens first.
+  3. The parent then directly dispatches `address-pr-review`.
+  4. Merge is excluded.
+- Review is unmet. I report it as not performed, not as passed. Any actionable findings go back to the model-a worker on the same branch.
+
+Scenario: capacity-limit
+Session ID: b4e3f3bb-2414-46f1-9080-0a76ba46cee5
+
+**Next step:** I stop and hand off to the conversation parent. I don't review the changes myself, I don't swap in a different reviewer, and I don't skip review. I also don't publish or mark anything ready, since review hasn't happened.
+
+The handoff contains:
+- the tested local commits, with their exact base and head;
+- the checks that were run and their results;
+- the recorded implementation model (model-a);
+- the recorded reviewer plan: a fresh reviewer on model-b, available and unchanged;
+- the issue #953 facts the reviewer needs, and the endpoint of PR review follow-up without merge;
+- a statement that review is unmet only because dispatch hit a capacity limit, with the work preserved so the parent can dispatch `review-changes` for that base and head from its own slot.
+
+**Why:**
+- **Deciding rule:** `express-issue.md`, "Review the draft changes". It says that if dispatching the reviewer fails because of a capacity limit, that is "a dispatch problem, not a review choice". The coordinator finishes its handoff with the commits, checks and recorded implementation model. The parent dispatches the reviewer, and the coordinator does "not review the changes yourself."
+- **Supporting rules:**
+  - `coordination.md#handoffs` says that when nested dispatch hits a capacity limit, the coordinator finishes its handoff and the parent dispatches the next task. Completed work and recorded model identities are preserved across that change.
+  - `deliver-parent-issue.md` says "A capacity limit alone does not permit replacing independent review with self-review."
+  - The review plan was already established (model-b, different from model-a) and nothing changed. A capacity limit doesn't create an exception, so I don't skip or silently downgrade the review.
+  - A coordinator stops at its handoff and does not dispatch the later follow-up.
+
+Batch: /tmp/pr62-followup-parent-delivery-pending-review (selected model claude-sonnet-5-5, source 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1)
+
+Scenario: parent-delivery-pending-review
+Session ID: 4626c0ab-1e3d-4660-aaee-9b4fdd0efed9
+
+**Next step: don't merge #902 yet. Have the original local reviewer assess the fix, and keep the Copilot request pending without re-requesting it.**
+
+**Deciding rule:** `deliver-parent-issue.md` says a child merges "only with both affirmative independent review of its final changes and green hosted CI for its final head." It adds that "a pending or timed-out review is not favorable." `express-issue.md` ("Review the draft changes") says: "After corrections, have the reviewer assess the changed code and the unresolved findings."
+
+**Why:**
+- **CI doesn't cover the review gap.** All hosted checks passed for the current head, so the CI condition is met. `merge-pr` says green CI alone is not enough: "Green CI and an absence of feedback are not enough."
+- **The local review is stale.** The reviewer found a problem and it was fixed, but nobody has confirmed the fix. Under `review.md` ("Affirmative review"), a review that covers an earlier commit can't be described as a review of the current head. The final changes therefore have no affirmative independent review yet.
+- **The reviewer must be the independent local reviewer.** I can't self-review or treat the fix as obviously fine. `review.md` bars substituting self-review for independent review. The reviewer should be a fresh-context, different-model local reviewer, and I should record its model evidence.
+- **Pending Copilot isn't a gate or a substitute.** Under `review.md` ("Copilot request state"), Copilot isn't the default review source for agent PRs. Its review is requested, pending and not complete, and it isn't unavailable. I won't request it again, since a request for this head already exists, and I won't treat it as a pass. `merge-pr` allows merging on other affirmative review if Copilot is absent or times out. But I shouldn't end up with a Copilot "Needs a closer look" review that goes unanswered. That kind of review returns the decision to the user.
+
+**Sequence:**
+1. Dispatch a re-review of the exact current head, covering the fix and the previously found problem. The conversation parent dispatches it, because I'm the parent and handle follow-up directly.
+2. If the reviewer finds new problems, send them back to the implementer on the same branch and re-run the affected checks. If the fix changed the head, confirm CI is green on the new head.
+3. If the reviewer is affirmative and CI is green on the final head, `merge-pr` applies. I re-read the head, check state and `base_behind_by` (which must be 0), then run `--match-head-commit`. I don't need to ask again, because the user authorized merge.
+4. If Copilot's review is still pending at that point, I report it as pending and rely on the local review. If Copilot has completed and has findings, I handle them first. I never dismiss unresolved defects.
+
+Scenario: parent-delivery-pending-review
+Session ID: e8069284-c41c-4dd9-89b1-3b37d3bbf200
+
+**Next step:** don't merge #902 yet. Have the independent local reviewer assess the fix, and use that review as the merge gate. Copilot's pending review is not the gate.
+
+**What decides it**
+
+1. **deliver-parent-issue.md, "Deliver each child":** a child merges only with *both* affirmative independent review of its final changes and green hosted CI for its final head. Merge permission alone doesn't substitute for the favorable review, and a pending review is not favorable.
+2. **express-issue.md, "Review the draft changes":** after corrections, "have the reviewer assess the changed code and the unresolved findings."
+3. **review.md, "Affirmative review":** a review that covers an earlier commit isn't a review of the current head. You must state the coverage limit.
+
+**Why**
+
+- CI is green, but the local review only covers the pre-fix code. The fix is an unreviewed change, so the final changes don't yet have affirmative review. The first review also found a real defect, so you can't treat the fix as trivial.
+- Copilot is not the default review source for an agent PR. The only exception is if the user asked for it, and nothing here says they did. Its pending state also blocks nothing, because merge-pr says to use the other review evidence when Copilot is absent or timed out.
+  - If Copilot does return, read its review. Don't ignore unresolved findings. If its text asks for human review ("Needs a closer look"), that returns the merge decision to the user, and a local review doesn't answer it.
+- The user's authorization covers merge. It doesn't waive the review condition, and no user-approved exception is mentioned.
+
+**Concrete sequence**
+
+1. Check that the fix commit is the current head and that its hosted CI is green. The earlier green CI covered the pre-fix head, so confirm CI for this exact head. If the fix changed the head, this is the "final head" that matters.
+2. The conversation parent dispatches `review-changes` in a fresh context for the exact base and head. The reviewer needs to assess the fix and the originally reported finding, with a different model from the implementer unless an exception applies. If dispatch hits a capacity limit, preserve the work and model evidence. Don't self-review, and don't replace it with a same-model review.
+3. If the review is favorable, run merge-pr:
+   - Confirm `base_behind_by` is 0.
+   - Re-read the head and checks immediately before merging.
+   - Use `--match-head-commit`.
+4. If the review finds new problems, send them back to the implementer on the same branch and re-run the affected checks. Then repeat the review. If the same blocker persists without progress, report it instead of cycling.
+5. If no favorable review is possible, report that blocker. Continue any independent child work that is authorized.

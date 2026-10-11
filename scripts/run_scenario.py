@@ -23,6 +23,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 TASK_NAME = re.compile(r"^[a-z0-9]+(?:-[a-z0-9]+)*$")
+ENTRY_NAME = "ghflow"
 MARKDOWN_LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)")
 SKIPPED_SOURCE_PREFIXES = ("evals/", "docs/research/trials/")
 SKIPPED_SOURCE_FILES = {"docs/dev/skill-evaluations.md"}
@@ -80,9 +81,15 @@ def allowed_source_path(path):
     )
 
 
+def task_source_path(name):
+    if name == ENTRY_NAME:
+        return "SKILL.md"
+    return f"references/tasks/{name}.md"
+
+
 def linked_source_paths(root, commit, skills):
     available = source_paths(root, commit)
-    pending = [f"references/tasks/{name}.md" for name in skills]
+    pending = [task_source_path(name) for name in skills]
     included = set()
     while pending:
         path = pending.pop()
@@ -192,7 +199,7 @@ def resolve_tasks(snapshot, skills):
     for name in skills:
         if not TASK_NAME.fullmatch(name):
             raise ScenarioError(f"Unknown task name in scenario skills: {name}")
-        path = snapshot / "references" / "tasks" / f"{name}.md"
+        path = snapshot / task_source_path(name)
         if not path.is_file():
             raise ScenarioError(f"Unknown task name in scenario skills: {name}")
         paths.append(path.resolve())

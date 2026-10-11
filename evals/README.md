@@ -16,7 +16,7 @@ Write the situation as facts that the agent observes. Do not hint at the answer 
 
 ## Run a scenario
 
-Use `scripts/run_scenario.py` to build and run a prompt from one committed scenario. The runner reads only the Situation section and resolves `skills` task names to paths in a snapshot of the selected commit. The snapshot contains the selected task files and their recursively linked Markdown references. It excludes scenario criteria, prior results, trial records, and this evaluation guide. The runner records its source fingerprint, prompt hash, raw answers, and run details. On failure, it also records bounded, redacted stderr diagnostics in the answer and provenance files. It does not grade answers.
+Use `scripts/run_scenario.py` to build and run a prompt from one committed scenario. The runner reads only the Situation section and resolves `skills` task names to paths in a snapshot of the selected commit. The name `ghflow` selects the entry point `SKILL.md`. The snapshot contains the selected task files and their recursively linked Markdown references. It excludes scenario criteria, prior results, trial records, and this evaluation guide. The runner records its source fingerprint, prompt hash, raw answers, and run details. On failure, it also records bounded, redacted stderr diagnostics in the answer and provenance files. It does not grade answers.
 
 Preview a prompt without launching a model session:
 

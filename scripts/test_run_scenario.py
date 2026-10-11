@@ -35,6 +35,10 @@ class ScenarioRunnerTests(unittest.TestCase):
         (self.repo / "scripts/run_scenario.py").write_bytes(
             (ROOT / "scripts/run_scenario.py").read_bytes(),
         )
+        (self.repo / "SKILL.md").write_text(
+            "Route reviews to [review-changes](references/tasks/review-changes.md).\n",
+            encoding="utf-8",
+        )
         (self.repo / "references/tasks/review-changes.md").write_text(
             "Read [Policy](../shared/policy.md).\n", encoding="utf-8",
         )
@@ -202,6 +206,22 @@ else:
         ])
         self.assertFalse((snapshot / "evals/scenarios/runner-case.md").exists())
         self.assertFalse((snapshot / "evals/results/prior.md").exists())
+
+    def test_entry_point_name_selects_skill_file_and_its_links(self):
+        commit = run_scenario.git(self.repo, "rev-parse", "HEAD")
+        snapshot = self.temp_path / "entry-source"
+        files = run_scenario.extract_source_snapshot(
+            self.repo, commit, ["ghflow"], snapshot,
+        )
+        self.assertEqual(files, [
+            "SKILL.md",
+            "references/shared/policy.md",
+            "references/tasks/review-changes.md",
+        ])
+        self.assertEqual(
+            run_scenario.resolve_tasks(snapshot, ["ghflow"]),
+            [(snapshot / "SKILL.md").resolve()],
+        )
 
     def test_prompt_contains_situation_and_explicit_limits_only(self):
         text = (self.repo / "evals/scenarios/runner-case.md").read_text()
