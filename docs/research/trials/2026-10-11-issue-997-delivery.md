@@ -38,4 +38,4 @@ The remaining observations are not yet changes. They concern test assertions tha
 
 ## Evidence limits
 
-The analysis of the worker transcripts came from three subagents; the author read the parent transcript directly and verified the quoted skill text, CLI commands, and subject repository rules. Wall-clock figures come from the turn durations in the transcripts. The run used one model on one issue, so it does not measure the effect of the changes. No scenario run has assessed the revised text yet.
+The analysis of the worker transcripts came from three subagents; the author read the parent transcript directly and verified the quoted skill text, CLI commands, and subject repository rules. Wall-clock figures come from the turn durations in the transcripts. The run used one model on one issue, so it does not measure the effect of the changes. [Ceremony reduction samples](../../../evals/results/2026-10-11-ceremony-reduction.md) record the decision scenario runs on the revised text. They establish decisions, not fewer dispatches on a real issue.
