@@ -36,9 +36,9 @@ When the draft is ready and the flow includes publication, use [file-issue](file
 
 Before substantial dependent implementation of a child, apply [Prepare required review](../shared/review.md#prepare-required-review). Carry the established review path, model evidence, or explicit exception into the child handoff.
 
-Run [express-issue](express-issue.md) for the selected child with its endpoint, scope, decisions, and authorization. Its delegated coordinator owns implementation, independent review, and submission. The conversation parent owns direct follow-up dispatch under [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership).
+Run [express-issue](express-issue.md) for the selected child with its endpoint, scope, decisions, and authorization. Its delegated coordinator owns implementation, early draft publication, independent review, and ready submission under [Draft PRs and readiness](../shared/pr-lifecycle.md). The conversation parent owns direct follow-up dispatch under [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership).
 
-If running as a delegated coordinator, relay the submission handoff and remaining child and parent scope to the conversation parent, then stop. Resume from the parent's endpoint result. A submission handoff does not complete a child whose endpoint includes follow-up or merge.
+If running as a delegated coordinator, relay the ready-submission handoff and remaining child and parent scope to the conversation parent, then stop. Resume from the parent's endpoint result. A submission handoff does not complete a child whose endpoint includes follow-up or merge.
 
 In this flow, a child merges only with both affirmative independent review of its final changes and green hosted CI for its final head, unless a [user-approved exception](../shared/review.md#user-approved-exceptions) explicitly changes this flow's review condition. Merge permission alone does not substitute for the favorable review here, and a pending or timed-out review is not favorable. Keep the exact-head checks and other rules in [merge-pr](merge-pr.md).
 

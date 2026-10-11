@@ -24,7 +24,7 @@ Each operation links to its task procedure.
 - [file-issue](../references/tasks/file-issue.md) publishes a reviewed draft and confirms the requested GitHub changes.
 - [implement-issue](../references/tasks/implement-issue.md) produces tested, committed changes for PR preparation.
 - [review-changes](../references/tasks/review-changes.md) assesses changes in a fresh reviewer context without editing them.
-- [submit-pr](../references/tasks/submit-pr.md) publishes committed work and requests a review. Independent local review is the primary source for agent PRs. The user can request Copilot review.
+- [submit-pr](../references/tasks/submit-pr.md) publishes draft progress or marks completed work ready for review. Independent local review is the primary source for agent PRs. The user can request Copilot review.
 - [address-pr-review](../references/tasks/address-pr-review.md) waits for requested review, addresses findings, and repairs failing CI on an existing PR.
 - [merge-pr](../references/tasks/merge-pr.md) confirms CI and review findings, merges authorized changes, and confirms the result.
 

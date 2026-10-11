@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import check
 import run_scenario
@@ -372,6 +372,151 @@ else:
                 self.assertIn("FileNotFoundError", run["diagnostic"])
                 self.assertIn("Runner diagnostic:", answer_text)
 
+
+    def test_opencode_environment_isolates_all_stores_and_credentials(self):
+        with patch.dict(os.environ, {
+            "HOME": "/caller/home", "OPENCODE_CONFIG_CONTENT": "unsafe",
+            "OPENAI_API_KEY": "synthetic-key", "GH_TOKEN": "synthetic-gh",
+            "HTTP_PROXY": "http://proxy.invalid",
+        }):
+            env = run_scenario.runner_environment("opencode", self.temp_path / "runtime")
+        for name in ("OPENAI_API_KEY", "GH_TOKEN", "HTTP_PROXY", "OPENCODE_CONFIG_CONTENT"):
+            self.assertNotIn(name, env)
+        for name in ("HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+            self.assertTrue(Path(env[name]).is_relative_to(self.temp_path))
+        self.assertEqual(env["OPENCODE_DISABLE_DEFAULT_PLUGINS"], "true")
+        self.assertEqual(env["OPENCODE_DISABLE_MODELS_FETCH"], "true")
+
+    def test_opencode_config_allows_only_exact_source_reads_and_same_model(self):
+        snapshot = self.temp_path / "source"
+        snapshot.mkdir()
+        source = snapshot / "task.md"
+        source.write_text("task")
+        (snapshot / "secret.txt").write_text("excluded")
+        config = run_scenario.opencode_config("local/model", "http://127.0.0.1:9931/v1", snapshot, 65536)
+        self.assertEqual(config["model"], config["small_model"])
+        self.assertEqual(config["enabled_providers"], ["scenario-local"])
+        self.assertEqual(config["permission"], {"*": "deny", "read": {
+            "*": "deny", str(source.resolve()): "allow",
+            source.resolve().relative_to(Path("/")).as_posix(): "allow",
+        }})
+        self.assertEqual(config["agent"]["scenario"]["permission"], config["permission"])
+        self.assertEqual(config["plugin"], [])
+        self.assertEqual(config["mcp"], {})
+
+    def test_local_endpoint_rejects_nonlocal_credentials_and_ambiguous_paths(self):
+        for value in ("http://localhost:9931/v1", "https://127.0.0.1:9931/v1",
+                      "http://example.com:9931/v1", "http://u:p@127.0.0.1:9931/v1",
+                      "http://127.0.0.1:9931/v1?x=1", "http://127.0.0.1:9931/other"):
+            with self.subTest(value=value), self.assertRaises(run_scenario.ScenarioError):
+                run_scenario.local_endpoint(value)
+        self.assertEqual(run_scenario.local_endpoint("http://[::1]:9931/v1/"),
+                         "http://[::1]:9931/v1")
+
+    def model_inventory(self, payload):
+        response = MagicMock()
+        response.__enter__.return_value.read.return_value = json.dumps(payload).encode()
+        opener = MagicMock()
+        opener.open.return_value = response
+        return opener
+
+    def test_local_model_guard_requires_single_exact_loaded_model(self):
+        for data in ([], [{"id": "wrong"}], [{"id": "model"}, {"id": "other"}],
+                     [{"id": "model", "status": {"value": "unloaded"}}]):
+            with self.subTest(data=data), patch("run_scenario.urllib.request.build_opener",
+                    return_value=self.model_inventory({"data": data})), self.assertRaises(run_scenario.ScenarioError):
+                run_scenario.guard_local_model("http://127.0.0.1:9931/v1", "model")
+        opener = self.model_inventory({"data": [{"id": "model", "status": {"value": "loaded"}}]})
+        with patch("run_scenario.urllib.request.build_opener", return_value=opener):
+            guard = run_scenario.guard_local_model("http://127.0.0.1:9931/v1", "model")
+        self.assertEqual(guard["status"], "loaded")
+        opener.open.assert_called_once_with("http://127.0.0.1:9931/v1/models", timeout=10)
+
+    def test_local_guard_failure_never_launches_cli(self):
+        with patch("run_scenario.guard_local_model", side_effect=run_scenario.ScenarioError("wrong model")), \
+                patch("run_scenario.subprocess.Popen") as launch, \
+                patch("run_scenario.Path.exists", return_value=False):
+            with self.assertRaises(run_scenario.ScenarioError):
+                run_scenario.run_opencode("prompt", "model", "http://127.0.0.1:9931/v1", self.repo, {}, 32768)
+        launch.assert_not_called()
+
+    def test_opencode_events_collect_text_usage_tools_and_errors(self):
+        events = [
+            {"type": "text", "sessionID": "session", "part": {"text": "answer"}},
+            {"type": "tool_use", "part": {"tool": "read"}},
+            {"type": "step_finish", "part": {"tokens": {"input": 100, "output": 10, "cache": {"read": 50}}}},
+            {"type": "step_finish", "part": {"tokens": {"input": 150, "output": 20}}},
+            {"type": "error", "error": {"data": {"message": "provider failure"}}},
+        ]
+        session, answer, errors, metrics = run_scenario.parse_opencode_events(
+            "not json\n" + "\n".join(json.dumps(event) for event in events))
+        self.assertEqual((session, answer), ("session", "answer"))
+        self.assertIn("provider failure", errors[0])
+        self.assertEqual(metrics["tokens"], {"input": 250, "output": 30, "cache_read": 50})
+        self.assertEqual(metrics["tool_calls"], {"read": 1})
+        self.assertEqual(metrics["step_count"], 2)
+        self.assertIsNone(run_scenario.parse_opencode_events("")[3]["tokens"])
+
+    def test_opencode_event_errors_fail_even_when_exit_status_is_zero(self):
+        result = subprocess.CompletedProcess([], 0, json.dumps({"type": "error", "error": {
+            "message": "token=synthetic-secret provider failure"}}), "")
+        with patch("run_scenario.guard_local_model", return_value={"advertised_model": "model"}), \
+                patch("run_scenario.Path.exists", return_value=False), \
+                patch("run_scenario.subprocess.Popen") as launch:
+            process = launch.return_value
+            process.communicate.return_value = (result.stdout, result.stderr)
+            process.returncode = result.returncode
+            code, session, model, answer, diagnostic, metrics = run_scenario.run_opencode(
+                "prompt", "model", "http://127.0.0.1:9931/v1", self.repo, {}, 32768)
+        self.assertEqual(code, 1)
+        self.assertNotIn("synthetic-secret", diagnostic)
+        args = launch.call_args.args[0]
+        self.assertIn("--pure", args)
+        self.assertEqual(args[args.index("--agent") + 1], "scenario")
+        self.assertEqual(process.communicate.call_args.args[0], "prompt")
+
+
+
+    def test_opencode_timeout_terminates_group_and_preserves_partial_events(self):
+        with patch("run_scenario.guard_local_model", return_value={}), \
+                patch("run_scenario.Path.exists", return_value=False), \
+                patch("run_scenario.subprocess.Popen") as launch, \
+                patch("run_scenario.os.killpg") as kill:
+            process = launch.return_value
+            process.pid = 123
+            process.returncode = -9
+            process.communicate.side_effect = [subprocess.TimeoutExpired("opencode", 1),
+                (json.dumps({"type": "tool_use", "part": {"tool": "read"}}), "")]
+            code, session, model, answer, diagnostic, metrics = run_scenario.run_opencode(
+                "prompt", "model", "http://127.0.0.1:9931/v1", self.repo, {}, 32768, timeout=1)
+        kill.assert_called_once_with(123, run_scenario.signal.SIGKILL)
+        self.assertTrue(launch.call_args.kwargs["start_new_session"])
+        self.assertEqual(code, -9)
+        self.assertIn("exceeded 1 seconds", diagnostic)
+        self.assertTrue(metrics["timed_out"])
+        self.assertEqual(metrics["tool_call_count"], 1)
+
+
+    def test_opencode_tool_errors_and_read_paths_preserve_unknowns_and_repeats(self):
+        source = self.repo / "references/tasks/review-changes.md"
+        events = [
+            {"type": "tool_use", "part": {"tool": "read", "state": {
+                "status": "completed", "input": {"filePath": str(source), "offset": 10}}}},
+            {"type": "tool_use", "part": {"tool": "read", "state": {
+                "status": "error", "input": {"filePath": "references/tasks/review-changes.md"}}}},
+            {"type": "tool_use", "part": {"tool": "read", "state": {
+                "status": "error", "input": {"filePath": "../outside-secret.md"}}}},
+            {"type": "tool_use", "part": {"tool": "read", "state": {"status": "completed"}}},
+            {"type": "error", "error": "provider error"},
+        ]
+        _, _, errors, metrics = run_scenario.parse_opencode_events(
+            "\n".join(json.dumps(event) for event in events), self.repo)
+        self.assertEqual(metrics["tool_error_count"], 2)
+        self.assertEqual(metrics["read_paths"], [
+            "references/tasks/review-changes.md", "references/tasks/review-changes.md", None, None,
+        ])
+        self.assertEqual(len(errors), 1)
+        self.assertNotIn("outside-secret", json.dumps(metrics))
 
 if __name__ == "__main__":
     unittest.main()

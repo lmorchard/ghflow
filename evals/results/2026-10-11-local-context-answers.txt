@@ -1,0 +1,19 @@
+Scenario: task-notes-resume
+Session ID: ses_ed63f3546ffe0QRVHAueDjPMc0
+
+
+Runner diagnostic: OpenCode exceeded 180 seconds; its process group was terminated.
+
+
+Scenario: context-complete-inventory
+Session ID: ses_ed63c42cfffeGdU68O1KnvL3yC
+
+
+Runner diagnostic: OpenCode exceeded 180 seconds; its process group was terminated.
+
+
+Scenario: draft-pr-ready-transition
+Session ID: ses_ed63953c1ffeJW6Qh5ZBF6jJS5
+
+
+Runner diagnostic: OpenCode exceeded 180 seconds; its process group was terminated.

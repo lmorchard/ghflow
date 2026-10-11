@@ -38,6 +38,10 @@ The user conversation settles intent and scope. Agents research discoverable fac
 [Decisions](../../references/shared/decisions.md) owns that distinction. [Interview issue](../../references/tasks/interview-issue.md) owns the conversation procedure.
 Draft files support the conversation. They are not required reading for approval.
 
+Delivery publishes significant committed progress as a draft PR before independent review.
+[Draft PRs and readiness](../../references/shared/pr-lifecycle.md) owns progress updates and the transition to ready for review.
+Standalone implementation remains local-only.
+
 Existing authorization carries across task boundaries within its scope. Explicit draft-only and read-only limits still apply.
 [Authorization](../../references/shared/authorization.md) owns permission rules. Implementation or submission does not authorize merge.
 
@@ -47,6 +51,14 @@ Independent local review with a different recorded model is the primary review s
 [Merge PR](../../references/tasks/merge-pr.md) owns the merge procedure and its current-head checks.
 
 ## Keep the process useful
+
+Agents keep concise [Task notes](../../references/shared/task-notes.md) when findings and decisions would be costly to reconstruct.
+They read existing notes after context loss and carry the exact path through handoffs.
+Project conventions control the location. The default is `docs/dev-sessions/{timestamp}-{slug}/notes.md` inside the active worktree.
+
+[Working context](../../references/shared/context.md) limits source loading to the selected operation and applicable rules.
+Agents inspect complete required evidence, then return concise results with links to detailed output.
+They reuse the responsible implementation worker across checkpoints when it remains available.
 
 A required step or document must help someone make a decision, do the task, or continue it later.
 Use an existing issue, commit, or test result when it supplies that information.
@@ -58,7 +70,7 @@ Remove or combine steps when actual use shows that they duplicate effort.
 
 ## Deferred proposals
 
-Automatic scheduling, custom session storage, attempt labels, and a special merge-result format remain outside the selected effort.
+Automatic scheduling, custom session storage systems, attempt labels, and a special merge-result format remain outside the selected effort.
 Frozen checks, locked test files, and a separate validation system remain deferred.
 A later proposal for these mechanisms needs evidence that ordinary tools, tests, and review do not address the problem.
 

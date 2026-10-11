@@ -5,7 +5,7 @@ description: Prepare GitHub issues, implement selected issues, review changes, s
 
 # GitHub workflow
 
-Select the requested operation and follow its task reference. Each operation works on an ordinary issue or PR without earlier ghflow tasks. Load only the task and shared rules needed now.
+Select the requested operation and follow its task reference. Each operation works on an ordinary issue or PR without earlier ghflow tasks. Load only the task and shared rules needed now. Apply [Working context and tool output](references/shared/context.md) to reference loading, searches, and handoffs.
 
 ## Locate the source and tools
 
@@ -49,6 +49,8 @@ Match the user's explicit request to the operation below. Identify the subject r
 | Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
 
 ## Execute and hand off
+
+For sustained work or findings that would be costly to reconstruct, apply [Task notes](references/shared/task-notes.md). On resumption or after context compaction, read the task's existing notes before repeating research or reopening decisions.
 
 Follow the selected reference's scope and stopping point. Carry existing authorization across included tasks. Draft-only and read-only limits still apply; implementation or submission never implies merge permission.
 

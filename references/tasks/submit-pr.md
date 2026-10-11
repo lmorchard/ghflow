@@ -1,8 +1,12 @@
 # Submit a pull request
 
-Publish a PR from existing committed work, move the issue to In review, and request a review. Return a submission handoff for parent-owned follow-up without waiting for findings. Do not change code to address findings, merge, or enable automatic merge.
+Publish committed progress as a draft PR, or submit completed work as ready for review. For a ready PR, move the issue to In review and arrange the selected review. Return a handoff without waiting for findings. Do not change code to address findings, merge, or enable automatic merge.
 
 Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+
+Apply [Draft PRs and readiness](../shared/pr-lifecycle.md) to choose draft publication or readiness. A draft checkpoint returns to implementation or local review; it does not start PR follow-up.
+
+Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 
 ## Prepare the branch and description
 
@@ -14,9 +18,9 @@ For an unpublished implementation handoff, verify the supplied base and head in 
 
 Refresh remote references and inspect changes on the base. Do not rebase merely to get a cleaner history. If integration is necessary, follow the project rules and repeat the affected checks after resolving conflicts.
 
-Review the task diff from the merge base of the base and task branches. Inspect the full list of changed files, including generated output and lockfiles, and explain unexpected changes before you publish. Make sure that the published commits contain the tested changes. Report missing or stale test evidence instead of copying an earlier success claim.
+Review the task diff from the merge base of the base and task branches. Inspect the full list of changed files, including generated output and lockfiles, and explain unexpected changes before you publish. Make sure that the published commits contain the reported changes. For ready submission, confirm that they contain the tested changes. For a draft checkpoint, distinguish tested changes from unfinished or unverified work. Report missing or stale test evidence instead of copying an earlier success claim.
 
-Write a title and body that explain the problem, the resulting behavior, the test evidence, and material limits. Use the repository template when one exists. Keep detail proportional to the change, and distinguish local tests from hosted CI.
+Write a title and body that explain the problem, the resulting behavior, the test evidence, and material limits. For a draft checkpoint, include remaining work and the next useful action. Use the repository template when one exists. Keep detail proportional to the change, and distinguish local tests from hosted CI.
 
 Use a closing reference such as `Closes #N` only when the PR completes that issue. A child PR does not close its broader parent.
 
@@ -28,9 +32,9 @@ Run `gh auth status` and check the installed help for the commands you need. Sea
 
 Push the branch explicitly, then make sure that the remote commit matches the intended local commit. If the remote has unexpected work, resolve the difference before publishing. Do not force-push over it.
 
-Create the PR with an explicit repository, head, base, title, and body file. Make it a draft when requested or when work remains incomplete. Do not add labels, assignees, or comments that nobody requested. Do not use `gh pr create --dry-run` to avoid writes: it can push changes.
+Reuse a matching existing PR and preserve intervening edits to its description. Otherwise create the PR with an explicit repository, head, base, title, and body file. Use `--draft` for early progress or when requested. When the work meets the shared readiness conditions, mark an existing draft ready with `gh pr ready PR_URL`; leave an explicit draft-only request in draft status. Do not add labels, assignees, or comments that nobody requested. Do not use `gh pr create --dry-run` to avoid writes: it can push changes.
 
-Record the returned URL immediately. Read back the body, branch, base, and head commit.
+Record the returned URL immediately. Read back the body, branch, base, head commit, and draft state. For a draft checkpoint, skip the board transition and review request below, and return to the coordinator with remaining work.
 
 ## Mark the issue in review
 
@@ -52,11 +56,13 @@ If the user requested Copilot and it is unavailable, use a completed different-m
 
 Read the CI and review state for the published head. Return:
 
-- The issue and PR URLs, base and published head commits, worktree, and branch.
+- The issue and PR URLs, base and published head commits, worktree, branch, and confirmed draft or ready state.
 - Exact source revisions used for instructions and tools, and authorization limits for the remaining endpoint.
-- The review source used, or the approved waiver and its scope. For a local review, include its head, findings, and recorded model identities, with any approved same-model exception. For a Copilot request, include its time, requested reviewer, and existing review identifiers.
+- The review source used, the approved waiver and its scope, or review not yet performed for a draft checkpoint. For a local review, include its head, findings, and recorded model identities, with any approved same-model exception. For a Copilot request, include its time, requested reviewer, and existing review identifiers.
 - The observed CI and review state, with checks and reviews tied to their commits. Preserve original review request times, deadlines, and identifiers on resumption.
 - The board transition result, or why it was skipped or failed.
 - Any other incomplete operations.
 
-If the authorized endpoint includes follow-up, mark it incomplete and return the handoff under [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership). The parent directly dispatches [address-pr-review](address-pr-review.md) within the existing authorization. For a submission-only request, stop here. Each follow-up task can also start from an existing PR without this handoff.
+For a draft checkpoint, return completed work, remaining work, and the next action to the coordinator. Do not dispatch review follow-up or claim the delivery endpoint is complete.
+
+For a ready submission whose authorized endpoint includes follow-up, mark it incomplete and return the handoff under [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership). The parent directly dispatches [address-pr-review](address-pr-review.md) within the existing authorization. For a submission-only request, stop here. Each follow-up task can also start from an existing PR without this handoff.

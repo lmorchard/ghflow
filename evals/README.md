@@ -34,6 +34,27 @@ Use `--runner claude` to select Claude Code. Use `--commit COMMIT` to select a s
 
 The runner starts each session with no prior conversation. It applies runner-specific limits and records them in `provenance.json`. Claude Code can confine file tools to the source snapshot and disable command, code, web, and agent tools. Codex uses a read-only sandbox and disables integrations, but its CLI has no tool allowlist and does not confine reads to the snapshot. In Codex runs, the prompt forbids commands and reads outside the supplied sources; provenance marks those limits as prompt-only. Both runners need network access to call their model provider. Read the recorded limits before relying on a result.
 
+### Use an existing local model
+
+Use `--runner opencode` with an already running OpenAI-compatible server. Supply the exact model ID advertised by its `/v1/models` endpoint. This example uses the current local Qwen server:
+
+```sh
+python3 scripts/run_scenario.py SCENARIO --runner opencode \
+  --endpoint http://127.0.0.1:9931/v1 \
+  --model ggml-org/Qwen3.8-27B-GGUF:Q4_K_M \
+  --context-window 65536 --repeat 1 --output-dir /tmp/local-scenario-run
+```
+
+Replace `SCENARIO` and use a new output directory. Set `--context-window` to the context available to one server session; it defaults to 32768. A server with several slots can divide its total context between slots. OpenCode runs have a 300-second timeout; use `--timeout SECONDS` to change it. A timeout terminates the CLI process group and preserves emitted usage and errors. The runner does not start a server, load a model, or change server settings. Run one scenario at a time when the existing model is also serving other work. `--dry-run` previews the prompt without contacting the endpoint or starting OpenCode.
+
+Before each repeat, the runner checks that the loopback endpoint advertises only the exact selected model. If it reports a load status, that status must be `loaded`. A redirect, missing model, different model, or additional model stops the run before inference. This check cannot prevent another client from changing server state after the check. An inventory without load status establishes advertised identity, not loaded state.
+
+OpenCode runs with temporary HOME and XDG directories, no user credentials, `--pure`, default plugins disabled, and one configured provider. The main model and small model are the same; no second model is selected for auxiliary work. Permissions deny all tools except reads of exact snapshot Markdown paths. OpenCode 1.19.0 matches read permissions relative to its worktree context; the isolated snapshot has no Git repository, so the allowlist includes exact paths relative to `/`, as well as absolute forms. Commands, writes, web tools, questions, and subagent dispatch are denied. This uses CLI permissions, not an operating-system sandbox. The runner refuses to run when a system managed-config location is present, because managed settings can override isolation.
+
+OpenCode provenance includes elapsed wall time, emitted step token counts, tool-call counts, tool-error counts, read paths, and the model inventory check. `tool_error_count` counts emitted tool states with status `error`, separately from provider error events. `read_paths` keeps one snapshot-relative path per emitted read call, including repeated and failed reads. An absent or unpermitted path is `null`; host paths are not retained. Missing token usage is `null`. Token totals sum the usage reported for each step; they do not measure unique source tokens. OpenCode does not report provider model identity in these events, so `runner_model` remains `null`. The local inventory check is recorded separately. The recorded prompt hash covers the runner's prompt, not OpenCode's complete provider request. Server prompt-cache timings are not collected.
+
+The configuration follows the official OpenCode [CLI controls](https://opencode.ai/docs/cli/), [permissions](https://opencode.ai/docs/permissions/), [custom providers](https://opencode.ai/docs/providers/#custom-provider), and [configuration precedence](https://opencode.ai/docs/config/#precedence-order). It was checked with installed OpenCode 1.19.0 using isolated `debug config --pure`, without inference. The installed read-tool implementation supplied the worktree-relative permission matching rule; config validation alone does not establish successful reads. Tests use synthetic events; a real local decision run is separate evidence.
+
 Compare the answer with the Expected and Not acceptable sections. Record the scenario, skill commit, model, and result in a dated file in `results/`. An answer passes when it reaches the expected decision for the expected reasons. Note when an answer passes for a wrong reason, because that points to unclear text.
 
 One run is a sample, not proof. When a scenario fails, run it again before you change the skill. A rule that fails repeatedly is unclear or missing.

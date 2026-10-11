@@ -3,14 +3,20 @@
 
 import argparse
 import hashlib
+import ipaddress
 import json
 import os
 import posixpath
 import re
 import shutil
+import signal
 import subprocess
 import sys
 import tempfile
+import time
+import urllib.error
+import urllib.parse
+import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -196,8 +202,9 @@ def resolve_tasks(snapshot, skills):
 def make_prompt(paths, situation):
     path_list = "\n".join(str(path) for path in paths)
     return (
-        "Read only these skills from the committed source snapshot and the references they link:\n"
+        "Read these task skills from the committed source snapshot first:\n"
         f"{path_list}\n\n"
+        "Follow a linked reference only when its condition applies or you need its rule to decide.\n\n"
         "You are the agent applying them. Here is the current situation:\n\n"
         f"{situation}\n\n"
         "What do you do next, and why? Name the skill rule that decides it.\n"
@@ -238,6 +245,14 @@ def runner_environment(runner, runtime_root):
         if inherited.get("ANTHROPIC_API_KEY"):
             env["ANTHROPIC_API_KEY"] = inherited["ANTHROPIC_API_KEY"]
         env["HOME"] = inherited.get("HOME", str(Path.home()))
+    elif runner == "opencode":
+        for key in ("XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_CACHE_HOME", "XDG_STATE_HOME"):
+            directory = runtime_root / key.lower()
+            directory.mkdir(exist_ok=True)
+            env[key] = str(directory)
+        env["OPENCODE_CONFIG_DIR"] = env["XDG_CONFIG_HOME"]
+        for name in ("AUTOUPDATE", "DEFAULT_PLUGINS", "CLAUDE_CODE", "MODELS_FETCH", "LSP_DOWNLOAD"):
+            env[f"OPENCODE_DISABLE_{name}"] = "true"
     return env
 
 
@@ -384,11 +399,183 @@ def run_claude(prompt, model, snapshot, session_cwd, env):
         return None, None, None, "", safe_diagnostic(f"{type(error).__name__}: {error}", env)
 
 
+
+def local_endpoint(value):
+    """Accept literal loopback HTTP endpoints, without credentials or redirects."""
+    parsed = urllib.parse.urlsplit(value)
+    try:
+        local = ipaddress.ip_address(parsed.hostname or "").is_loopback
+        port = parsed.port
+    except ValueError:
+        local = False
+        port = None
+    if (parsed.scheme != "http" or not local or not port or parsed.username
+            or parsed.password or parsed.query or parsed.fragment
+            or parsed.path.rstrip("/") != "/v1"):
+        raise ScenarioError("--endpoint must be a literal loopback http://IP:PORT/v1 URL")
+    return value.rstrip("/")
+
+
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise ScenarioError("Local model endpoint redirected; refusing inference")
+
+
+def guard_local_model(endpoint, model):
+    # Do not use inherited proxies, credentials, or model-loading requests.
+    opener = urllib.request.build_opener(urllib.request.ProxyHandler({}), NoRedirect())
+    try:
+        with opener.open(local_endpoint(endpoint) + "/models", timeout=10) as response:
+            payload = json.loads(response.read(1024 * 1024 + 1))
+    except (OSError, ValueError) as error:
+        raise ScenarioError("Could not verify the local endpoint's model inventory") from error
+    inventory = payload.get("data") if isinstance(payload, dict) else None
+    if (not isinstance(inventory, list) or len(inventory) != 1
+            or not isinstance(inventory[0], dict) or inventory[0].get("id") != model):
+        raise ScenarioError("Local endpoint must advertise only the exact requested model; refusing inference")
+    status = inventory[0].get("status")
+    if isinstance(status, dict):
+        status = status.get("value")
+    if status is not None and status != "loaded":
+        raise ScenarioError("Requested local model is not loaded; refusing inference")
+    return {"endpoint": endpoint, "advertised_model": model, "status": status}
+
+
+def opencode_config(model, endpoint, snapshot, context_window):
+    permission = {"*": "deny", "read": {"*": "deny"}}
+    for path in sorted(snapshot.rglob("*.md")):
+        absolute = path.resolve()
+        permission["read"][str(absolute)] = "allow"
+        # OpenCode 1.19.0 matches read paths relative to context.worktree.
+        # These snapshots have no Git repository, so its worktree is "/".
+        permission["read"][absolute.relative_to(Path("/")).as_posix()] = "allow"
+    selected = "scenario-local/" + model
+    return {
+        "model": selected, "small_model": selected,
+        "enabled_providers": ["scenario-local"], "share": "disabled", "autoupdate": False,
+        "plugin": [], "mcp": {}, "instructions": [], "lsp": False, "formatter": False,
+        "permission": permission,
+        "provider": {"scenario-local": {
+            "npm": "@ai-sdk/openai-compatible", "name": "Existing local model",
+            "options": {"baseURL": endpoint, "apiKey": "local-no-credential"},
+            "models": {model: {"name": model, "limit": {"context": context_window, "output": 4096}}},
+        }},
+        "agent": {"scenario": {
+            "description": "Read committed scenario sources and answer the decision question",
+            "mode": "primary", "permission": permission,
+            "prompt": "Use only the supplied scenario and source files. Give a concise decision and its rule.",
+        }},
+    }
+
+
+def parse_opencode_events(stdout, snapshot=None):
+    session = None
+    answers = []
+    errors = []
+    tokens = {}
+    tools = {}
+    tool_errors = 0
+    read_paths = []
+    permitted = {path.resolve() for path in snapshot.rglob("*.md")} if snapshot else set()
+    steps = 0
+    for event in json_events(stdout):
+        session = session or event.get("sessionID")
+        part = event.get("part", {})
+        if not isinstance(part, dict):
+            part = {}
+        kind = event.get("type")
+        if kind == "text" and isinstance(part.get("text"), str):
+            answers.append(part["text"])
+        elif kind == "tool_use":
+            name = part.get("tool", "unreported")
+            tools[name] = tools.get(name, 0) + 1
+            state = part.get("state", {})
+            if not isinstance(state, dict):
+                state = {}
+            if state.get("status") == "error":
+                tool_errors += 1
+            if name == "read":
+                inputs = state.get("input", {})
+                file_path = inputs.get("filePath") if isinstance(inputs, dict) else None
+                relative = None
+                if isinstance(file_path, str) and file_path and snapshot:
+                    candidate = Path(file_path)
+                    if not candidate.is_absolute():
+                        candidate = snapshot / candidate
+                    candidate = candidate.resolve()
+                    if candidate in permitted:
+                        relative = candidate.relative_to(snapshot.resolve()).as_posix()
+                read_paths.append(relative)
+        elif kind == "step_finish":
+            steps += 1
+            for key, value in part.get("tokens", {}).items():
+                if isinstance(value, (int, float)):
+                    tokens[key] = tokens.get(key, 0) + value
+                elif key == "cache" and isinstance(value, dict):
+                    for cache_key, count in value.items():
+                        if isinstance(count, (int, float)):
+                            name = "cache_" + cache_key
+                            tokens[name] = tokens.get(name, 0) + count
+        elif kind == "error":
+            errors.append(json.dumps(event.get("error", "Unreported runner error")))
+    return session, "\n".join(answers), errors, {
+        "step_count": steps, "tokens": tokens or None, "tool_calls": tools,
+        "tool_call_count": sum(tools.values()), "tool_error_count": tool_errors,
+        "read_paths": read_paths,
+    }
+
+
+def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout=300):
+    # Managed configuration takes precedence over all runtime overrides.
+    managed_paths = [Path("/Library/Application Support/opencode"), Path("/etc/opencode"),
+                     Path("/Library/Managed Preferences/ai.opencode.managed.plist"),
+                     Path("/Library/Managed Preferences") / Path.home().name / "ai.opencode.managed.plist"]
+    if any(path.exists() for path in managed_paths):
+        raise ScenarioError("Managed OpenCode configuration is present; isolation cannot be guaranteed")
+    guard = guard_local_model(endpoint, model)
+    runtime_env = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(
+        opencode_config(model, endpoint, snapshot, context_window))}
+    command = ["opencode", "run", "--pure", "--model", "scenario-local/" + model,
+               "--agent", "scenario", "--format", "json", "--dir", str(snapshot),
+               "--title", "Decision scenario"]
+    try:
+        process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, cwd=snapshot,
+                                   env=runtime_env, start_new_session=True)
+        timed_out = False
+        try:
+            stdout, stderr = process.communicate(prompt, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            try:
+                os.killpg(process.pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+            stdout, stderr = process.communicate()
+        session, answer, errors, metrics = parse_opencode_events(stdout, snapshot)
+        code = process.returncode
+        if timed_out:
+            code = code or 1
+            errors.append(f"OpenCode exceeded {timeout} seconds; its process group was terminated.")
+        metrics["timed_out"] = timed_out
+        if errors or not answer.strip():
+            code = code or 1
+        diagnostic = safe_diagnostic("\n".join(errors + [stderr]), env) if code else ""
+        if code and not diagnostic:
+            diagnostic = "Runner produced no answer or exited without a diagnostic."
+        return code, session, None, answer, diagnostic, {**metrics, "model_guard": guard}
+    except OSError as error:
+        return None, None, None, "", safe_diagnostic(str(error), env), {"model_guard": guard}
+
+
 def parser():
     result = argparse.ArgumentParser(description=__doc__)
     result.add_argument("scenario", help="scenario name from evals/scenarios")
-    result.add_argument("--runner", required=True, choices=("codex", "claude"))
+    result.add_argument("--runner", required=True, choices=("codex", "claude", "opencode"))
     result.add_argument("--model", required=True)
+    result.add_argument("--endpoint", help="existing local OpenAI-compatible endpoint (OpenCode only)")
+    result.add_argument("--timeout", type=int, default=300, help="OpenCode run timeout in seconds (default: 300)")
+    result.add_argument("--context-window", type=int, default=32768, help="local per-session context tokens (default: 32768)")
     result.add_argument("--repeat", type=int, default=1)
     result.add_argument("--commit", default="HEAD", help="source commit (default: HEAD)")
     result.add_argument("--output-dir", type=Path)
@@ -402,6 +589,19 @@ def isolation_record(runner, source_files):
         "scenario_input": "Situation only; scenario criteria and evaluation records are not copied",
         "identity_and_github_environment": "removed by a minimal runner environment",
     }
+    if runner == "opencode":
+        return {
+            **shared,
+            "runner_controls": ["--pure", "--agent scenario", "deny-all permissions with exact source read allowlist",
+                                "isolated HOME and XDG directories", "only scenario-local provider enabled"],
+            "commands_and_edits": "denied by OpenCode permissions",
+            "network_and_dispatch": "web and dispatch tools denied; CLI calls the existing local model endpoint",
+            "source_boundary": "only exact snapshot Markdown file paths permitted by read permissions; no OS sandbox",
+            "authentication": "no user credentials supplied; isolated temporary CLI stores",
+            "model_loading": "exact singleton /models inventory checked before each repeat; main and small model identical; server state can change after the check",
+            "user_questions": "denied by OpenCode permissions",
+            "metrics": "elapsed wall time and emitted step token/tool counts; unreported tokens are null; no server cache timings",
+        }
     if runner == "claude":
         return {
             **shared,
@@ -442,6 +642,19 @@ def main(argv=None):
         parser().error("--output-dir is required unless --dry-run is used")
     if "/" in args.scenario or "\\" in args.scenario:
         parser().error("scenario must be a name, not a path")
+    if args.runner == "opencode":
+        if not args.endpoint:
+            parser().error("--endpoint is required for opencode")
+        if args.timeout < 1:
+            parser().error("--timeout must be at least 1")
+        if args.context_window <= 4096:
+            parser().error("--context-window must exceed 4096")
+        try:
+            args.endpoint = local_endpoint(args.endpoint)
+        except ScenarioError as error:
+            parser().error(str(error))
+    elif args.endpoint:
+        parser().error("--endpoint is only supported by opencode")
     scenario_name = args.scenario[:-3] if args.scenario.endswith(".md") else args.scenario
 
     try:
@@ -488,10 +701,16 @@ def main(argv=None):
             answers = []
             started_at = datetime.now(timezone.utc).isoformat()
             for index in range(1, args.repeat + 1):
+                run_started = time.monotonic()
+                metrics = {}
                 answer_path = Path(temp) / f"answer-{index}.txt"
                 if args.runner == "codex":
                     code, session, runtime_model, answer, diagnostic = run_codex(
                         prompt, args.model, snapshot, answer_path, env,
+                    )
+                elif args.runner == "opencode":
+                    code, session, runtime_model, answer, diagnostic, metrics = run_opencode(
+                        prompt, args.model, args.endpoint, snapshot, env, args.context_window, args.timeout,
                     )
                 else:
                     code, session, runtime_model, answer, diagnostic = run_claude(
@@ -499,6 +718,8 @@ def main(argv=None):
                     )
                 runs.append({
                     "repeat": index,
+                    "elapsed_seconds": round(time.monotonic() - run_started, 3),
+                    **metrics,
                     "session_id": session,
                     "exit_code": code,
                     "runner_model": runtime_model,

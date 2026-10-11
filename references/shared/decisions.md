@@ -4,7 +4,7 @@ Apply these rules when a missing fact or choice affects the task. [Evidence](evi
 
 ## Resolve facts and routine choices
 
-Before asking, identify what is missing: a fact, an implementation choice, or a decision about the intended result.
+Before reopening a decision after context loss, read existing [Task notes](task-notes.md). Before asking, identify what is missing: a fact, an implementation choice, or a decision about the intended result.
 
 Research discoverable facts in current code, tests, documentation, or other relevant sources. Follow [Evidence](evidence.md#sources-and-revisions) when reusing earlier findings. An unread source is an evidence gap, not a user decision.
 

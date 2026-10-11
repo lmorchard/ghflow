@@ -4,6 +4,8 @@ Produce tested, committed changes for the requested issue, with enough evidence 
 
 Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
+Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
+
 ## Read the issue and current code
 
 Read the project instructions, the issue body, and relevant comments. Identify the intended result, scope limits, success conditions, and confirmed decisions. Do not require labels or documents from another skill.
@@ -36,7 +38,7 @@ Make a short plan against the current code. Connect each planned change to an is
 
 For each success condition, name a test, command, or human assessment, what it establishes, and its expected result. Mark which checks exist and which you must add. Keep tests of new behavior separate from tests that protect existing behavior. Missing tests or setup errors do not demonstrate the reported bug.
 
-Use the project's record format if it has one. Otherwise keep brief notes with the task. Do not create a fixed set of planning files.
+Apply [Task notes](../shared/task-notes.md) to preserve findings, decisions, and useful attempts throughout execution. Use the project's record format when one exists.
 
 ## Implement and test
 
@@ -49,6 +51,12 @@ Run targeted tests first during implementation iterations to maintain fast feedb
 Change a test when the intended behavior requires it, and explain why. Do not remove useful assertions to make the suite pass. If an issue requirement itself is wrong, return that decision to the parent or user.
 
 If a requirement needs human judgment, prepare the example or demonstration and state what the person must assess.
+
+## Return useful progress for draft publication
+
+When the enclosing flow authorizes publication, apply [Draft PRs and readiness](../shared/pr-lifecycle.md). At the first significant change, inspect the intended diff, run appropriate targeted checks, and commit a coherent checkpoint. Full implementation checks and final self-review still apply before the completed implementation handoff.
+
+Return the checkpoint to the coordinator for [submit-pr](submit-pr.md), with the worktree, branch, base, committed head, checks, remaining work, and next action. State that implementation is incomplete when it is. Resume implementation on the same branch after draft publication; do not push or open the PR yourself. For a standalone local-only request, continue locally without this publication handoff.
 
 ## Review and commit
 
@@ -64,7 +72,7 @@ This self-review is not independent review. Do not claim independent verificatio
 
 Return:
 
-- The issue URL, worktree path, branch, base revision, final commits, the revision you tested, and any remaining uncommitted changes.
+- The issue URL, any existing draft PR URL, worktree path, branch, base revision, current commits, the revision you tested, and any remaining uncommitted changes.
 - For an unpublished handoff, the supplied checkout path and publication state, plus the full local Git verification result for the reported head and base.
 - The board transition result, or why it was skipped or failed.
 - The implementation model from session metadata, or "unknown". The parent uses it to choose a different model for review.
