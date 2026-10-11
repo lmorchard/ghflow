@@ -1,0 +1,191 @@
+==== ta-baseline-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: 5a3e7999-68d0-4f44-a4b1-e3a1ba912fc2
+
+I don't commit yet. I first do the self-review step of "Review and commit", which says to inspect the full diff and "check that changed tests still establish the intended behavior." The passing suite doesn't settle that, because I think this test is too weak to prove tier 1 works.
+
+**Why the test is weak**
+- **Three assertions are already satisfied.** The old error message already contains "error" and "not found", and its closing sentence has "whitespace and indentation". Those three assertions pass with no tier-1 code at all.
+- **"line 1" could come from tier 2.** The first line of `old_text`, `def hello():`, is identical to line 1 of the file. Tier 2 could therefore emit "A similar line exists at line 1: ...", and that would satisfy the "line 1" assertion even if tier 1 never fires.
+- **It can't tell the tiers apart.** As written, the test could pass with tier 1 broken or absent, so it doesn't show tier 1 works.
+
+**What I do next**
+1. **Strengthen the test.**
+   - Assert the exact tier-1 text: "matches when whitespace differences are ignored" and "The match starts at line 1".
+   - Assert that "A similar line exists" is absent, so the test shows tier 1 fired and not tier 2.
+   - Use a case where the match doesn't start at line 1, so the line number is meaningful.
+2. **Show the test can fail.** Run it with tier 1 temporarily disabled, or reason from the code, and confirm it fails for the right reason. Then restore the code.
+3. **Cover tier 2 separately.** Add a test where the non-whitespace content doesn't match but the first line is close, asserting the "similar line" text and the absence of the tier-1 text. Add a case with no hint at all.
+4. **Re-run checks.** Run the targeted tests first, then the affected broader suite and project checks.
+5. **Finish the review and commit.** Inspect the whole diff from the merge base, including new files, for missed callers or unrelated edits. Stage only the intended files, inspect the staged diff, and commit following project conventions. Then write the report.
+
+I'd also note in the report that this was self-review, not independent verification.
+
+==== ta-baseline-review-new-test-nearby-substitute ====
+Scenario: review-new-test-nearby-substitute
+Session ID: 5603fc45-d280-4c27-bd28-0e06bb506376
+
+Next I'd examine the named test itself and run it. I wouldn't accept the report's "eight tests pass" as coverage. The deciding rule is in `review-changes.md`: "Treat the implementation report as claims, not as your conclusion. Examine tests before you accept their stated coverage." The related review question is whether the tests "establish the intended behavior rather than a nearby substitute."
+
+**What the test appears to check**
+- Three of its four assertions are probably weak. "error", "not found" and "whitespace" are likely satisfied by the pre-change text alone, which ends "Make sure old_text matches exactly, including whitespace and indentation."
+- Only "line 1" depends on the new code, and it is ambiguous. Tier 1 ("The match starts at line 1") and Tier 2 ("A similar line exists at line 1: …") would both satisfy it.
+- The test therefore can't show that the whitespace-only case reaches Tier 1 instead of falling through to Tier 2. It also can't show that the "matches when whitespace differences are ignored" wording appears.
+- "line 1" would also match "line 10" or "line 12", because the substring check is loose.
+- This is the nearby-substitute problem. The test name promises a whitespace-only hint, but the assertions would pass if the tier selection were wrong.
+
+**What I'd do, without editing the implementation checkout**
+1. Read the test and the diff to confirm the above. I'd also check whether the other seven tests have the same weakness.
+2. Copy the worktree to an isolated temporary directory and use its virtual environment. In the copy, run the named test and the rest of the suite on head. Run the named test on base too, to confirm it fails there. If it only fails because of "line 1", that confirms the other assertions add nothing.
+3. In the copy only, run a throwaway probe that calls the tool with this input and prints the actual message. That shows which tier fires. I wouldn't change the repo's expected results to make anything pass.
+4. Find every caller of the changed not-found path, not only those in the diff. Compare before and after behavior for empty, multi-line and malformed `old_text`, and for multiple matches.
+5. Compare the diff with issue #997 for scope.
+
+**What I'd report**
+- The reviewed base and head, and the reviewer and implementer model identities with their sources.
+- A finding if the probe confirms it: the test file and lines, the trigger (2-space vs 4-space indentation), the result (it can't distinguish Tier 1 from Tier 2, and it passes on pre-change wording), and the impact (a tier regression would go unnoticed). The suggested fix is to assert the exact Tier 1 sentence, "the match starts at line 1", and to assert that "similar line" is absent. I would not implement it.
+- The checks I ran, the callers and paths I traced, and what I didn't test.
+- I would not post a GitHub review unless I'm authorized to publish it.
+
+==== ta-changed-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: 263bd1bf-f1d0-4f94-b73a-591ea29ec911
+
+**Next step:** I don't commit yet. First I check that the tier 1 test fails when the tier 1 behavior is disabled. Then I fix the test if it doesn't.
+
+**Rule:** "Implement and test", the paragraph that starts "Make each new assertion specific to the behavior under test." It says to assert text the pre-change output and neighboring code paths don't produce. It also says that after the suite is green, you must confirm each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, fix the test and check whether the behavior runs at all, before you commit.
+
+**Why this test is suspect:**
+- The existing error already says "error" and "not found". It also says "whitespace", because it ends with "...including whitespace and indentation." Those three assertions prove nothing about tier 1.
+- "line 1" is the only assertion that might be specific. The tier 2 hint, "A similar line exists at line 1: ...", would also satisfy it, because the first line `def hello():` matches exactly. So if tier 1 never fires and tier 2 does, the test still passes.
+- The test therefore may not exercise tier 1 at all.
+
+**What I do:**
+1. Disable only the tier 1 branch, for example by making the whitespace-insensitive match return no result. Then rerun the test. If it still passes, it is covering something else, and I also check whether tier 1 runs at all.
+2. Tighten the assertions to text only tier 1 produces. These would be "It matches when whitespace differences are ignored" and "The match starts at line 1". I would also assert that "A similar line exists" is absent, so a tier 2 hint can't satisfy the test.
+3. Re-run the test with tier 1 disabled to confirm it fails. Then re-run it with tier 1 enabled to confirm it passes.
+4. Add a tier 2 test that does the same for the similar-line hint. Its `old_text` has a first line that closely matches a file line but whose non-whitespace content doesn't match as a whole. It asserts "A similar line exists at line N: TEXT" and that the tier 1 text is absent.
+5. Re-run the affected checks and the broader suite. Then do the self-review of the full diff, stage only the intended files, inspect the staged diff, and commit.
+
+Scenario: new-test-passes-on-old-text
+Session ID: 96765125-796f-4cee-9014-044c4f95db2a
+
+**Next step: before committing, check that the tier 1 test fails when the tier 1 behavior is disabled. Only the whole change being absent isn't enough.**
+
+The deciding rule is in "Implement and test": *"Make each new assertion specific to the behavior under test. Assert text or values that the pre-change output and neighboring code paths do not produce… After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, before you commit."*
+
+**Why this test is suspect:**
+- The old error already contains "error", "not found", and probably "whitespace". It ends with "including whitespace and indentation", so those three assertions prove nothing.
+- "line 1" could also come from tier 2. The `def hello():` first line is a close match to file line 1, so "A similar line exists at line 1: …" would satisfy "line 1" even if tier 1 never fired.
+- The only assertion that could tell tier 1 apart is "whitespace". The old text already satisfies it, so the test may be passing for the wrong reason.
+
+**What I'd do:**
+1. Disable the tier 1 branch only, leaving tier 2 in place. Run the new test and see whether it still passes.
+2. If it still passes, tighten the assertions to text that only tier 1 produces. Examples are "matches when whitespace differences are ignored" and "The match starts at line 1". Then re-run the disabled-behavior check. The test must fail with tier 1 off and pass with it on.
+3. Check that tier 1 actually runs for this input and isn't being pre-empted by tier 2.
+4. Consider a tier 2 test with the same discipline. It should assert "A similar line exists at line N:" and the line text, and it should fail when only tier 2 is disabled. It should also confirm that tier 1 text is absent in that case.
+5. After that, run the targeted tests, then the broader suite. Do the self-review of the full diff, stage only the intended files, and commit.
+
+I would not commit yet. A green suite alone doesn't show that the new test covers the new behavior.
+
+==== ta-changed-review-new-test-nearby-substitute ====
+Scenario: review-new-test-nearby-substitute
+Session ID: f3aef4af-3092-4d87-9913-9bd1bfb1aa8d
+
+**Next step:** I would run the named test with the covered behavior disabled, in an isolated temporary copy of the worktree. I would not accept the report's "eight tests pass" as coverage. The deciding rule is in "Examine the change" in `review-changes.md`: "For each new assertion, check whether the pre-change output or a neighboring code path also satisfies it. Where the environment permits, run the test with the covered behavior disabled in an isolated copy; a test that still passes does not cover it." This also follows "Treat the implementation report as claims… Examine tests before you accept their stated coverage."
+
+**Why this test is suspect:**
+- **"error", "not found", "whitespace":** The pre-change message already ends with "…including whitespace and indentation." It very likely already contains all three words, so these assertions say nothing about the new hint.
+- **"line 1":** This is the only assertion that could tell old output from new. But Tier 2 ("A similar line exists at line 1: …") also produces "line 1". The test therefore doesn't show that Tier 1 ("It matches when whitespace differences are ignored. The match starts at line 1.") fired. It also never checks the Tier 1 sentence itself. Despite its name, it could pass on Tier 2 alone.
+
+**What I would run in the isolated copy, using the worktree's virtual environment:**
+1. Run the test on the base's error text, or with both hint tiers disabled. It should fail on "line 1". If it passes, it covers nothing.
+2. Run it with only the Tier 1 branch disabled, so that Tier 2 is the fallback. If it still passes, it doesn't cover the whitespace-only tier that its name claims.
+3. Check whether the other seven new tests have the same weakness.
+
+I would leave the implementation checkout unchanged and not edit the test's expected results to make it pass.
+
+**What I'd report:**
+- **Defect:** If runs 1 or 2 pass, I'd report a test-coverage finding. It would give the file and lines, the condition, and the impact: Tier 1 is effectively untested. I'd suggest asserting the exact phrase "matches when whitespace differences are ignored", and that "similar line" is absent.
+- **Scope:** The report would also state which callers and paths I traced and which behavior I didn't test.
+- **Reviewed commits and models:** It would include the base and head, and the reviewer and implementer model identities with their sources.
+
+Scenario: review-new-test-nearby-substitute
+Session ID: b5feb06f-6d4e-4100-b110-d8783f46c434
+
+**Next step:** I would run a covered-behavior-disabled check in an isolated temporary copy. I haven't run it, because this session doesn't allow commands. I would not accept the report's "eight tests pass" as coverage yet.
+
+**Rule that decides it:** the "Examine the change" rule in `review-changes.md` (line 33). For each new assertion, check whether the pre-change output or a neighboring code path also satisfies it. Where the environment permits, run the test with the covered behavior disabled in an isolated copy. A test that still passes does not cover that behavior. The same file says to treat the implementation report as claims and to examine tests before accepting their stated coverage. The worktree has a virtual environment, so the environment permits the run.
+
+**Why this test is suspect:**
+- **"error" and "not found":** the pre-change error almost certainly already contains both.
+- **"whitespace":** the pre-change text already says "...including whitespace and indentation," so this assertion can't tell old output from new.
+- **"line 1":** this is the only assertion that could depend on the new hint, and it can't tell the tiers apart. Tier 1 says "The match starts at line 1." Tier 2 says "A similar line exists at line 1: ...". Either one satisfies it.
+- **Tier 1's own wording:** the test never checks "matches when whitespace differences are ignored", so it doesn't pin down tier 1.
+
+**Checks I would run, in a temporary copy with the implementation checkout untouched:**
+1. Disable the whole hint and confirm the test fails, ideally only on "line 1".
+2. Disable only tier 1, leaving tier 2, and see whether the test still passes. If it does, the test doesn't cover tier 1, and the test name is misleading.
+3. Check the other seven tests against the same question.
+
+I would record any setup failure separately from product defects.
+
+**Outcome:** if check 2 passes, I report a finding on the test's file and lines. The finding would say the test doesn't establish tier-1 behavior, which is the nearby-substitute failure. I'd suggest asserting the exact tier-1 phrase and the line number, plus a separate tier-2 test. I would not edit the test myself. The report would also name the base and head, the model identities, the callers I traced, and what I didn't test.
+
+==== ta-regression-implementation-local-only ====
+Scenario: implementation-local-only
+Session ID: 221b19c8-5cd5-4f63-8bef-1040c32cad5a
+
+**Next step: keep implementing locally on the same branch. Don't push, don't open a PR, and don't hand off a checkpoint for publication.**
+
+**Rule that decides it:** the "Return useful progress for draft publication" section. Its last sentence says: "For a standalone local-only request, continue locally without this publication handoff."
+
+**Why:**
+- The user said "Implement issue #942 locally. Do not push or open a PR." That makes this a standalone local-only request.
+- The checkpoint-and-handoff mechanism applies only when the enclosing flow authorizes publication. Here it doesn't. Even in that case, the skill says to return the checkpoint to a coordinator for [submit-pr](submit-pr.md), not to push myself. The top of the skill also says it ends with a local branch and a report, with no pushing, PR, merge, or worktree removal.
+- The coherent commit is already a fine local checkpoint. Work remains, so I shouldn't stop or report as complete.
+
+**What I'll do from here:**
+1. Implement the remaining issue requirements in small steps. Each step maps to a requirement, with the smallest change and no unrelated cleanup.
+2. Add tests for the new behavior and its error cases. Assertions must be specific to that behavior. After the suite is green, I'll confirm each new test fails when its behavior is disabled.
+3. Run targeted tests while iterating. Once the implementation is in place, I'll run the broader suite and project checks before self-review and commit.
+4. Self-review the full diff from the merge base, including uncommitted and new files. Then I'll stage only the intended files, inspect the staged diff, and commit logical changes.
+5. Return the final report from "Return the result". It will include the worktree, branch, base, commits, tested revision, and the commands run with their results. It will also cover the board transition result, the implementation model, the result for each success condition, and a status.
+
+The status will be "ready for PR preparation" only if everything passes. Otherwise it will be "incomplete" or "awaiting a decision". I'll also note that the self-review is not independent verification.
+
+==== ta-regression-subagent-has-question ====
+Scenario: subagent-has-question
+Session ID: 881b1412-a449-4293-ba64-2773cc55c010
+
+**What I do next:** I don't change the 403 to a 401, and I don't quietly reinterpret the issue. I return this as an unresolved decision to the parent and mark the status "awaiting a decision" for the part that depends on it.
+
+1. **Verify the facts from code first.** I confirm the current 403 behavior and the frontend's dependence on it. I'd cite the login-redirect code and any tests that cover it. That is the discoverable part, and the Decisions rule says research can establish the alternatives and their effects.
+2. **Continue independent work.** I'd do the workspace setup, the baseline, and any parts of the issue that don't touch the status code. I'd also add tests that don't depend on the answer. I keep the 401-dependent work pending.
+3. **Write the question into my report and task notes.** I don't post a GitHub comment or change the board, because the skill says not to when blocked. I ask one focused question and give my reasoning:
+   - **Why it's needed:** the issue says expired sessions return 401. The frontend's login redirect depends on 403, so a 401 would break it.
+   - **Alternatives and effects:** (a) switch to 401 and update the frontend redirect handling in the same change, which widens the scope; (b) keep 403 and amend the issue's success condition.
+   - **Recommendation:** whichever the evidence supports. I'd likely recommend (a) if the issue's intent is correct HTTP semantics and the frontend change is small. I'd flag what I'm unsure about, such as other consumers of the 403.
+4. **Preserve the worktree and report.** I report the completed work, the blocker, and the next useful action.
+
+**Deciding rules:**
+- `implement-issue.md`: "If an issue requirement itself is wrong, return that decision to the parent or user."
+- `shared/decisions.md`, "Return unresolved decisions": viable answers that change user-visible behavior or compatibility must be returned. The rule says "Do not silently add a requirement." It also says research "cannot choose between conflicting user requirements."
+- The same section covers the missing answer: "Continue independent work… keep dependent work pending… If a blocker leaves no useful independent work, report it to the parent or user."
+
+Since no answer has come, I don't guess. Silence is not authorization to pick one.
+
+==== ta-local-baseline-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: ses_ed2b454a8ffeUjNIlYnIgx2PcC
+
+
+Runner diagnostic: Runner produced no answer or exited without a diagnostic.
+
+
+==== ta-local-changed-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: ses_ed2b11ab1ffe3ucDIwueOPMvNB
+
+
+Runner diagnostic: Runner produced no answer or exited without a diagnostic.
