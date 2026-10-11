@@ -6,7 +6,7 @@ Keep the information needed for the current operation easy to find. Use these ru
 
 Read the selected task, project instructions, and supplied subject and authorization first. Open a linked reference when its named condition applies, and read the section that owns the decision. A link is a route to relevant instructions, not a request to recursively load every linked document. Keep the task's stopping point and applicable scope limits in view.
 
-For a coordinator, locating a future task reference means confirming its path; read its procedure when that operation becomes relevant. Do not load every future worker procedure before the first dispatch.
+For a coordinator, locating a future task reference means confirming its path; read its procedure when that operation becomes relevant. An operation becomes relevant when you prepare its dispatch. Do not load every future worker procedure before the first dispatch.
 
 If a section depends on another rule, read that rule before acting. Before publication, board updates, review, or merge, read the applicable procedure and its permission and evidence rules. Do not omit a required rule merely to shorten context.
 
