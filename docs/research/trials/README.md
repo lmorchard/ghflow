@@ -154,3 +154,9 @@ A fresh actor read existing notes and reused the supplied worktree and branch.
 It stopped at 300 seconds before edits, tests, or commits.
 Source was hashed mutable working text. The trial establishes neither completed resumption nor improved efficiency.
 [Decision samples](../../../evals/results/2026-10-11-local-context.md) record separate bounded checks.
+
+## 2026-10-11: coordinator preparation for issue #997
+
+The [transcript review](2026-10-11-coordinator-preparation.md) records repeated preparation before the first implementation dispatch.
+It supplies the source for clearer dispatch ownership, preparation limits, handoffs, and same-model evidence rules.
+The snapshot does not establish completed implementation, review, or delivery.
