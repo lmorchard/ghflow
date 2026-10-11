@@ -30,7 +30,7 @@ Name the file with a kebab-case description of the situation, such as `cleanup-l
 
 Use two frontmatter keys:
 
-- `skills` lists the task names under test, such as `[merge-pr]`. Use task names, not file paths.
+- `skills` lists the task names under test, such as `[merge-pr]`. Use task names, not file paths. Use `ghflow` to select the entry point `SKILL.md`, for example to test request routing.
 - `source` names where the case came from. Use a commit, a dated trial, an issue, a reference path with its section, or a decision by Les. `scripts/check.py` makes sure that a reference path in `source` exists.
 
 Write three sections: Situation, Expected, and Not acceptable. The [scenario format](../../evals/README.md) describes them. Put only observable facts in the Situation. Do not hint at the answer or name the rule. Keep Expected to what the current skill text requires.
