@@ -10,6 +10,7 @@ This record supplies the source for the changes and their decision scenarios.
 Source: local decafclaw transcript `session-ses_ed3e.md`, session `ses_ed3ed5843ffeFInXeXPKb3t28W`.
 The reviewed snapshot reported creation at 10:46:22 and update at 11:05:38 on 2026-10-11.
 It contained 2,266 lines and ended while the agent prepared an implementation handoff.
+The SHA256 digest of this snapshot is `df193660bcd085b27310a0769c9657875ec9b2985437c95eae8f3ff458bc56a8`.
 The exact skill source commit was not recorded in the transcript.
 The workflow files that it read contain the relevant existing rules.
 
@@ -30,7 +31,21 @@ The exception preserves honest reporting of missing evidence.
 
 Three new scenarios assess dispatch readiness, operation scope in handoffs, and missing same-model identity evidence.
 The existing parent-follow-up scenario also rejects execution by the conversation parent.
-Scenario results will be recorded separately from this observation.
+The scenario runner built all three baseline prompts at commit `8c36c4467e1ea816f0f0f416ddb5ae73f2f9f3c1` in dry-run mode.
+The prompts excluded Expected and Not acceptable criteria.
+No model session or behavioral assessment occurred in those checks.
+
+An independent built-in reviewer examined the full diff from `ddd342e` to the working text and found no actionable issues.
+Dispatch selected `gpt-6-astra`; this records the selection, not provider runtime attestation.
+The reviewer used a fresh context and did read-only source inspection.
+The author used the Codex parent session; its exact runtime model identity was not exposed.
+This content review does not establish a verified different-model comparison.
+
+Automatic approval review rejected the proposed Claude Sonnet evaluations because they would send repository guidance and scenario prompts to an external provider.
+The author requested specific user approval for that disclosure.
+Behavioral scenario runs remain unperformed pending that approval.
+Repository checks passed: 144 CLI tests, 51 script tests, Markdown links, scenario index, and whitespace checks.
+The general skill validator lacked PyYAML; the repository checker separately examined the skill frontmatter.
 
 ## Evidence limits
 

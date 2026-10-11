@@ -10,11 +10,29 @@ A subagent returns questions to the parent instead of interviewing the user or w
 
 For an unpublished implementation handoff, pass the supplied checkout path, branch, base, full tested head, and publication state. Verify the base and head locally before review, as [Evidence](evidence.md#verifying-a-commit) requires. Local verification establishes local existence only. Use remote verification after publication.
 
-In a direct session with no parent, the agent that does the work also talks to the user.
+In a direct delivery session, the conversation-owning agent is the parent and dispatches subject-repository tasks. A standalone task worker with no coordinator also talks to the user.
 
 ## Handoffs
 
-A coordinator dispatches each task to a subagent, except for PR follow-up owned by the parent as described next. Give the subagent its resolved entry skill, task-reference, and CLI paths, the source checkout revision used for instructions and tools, the target checkout, the subject, current revisions, relevant evidence, confirmed decisions, and authorization limits. Tell it to execute that operation without selecting another. Include unresolved questions only when they affect that task. Require actual results and evidence limits in return. For tasks with [working notes](task-notes.md), carry their exact path and relevant facts in both directions; keep independent reviewer inputs within that reference's limits.
+A delivery coordinator dispatches implementation, review, and submission to subagents. After ready submission, the conversation-owning parent dispatches PR follow-up to a subagent under [PR follow-up ownership](#pr-follow-up-ownership). Ownership means arranging the task and receiving its result, not performing subject-repository work.
+
+Give the subagent its resolved entry skill, task-reference, and CLI paths, the source checkout revision used for instructions and tools, the target checkout, the subject, current revisions, relevant evidence, confirmed decisions, and authorization limits. Tell it to execute that operation without selecting another. Include unresolved questions only when they affect that task. Require actual results and evidence limits in return. For tasks with [working notes](task-notes.md), carry their exact path and relevant facts in both directions; keep independent reviewer inputs within that reference's limits.
+
+Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures or the full issue body. Carry decisions and evidence that the next worker cannot recover from those sources. Distinguish the enclosing flow's authorization from the worker's current stopping point.
+
+For example, an implementation handoff can use this form. Replace the placeholders with actual paths and evidence; omit fields that do not apply:
+
+```text
+Operation: implement-issue. Read ENTRY_SKILL and TASK_REFERENCE; use CLI_PATH.
+Source: SOURCE_CHECKOUT at SOURCE_COMMIT for the instructions and CLI.
+Subject: ISSUE_URL in TARGET_CHECKOUT; project instructions at PROJECT_INSTRUCTIONS.
+Base and existing work: BASE_COMMIT; WORKTREE, BRANCH, HEAD, and PUBLICATION_STATE if resuming.
+Confirmed decisions: DECISIONS; review plan: METHOD, CONFIGURATION, and MODEL_EVIDENCE_OR_LIMIT.
+Flow: AUTHORIZED_ENDPOINT and LIMITS. This operation: local implementation only.
+Return the first significant committed checkpoint for coordinator publication; do not push or open a PR.
+Evidence and notes: RELEVANT_CHECKS_WITH_COMMITS; NOTES_PATH if present.
+Return the task's result and evidence limits, including local base/head verification and remaining work.
+```
 
 If a needed skill or delegation is unavailable, report the limit. Do not do the subject-repository work in the parent instead, or silently replace a skill's procedure. If nested dispatch hits a capacity limit, let the coordinator finish its handoff and let the parent dispatch the next task. Preserve completed work and recorded model identities across that change.
 

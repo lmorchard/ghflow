@@ -5,7 +5,7 @@ source: docs/research/trials/2026-10-11-coordinator-preparation.md
 
 ## Situation
 
-For issue #997, the user explicitly requested the same model for implementation and fresh-context review. Both tasks can be dispatched as general agents, but the dispatch interface exposes no model selector or model identity metadata. The current session names provider-x/model-a. The global configuration names provider-y/model-b as its default. You inspected the available session and dispatch metadata and this configuration; none says which model a general worker will use. There is no per-agent configuration. The preparation report has not yet gone to the conversation parent.
+For issue #997, the user explicitly requested the same model for implementation and fresh-context review. Both tasks can be dispatched as general agents, but the dispatch interface exposes no model selector or model identity metadata. The current session names provider-x/model-a. The global configuration names provider-y/model-b as its default. You inspected the available session and dispatch metadata and this configuration. None says which model a general worker will use. There is no per-agent configuration. The preparation report has not yet gone to the conversation parent.
 
 ## Expected
 
