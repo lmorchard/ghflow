@@ -28,6 +28,10 @@ Each operation links to its task procedure.
 - [address-pr-review](../references/tasks/address-pr-review.md) waits for requested review, addresses findings, and repairs failing CI on an existing PR.
 - [merge-pr](../references/tasks/merge-pr.md) confirms CI and review findings, merges authorized changes, and confirms the result.
 
+## Project facts
+
+- [prepare-project-facts](../references/tasks/prepare-project-facts.md) writes or refreshes `.ghflow/project.md`, one screen of stable project facts for workers. `ghflow facts` reads the live state and reports when the file's sources changed.
+
 ## Delivery coordinators
 
 - [express-issue](../references/tasks/express-issue.md) coordinates one selected issue through delivery to an agreed endpoint.

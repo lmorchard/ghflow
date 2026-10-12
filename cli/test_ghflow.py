@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ghflow import GhError, IdentityError, board_set_status, identity_env, main, pr_ready, pr_state, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2193,3 +2193,179 @@ class PrReadyTests(unittest.TestCase):
         self.assertEqual(captured, {"repo": "o/r", "number": 7, "body_file": "b.md", "expect_head": HEAD,
                                     "board": ("o/r", 5, "o", 6, "In review")})
         self.assertEqual(json.loads(out.getvalue())["action"], "ready")
+
+def git(args, cwd):
+    subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
+
+
+class ProjectFactsTests(unittest.TestCase):
+    """A clone of a local bare origin with the files a project facts read inspects."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.origin = os.path.join(self.tmp, "origin.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", self.origin], check=True)
+        self.clone = os.path.join(self.tmp, "clone")
+        subprocess.run(["git", "clone", "-q", self.origin, self.clone], check=True, capture_output=True)
+        git(["config", "user.email", "t@example.com"], self.clone)
+        git(["config", "user.name", "t"], self.clone)
+        git(["checkout", "-q", "-b", "main"], self.clone)
+        self.write("AGENTS.md", "# Agents\n")
+        self.write("Makefile", ".PHONY: check test\nVAR := x\ncheck: test\n\tpython3 scripts/check.py\ntest:\n\tpytest\nfmt-check:\n\truff\n")
+        self.write("conftest.py", "")
+        self.write("tests/conftest.py", "")
+        self.write(".github/workflows/ci.yml", "name: ci\n")
+        self.write(".env.example", "PORT=1\n")
+        self.write("pyproject.toml", "[project]\nname='x'\n")
+        git(["add", "-A"], self.clone)
+        git(["commit", "-q", "-m", "feat: first commit"], self.clone)
+        git(["push", "-q", "-u", "origin", "main"], self.clone)
+        git(["remote", "set-head", "origin", "main"], self.clone)
+        git(["remote", "set-url", "--push", "origin", self.origin], self.clone)
+        git(["remote", "set-url", "origin", "git@github.com:o/r.git"], self.clone)
+
+    def write(self, rel, text):
+        path = os.path.join(self.clone, rel)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", encoding="utf-8") as out:
+            out.write(text)
+        return path
+
+    def blob(self, rel):
+        return subprocess.run(["git", "hash-object", rel], cwd=self.clone, capture_output=True, text=True, check=True).stdout.strip()
+
+    def facts(self, issue=None, gh=None, gh_paginated=None, cwd=None):
+        def default_gh(args):
+            if args[:2] == ["issue", "view"]:
+                return {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "state": "OPEN",
+                        "labels": [{"name": "bug"}], "projectItems": [{"title": "Board", "status": {"name": "Ready"}}]}
+            if args[:2] == ["pr", "list"]:
+                return [{"number": 9, "url": "https://github.com/o/r/pull/9", "state": "OPEN", "isDraft": True,
+                         "headRefName": "issue-5-fix", "headRefOid": HEAD, "title": "Fix #5"}]
+            if args[:2] == ["api", "repos/o/r"]:
+                return {"default_branch": "main"}
+            raise AssertionError(f"Unexpected gh call: {args}")
+
+        def default_paginated(path):
+            return rules("lint", "test")
+
+        return project_facts(cwd=cwd or self.clone, issue=issue, gh=gh or default_gh,
+                             gh_paginated=gh_paginated or default_paginated, identity={"login": "bot", "configured": True, "ready": True, "source": "env"})
+
+    def test_checkout_repository_and_project_files(self):
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["checkout"]["branch"], "main")
+        self.assertFalse(result["checkout"]["is_linked_worktree"])
+        self.assertFalse(result["checkout"]["dirty"])
+        self.assertEqual(result["repository"]["remote"], "o/r")
+        self.assertEqual(result["repository"]["default_branch"], "main")
+        self.assertEqual((result["repository"]["local_default_ahead"], result["repository"]["local_default_behind"]), (0, 0))
+        self.assertEqual(result["repository"]["recent_subjects"], ["feat: first commit"])
+        files = result["project_files"]
+        self.assertEqual(files["instructions"], ["AGENTS.md"])
+        self.assertEqual(files["make_targets"], ["check", "test", "fmt-check"])
+        self.assertEqual(files["conftest_paths"], ["conftest.py", "tests/conftest.py"])
+        self.assertEqual(files["ci_workflows"], [".github/workflows/ci.yml"])
+        self.assertEqual(files["env_example"], ".env.example")
+        self.assertTrue(files["python_project"])
+        self.assertIsNone(files["pr_template"])
+        self.assertEqual(result["required_checks"], ["lint", "test"])
+        self.assertEqual(result["identity"], {"login": "bot", "configured": True, "ready": True, "source": "env"})
+        self.assertEqual(result["project_facts"], {"path": ".ghflow/project.md", "present": False})
+        self.assertIsNone(result["issue"])
+
+    def test_local_default_behind_origin_is_counted(self):
+        self.write("new.txt", "x\n")
+        git(["add", "-A"], self.clone)
+        git(["commit", "-q", "-m", "fix: second"], self.clone)
+        git(["push", "-q", "origin", "main"], self.clone)
+        git(["reset", "-q", "--hard", "HEAD~1"], self.clone)
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["repository"]["local_default_behind"], 1)
+        self.assertEqual(result["repository"]["recent_subjects"][0], "fix: second")
+
+    def test_issue_branches_worktrees_prs_and_board(self):
+        git(["branch", "issue-5-fix"], self.clone)
+        git(["branch", "issue-55-other"], self.clone)
+        wt = os.path.join(self.tmp, "wt-5")
+        git(["worktree", "add", "-q", wt, "issue-5-fix"], self.clone)
+        result, status = self.facts(issue=("o/r", 5))
+        self.assertEqual(status, 0, result["errors"])
+        issue = result["issue"]
+        self.assertEqual(issue["title"], "Fix it")
+        self.assertEqual(issue["labels"], ["bug"])
+        self.assertEqual(issue["board_items"], [{"project": "Board", "status": "Ready"}])
+        self.assertEqual(issue["branches"], ["issue-5-fix"])
+        self.assertEqual([os.path.realpath(p) for p in issue["worktrees"]], [os.path.realpath(wt)])
+        self.assertEqual(issue["prs"][0]["number"], 9)
+        self.assertEqual(len(result["checkout"]["worktrees"]), 2)
+
+    def test_linked_worktree_reports_primary_root(self):
+        wt = os.path.join(self.tmp, "wt-linked")
+        git(["worktree", "add", "-q", "-b", "task", wt], self.clone)
+        result, status = self.facts(cwd=wt)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertTrue(result["checkout"]["is_linked_worktree"])
+        self.assertEqual(os.path.realpath(result["checkout"]["primary_root"]), os.path.realpath(self.clone))
+        self.assertEqual(result["checkout"]["branch"], "task")
+
+    def test_facts_file_current_and_stale_sources(self):
+        agents = self.blob("AGENTS.md")
+        self.write(".ghflow/project.md", f"---\nghflow_project_facts: 1\nwritten: 2026-10-12\nsources:\n  - AGENTS.md {agents}\n  - Makefile {'0' * 40}\n  - docs/gone.md {'1' * 40}\n---\n# Facts\n")
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        facts = result["project_facts"]
+        self.assertTrue(facts["present"])
+        self.assertEqual(facts["written"], "2026-10-12")
+        self.assertEqual(facts["sources"], 3)
+        self.assertEqual([(s["path"], s["reason"]) for s in facts["stale_sources"]], [("Makefile", "changed"), ("docs/gone.md", "missing")])
+        self.assertEqual(facts["stale_sources"][0]["current"], self.blob("Makefile"))
+
+    def test_missing_origin_head_falls_back_to_gh_default_branch(self):
+        os.remove(os.path.join(self.clone, ".git", "refs", "remotes", "origin", "HEAD"))
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["repository"]["default_branch"], "main")
+
+    def test_failed_gh_read_is_null_with_error_and_exit_2(self):
+        def paginated(path):
+            raise GhError("HTTP 403")
+
+        result, status = self.facts(gh_paginated=paginated)
+        self.assertEqual(status, 2)
+        self.assertIsNone(result["required_checks"])
+        self.assertEqual(result["errors"], [{"part": "required_checks", "error": "HTTP 403"}])
+        self.assertEqual(result["repository"]["remote"], "o/r")
+
+    def test_outside_a_repository_exits_1(self):
+        result, status = self.facts(cwd=self.tmp)
+        self.assertEqual(status, 1)
+        self.assertIsNone(result["checkout"])
+        self.assertEqual(result["errors"][0]["part"], "checkout")
+
+    def test_parse_remote_forms(self):
+        self.assertEqual(parse_remote("git@github.com:o/r.git"), "o/r")
+        self.assertEqual(parse_remote("https://github.com/o/r.git\n"), "o/r")
+        self.assertEqual(parse_remote("https://github.com/o/r"), "o/r")
+        self.assertIsNone(parse_remote("https://example.com/o/r.git"))
+
+    def test_parse_facts_sources_ignores_other_frontmatter(self):
+        written, sources = parse_facts_sources("---\nwritten: 2026-10-12\nother:\n  - a b\nsources:\n  - X 1\n  - bad\n  - Y 2\nafter: z\n---\nbody")
+        self.assertEqual(written, "2026-10-12")
+        self.assertEqual(sources, [("X", "1"), ("Y", "2")])
+        self.assertEqual(parse_facts_sources("no frontmatter"), (None, []))
+
+    def test_main_facts_passes_issue(self):
+        captured = {}
+
+        def fake_facts(issue=None):
+            captured["issue"] = issue
+            return {"ok": True}, 0
+
+        with patch("ghflow.project_facts", fake_facts), patch("sys.stdout", new=io.StringIO()) as out:
+            status = main(["facts", "--issue", "https://github.com/o/r/issues/5"])
+        self.assertEqual(status, 0)
+        self.assertEqual(captured["issue"], ("o/r", 5))
+        self.assertTrue(json.loads(out.getvalue())["ok"])

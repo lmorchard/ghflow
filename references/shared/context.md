@@ -4,7 +4,7 @@ Keep the information needed for the current operation easy to find. Use these ru
 
 ## Read the selected task
 
-Read the selected task, project instructions, and supplied subject and authorization first. Open a linked reference when its named condition applies, and read the section that owns the decision. A link is a route to relevant instructions, not a request to recursively load every linked document. Keep the task's stopping point and applicable scope limits in view.
+Read the selected task, project instructions, and supplied subject and authorization first. When the subject has a project facts file, `.ghflow/project.md`, read it before the long form of the project instructions; it holds the setup, gates, generated files, and conventions in one screen, and the instructions it points to cover the areas you touch. Use `facts` for live checkout and issue state instead of separate `git` and `gh` reads. Open a linked reference when its named condition applies, and read the section that owns the decision. A link is a route to relevant instructions, not a request to recursively load every linked document. Keep the task's stopping point and applicable scope limits in view.
 
 For a coordinator, locating a future task reference means confirming its path; read its procedure when that operation becomes relevant. An operation becomes relevant when you prepare its dispatch. Do not load every future worker procedure before the first dispatch.
 

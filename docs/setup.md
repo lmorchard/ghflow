@@ -74,6 +74,16 @@ Maintain worktrees through authorized cleanup, and preserve worktrees with uncom
 If additional skills are unwanted, use a separate source checkout without nested skill packages.
 The [root-package trial](research/trials/2026-10-07-ghflow-root-setup.md#nested-worktree-discovery) records the evidence and decision.
 
+## Prepare the project facts
+
+After the first task in a project, ask for the project facts file:
+
+```text
+Use ghflow to prepare the project facts for this repository.
+```
+
+The agent writes `.ghflow/project.md` with the worktree setup, gates, generated files, test layout, and conventions that workers otherwise rediscover in every session, and records the source files it read. `python3 "$GHFLOW_CLI" facts` reports the live checkout and issue state and names the sources that changed since the file was written. Refresh the file when it reports stale sources, not on a schedule.
+
 ## Request another operation
 
 Start a new agent session in the target project. Request an operation explicitly:
