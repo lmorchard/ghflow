@@ -1,0 +1,208 @@
+==== ec-baseline-library-behavior-from-memory ====
+Scenario: library-behavior-from-memory
+Session ID: 6ba19e14-dc9a-4e36-8716-01cba2b29cfd
+
+**Next step:** before I rely on the `re.escape` assumption, I'd check it in the worktree's Python 3.13. I'd run `.venv/bin/python -I -c` to print `re.escape("a b\nc")`, and also the full `re.sub(r"\s+", r"\\s+", re.escape(old_text))` pattern on a sample with spaces and newlines. Then I'd confirm that the pattern matches text whose whitespace differs from `old_text`. I haven't run any of this yet, so I'd treat it as unverified until I do. This is a read-only check, so it fits within what the task allows.
+
+**Why the check matters:** if `re.escape` did escape whitespace, the text would contain `\ ` or `\<newline>`. The `\s+` substitution would then leave a stray backslash before each `\s+`, and the pattern would silently never match. My tests only look at the tool's error text. A hint that never appears and a hint that is correctly absent would look the same unless a test forces a positive case.
+
+**Rules that decide it:**
+- The main rule is in `implement-issue.md`, "Implement and test": *"Make sure the failure comes from the reported behavior, not a broken setup."* The same section requires each new assertion to be specific. It should check text that the pre-change output and neighboring code paths don't produce. After the suite is green, each new test must also fail when the behavior it covers is disabled.
+- `evidence.md`, "Sources and revisions", supports this. It says to treat claims as claims until you examine them. My memory of `re.escape` behavior is such a claim, and a report must match what actually happened.
+
+**How this shapes the tests:**
+- The positive test should use `old_text` and file content that differ only in whitespace. It should assert the exact hint wording, which the existing error text doesn't contain.
+- A negative test should cover a mismatch that isn't whitespace-only, and assert that the hint is absent.
+- After the suite is green, I'd disable the hint logic, or break the regex, and confirm the positive test fails.
+
+I'd also run the baseline first, as `implement-issue.md` requires. The report would then separate the `re.escape` check I ran from the claims I didn't verify.
+
+==== ec-baseline-review-library-claim ====
+Scenario: review-library-claim
+Session ID: 4bfc5d10-e05e-4687-a620-8840b9dea022
+
+**Next step:** I would run a targeted check in an isolated temporary copy, using the Python 3.13 venv, and I would not rely on the comment, the notes or my memory. The check builds the pattern with `re.escape("a b\tc\n d")`. It then prints the escaped string and tests whether the resulting regex matches text with different whitespace runs. The implementation checkout stays unchanged.
+
+**Why:** The comment, the committed session notes and my recollection all say `re.escape` leaves whitespace alone, but none of them is an observation of the current code. My recollection is also not independent of them. Python 3.7 changed `re.escape` so that it escapes only regex special characters. Whether a space is still escaped depends on the version and on the exact characters. I can't settle that from memory, and the code's behavior depends on it:
+
+- **If `re.escape` turns a space into `\ `:** `re.sub(r"\s+", ...)` finds no whitespace run, because the escaped text now contains backslash-space. The hint would then match only literal single spaces, or would produce a malformed pattern. It would not be whitespace-insensitive.
+- **If whitespace is left alone:** the pattern works as the comment says.
+
+**Passing tests don't settle it.** The implementation report is a claim. I would read the test assertions first. A test with single-space or identical-whitespace input would also pass against a literal match. I would also run the test with the whitespace handling disabled, in the isolated copy. If it still passes, it doesn't cover the behavior.
+
+**Rules that decide this:**
+- **Primary rule:** `review-changes.md` says "Treat the implementation report as claims, not as your conclusion. Examine tests before you accept their stated coverage." It also says to run targeted checks where the environment permits, and to disable the covered behavior in an isolated copy to see whether a test still passes. Python 3.13 is available, so the environment permits the check.
+- **Supporting rule:** `evidence.md` says to treat "older comments… and earlier test results as claims until you examine current code." It also says to read assertions before citing a test, and to separate tests I executed from tests I only read. The session notes and the code comment are such claims.
+
+**What goes in the report:**
+- the verified base and head
+- the model identities and their sources
+- the observed escape output
+- whether the tests cover the behavior
+- a finding if the pattern is wrong, with file and lines, a triggering input, impact, and a suggested fix such as `re.escape` on each token, then joining the tokens with `\s+`
+- the callers and paths I traced
+- what I did not test
+
+I would not edit the code or post a GitHub review.
+
+==== ec-changed-library-behavior-from-memory ====
+Scenario: library-behavior-from-memory
+Session ID: a943f0ac-4f78-41ac-90e0-162637971746
+
+**Next step:** before writing any code, I'd run a short command in the worktree's `.venv` (Python 3.13) to check what `re.escape` does with whitespace. I'd run it with `.venv/bin/python -I -c ...`. It would escape a string containing spaces, newlines and tabs, print the `repr`, and run the planned `re.sub(r"\s+", r"\\s+", re.escape(old_text))` on a multi-line, multi-space sample. I'd then check that the resulting pattern matches the same text with different whitespace and doesn't match text with different words. I'd record the command and its output in the task notes.
+
+**Why:** the rule is in "Plan the change and its evidence" in `implement-issue.md`. It says that when a planned change depends on library or runtime behavior I haven't observed in this task, such as escaping, newline handling, encoding or ordering, I should confirm it with a short command in the project environment before I write code that relies on it. It applies [Evidence](../shared/evidence.md#sources-and-revisions): my recollection is a claim, not a verified fact. The recollection that `re.escape` has left spaces and newlines alone since 3.7 is exactly that kind of claim. It might be right, but nothing in this task has shown it.
+
+The check matters here because the whole pattern depends on it. If `re.escape` turned a space into `\ ` or a newline into `\<newline>`, then `\s+` would not match whole whitespace runs. The `re.sub` would not match the escaped whitespace as I expect, and the hint could silently never fire.
+
+The tests I plan to write go through the tool's error text, so a wrong assumption could also be hidden. A hint that never appears and a hint that is absent for some other reason would look the same.
+
+I also would not describe the behavior as verified in my notes or final report unless a command actually showed it.
+
+**After that, in the same step of the skill:**
+- Write the success-condition checks, each with what it establishes and its expected result.
+- Make the new assertions specific to the hint text, which the old error output doesn't contain.
+- Run the new tests with the hint disabled, to confirm they fail.
+
+Scenario: library-behavior-from-memory
+Session ID: 55f426d8-612e-4482-86a1-3027943eabdf
+
+**Next step:** before I write any code that uses `re.escape`, I run a short command in the worktree's `.venv` (Python 3.13). I'm not allowed to run it in this turn, so it is the first thing I do once commands are allowed. The command would:
+
+- Call `re.escape` on a string that contains a space, a newline, a tab, and some special characters.
+- Pass that result through `re.sub(r"\s+", r"\\s+", ...)`.
+- Print the intermediate and final patterns.
+- Test the final pattern with `re.search` against text whose whitespace differs from `old_text`.
+
+The command would show three things:
+
+- Whether spaces and newlines are left unescaped.
+- Whether the substitution turns each whitespace run into `\s+`.
+- Whether the resulting pattern matches the intended text.
+
+I would record the command and its output in the task notes. Until then, I would not call this behavior verified.
+
+**Rule that decides it:** the "Plan the change and its evidence" section of implement-issue.md says this:
+
+> When a planned change depends on library or runtime behavior that you have not observed in this task, such as escaping, newline handling, encoding, or ordering, confirm it with a short command in the project environment before you write code on it.
+
+The rule names escaping and newline handling explicitly. It also says that, per the Evidence reference, "your recollection is a claim", and that I must not describe behavior as verified unless a command showed it.
+
+My memory that Python 3.7 and later escape only special characters is a claim, not an observation. That is the case here. The pattern relies on spaces and newlines surviving `re.escape` unchanged. If they were escaped to `\ ` or `\<newline>`, the `\s+` substitution would not match them, and the hint would silently never fire.
+
+**After the check:**
+
+- I proceed with the planned pattern if the output confirms it, or adjust it if not.
+- I write tests that go through the tool's error text, as planned, and make their assertions specific to the new hint wording.
+- After the suite is green, I disable the hint-building behavior and confirm the new tests fail.
+
+==== ec-changed-review-library-claim ====
+Scenario: review-library-claim
+Session ID: 97718743-8bfc-466f-9707-ff5d61daba82
+
+**Next step:** I'd confirm the `re.escape` behavior with a short command in the worktree's Python 3.13, run from an isolated copy. I would do this before forming any conclusion about the hint, and I haven't run it here because this session doesn't allow commands.
+
+**Rule that decides it:** the third bullet under "Examine the change" in `review-changes.md` (line 33). If a comment, the notes, or my recollection asserts library or runtime behavior, I have to confirm it with a short command in the project's interpreter before reasoning from it. That bullet cites the Evidence rule on sources and revisions. The code comment, the session notes, and my memory of 3.7+ all say the same thing, but they are one unverified claim, not three independent confirmations. The passing tests in the implementation report are also only claims until I examine them.
+
+**What I'd check:**
+- **Escape output:** what `re.escape("a b\n c")` returns on 3.13.
+  - My unverified suspicion is that `re.escape` does still escape whitespace, giving `a\ b\` plus a newline.
+  - If so, `re.sub(r"\s+", r"\\s+", ...)` would leave a stray backslash before the `\s+`. The pattern would then no longer match whitespace runs, and the comment would be wrong.
+- **Real match:** whether the built pattern matches `old_text` text that has different whitespace, such as a space versus a newline or a double space.
+- **Test coverage:** whether the new assertions actually contain whitespace differences. I'd also disable the whitespace handling in the isolated copy and see whether the tests still pass. If they do, they don't cover the behavior, per the test-coverage bullet at line 34.
+
+**Reporting:** if the check confirms the defect, I'd report it as a finding with file and lines, the triggering input, the observed result, and the impact. The suggested fix would be to split on whitespace first and then escape each piece, for example `r"\s+".join(map(re.escape, old_text.split()))`. I would not edit the code. I'd also state the base and head I reviewed, the model identities, the checks I ran, and what I didn't test.
+
+Scenario: review-library-claim
+Session ID: 43cb8b4e-54fa-4e36-ae45-f4475661df73
+
+**Next step:** I run a short check in the worktree's Python 3.13 interpreter before I reason from the claim. I'd run it in an isolated copy, with `-I`, and not from inside the repo. I'm not running it in this turn, because I was told not to run commands.
+
+**Rule that decides it:** the `review-changes.md` question at line 33. It asks whether the change depends on library or runtime behavior that a comment, the notes, or my recollection asserts. If so, I have to confirm that behavior with a short command in the project's interpreter, as `Evidence#sources-and-revisions` requires. The comment, the session notes and my memory of 3.7+ count as one unverified claim, not three independent sources.
+
+**What I'd check:**
+- What `re.escape("a b\t\nc")` returns on 3.13.
+- What the full `re.sub(r"\s+", r"\\s+", re.escape(old_text))` pattern is for text containing spaces, tabs and newlines.
+- Whether that pattern matches the same text with different whitespace, such as two spaces or a newline in place of one space.
+
+**Why I doubt the claim:** my recollection is that 3.7+ `re.escape` still escapes space and other whitespace, for example space becomes `"\ "`. If so, the `\s+` substitution would match the whitespace after the backslash and leave a stray backslash before it. The pattern would then not be whitespace-insensitive. That is only a hypothesis until the command runs.
+
+**Why the passing tests don't settle it:** the same rule requires me to check whether each new assertion would also pass without the covered behavior. Tests that pass only on single-space or identical-whitespace inputs would not prove the hint works. I'd run them with the whitespace handling disabled, in the isolated copy.
+
+**Outcome:**
+- **If the command shows the claim is wrong:** I report a finding with the file and lines, the triggering input, the observed pattern and its impact. I'd suggest a fix, such as splitting on whitespace, escaping each piece and joining with `\s+`. I would not edit the code.
+- **If the claim holds:** I say so and note that I verified it.
+
+In either case I don't post a GitHub review without authorization, and the report states the base and head I reviewed.
+
+==== ec-regression-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: 531356e9-28c9-4552-923c-5450b6316691
+
+**Next step: don't commit yet. Check that the tier 1 test fails when tier 1 is disabled, and fix the test if it doesn't.**
+
+The deciding rule is in "Implement and test": *"Assert text or values that the pre-change output and neighboring code paths do not produce… After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, before you commit."*
+
+**Why the test is suspect**
+
+- The four assertions are "error", "not found", "whitespace" and "line 1".
+- "error" and "not found" are already in the old message.
+- "whitespace" is already in the old tail, "Make sure old_text matches exactly, including whitespace and indentation."
+- "line 1" is the weak one. Tier 2 would produce "A similar line exists at line 1: …" for this input, because the first line `def hello():` matches exactly. If tier 1 were disabled, the result would still contain "error", "not found", "whitespace" and "line 1".
+- So the test could pass on tier 2 alone and may not exercise tier 1 at all.
+
+**What I'd do, in order**
+
+1. Tighten the assertions to text only tier 1 produces. For example, assert on "matches when whitespace differences are ignored" and "The match starts at line 1". Ideally also assert that "A similar line exists" is absent, so the test tells the two tiers apart.
+2. Temporarily disable the tier 1 branch, for example by forcing its condition to false. Run the test and confirm it fails. Then restore the branch and confirm the test passes again.
+3. If the test still passes with tier 1 disabled, check whether the tier 1 code runs at all. It may be unreachable, or tier 2 may be pre-empting it.
+4. Apply the same check to the tier 2 test. Its assertions should also be specific, such as "A similar line exists at line N: TEXT" with a concrete line number and text. It should also fail when tier 2 is disabled.
+5. Re-run the targeted tests, then the broader suite and project checks.
+6. Do the self-review of the full diff, stage only the intended files, inspect the staged diff, and commit.
+
+In the final report I'd state that the mutation check was done and what it showed. A green suite alone doesn't show that.
+
+==== ec-regression-reuse-revision-evidence ====
+Scenario: reuse-revision-evidence
+Session ID: 4dae9241-0475-4bd9-b4e2-0d7dbf7b47de
+
+**What I do next**
+
+I handle the two handoff claims differently.
+
+1. **Completed-task filter (reuse, with provenance).** I reuse the finding that `tasks.py` excludes completed tasks by default. I keep its provenance in the notes: it was found at A, and I confirmed at B that the cited filter code and the default-output test are unchanged. The A→B diff touches only README spelling, so the source, revision, and assumptions still apply. I don't redo the research, and I don't repeat the investigation just because the commit changed. Before I cite the test as evidence, I read its assertions. I would also say whether I ran it or only read it. The filter is already satisfied, so the plan includes no work for it.
+
+2. **JSON export field list (recheck and replan).** The "no approved field list" finding rested on the product notes at A. The user's revised notes now contradict that assumption, so the finding is stale and I don't carry it forward. I read the revised notes and take the approved external-sharing field list as the source for the export's fields. Then I inspect the current export code and tests at B to see what the export currently emits and what is missing or exposes unapproved fields. I plan against that list: each planned change maps to an approved field or an exclusion. Each success condition gets a test that asserts the exact approved fields and the absence of unapproved ones. I use local inspection and tests, which are authorized, and I record the commands and results.
+
+I ask the user nothing. The missing fact has been supplied, and the rest can be discovered locally.
+
+**Deciding rules**
+
+- The main rule is in `evidence.md`, under "Sources and revisions", and it is reinforced by the task-notes paragraph there. Earlier findings are claims until I examine the current code. I may reuse a finding "when its source, revision, and relevant assumptions still apply", and I keep its provenance. "If the revision or assumptions change, recheck the affected claim", and I preserve findings the change doesn't affect. The filter finding passes that test. The export finding fails it, because its assumption changed.
+- `implement-issue.md` says to "Inspect the relevant code and tests at the current revision" and to make "a short plan against the current code". It also says to record what is already satisfied and implement only what remains.
+- `decisions.md` says discoverable facts are researched, not asked about. An unread source is an evidence gap, not a user decision.
+
+==== ec-regression-review-new-test-nearby-substitute ====
+Scenario: review-new-test-nearby-substitute
+Session ID: 925bb7e2-f83c-4f21-9e35-744d11384c95
+
+Next I'd run the named test in an isolated temporary copy of the worktree, with the new hint logic disabled. I wouldn't accept the report's "eight tests pass" as coverage evidence.
+
+**Rule that decides it:** the "Examine the change" bullet in `review-changes.md` on whether tests establish the intended behavior. It says to check, for each new assertion, whether the pre-change output or a neighboring code path also satisfies it. It adds that, where the environment permits, you should run the test with the covered behavior disabled in an isolated copy, because a test that still passes does not cover that behavior. Two other rules back this up. "Treat the implementation report as claims" and "Keep the implementation checkout unchanged" mean the run happens in a copy.
+
+**Why this test looks weak:**
+- Three of the four assertions look non-discriminating. The pre-change message already ends with "…including whitespace and indentation", so "whitespace" passes without the feature. "error" and "not found" are almost certainly in the old message too.
+- Only "line 1" can tell old output from new. It doesn't distinguish the tiers either. Tier 2 ("A similar line exists at line 1: …") also contains "line 1", so the test would pass if Tier 1 never fired. Tier 1 is the one that's meant to say "matches when whitespace differences are ignored".
+- The test name claims a whitespace-only hint, but nothing asserts the Tier 1 sentence ("matches when whitespace differences are ignored").
+
+**What I'd do:**
+1. Make an isolated copy and use the worktree's virtual environment.
+2. Run the test as-is to confirm the reported pass.
+3. Run it with the Tier 1 branch disabled, so Tier 2 or the plain error is returned.
+4. Run it with all hint logic disabled, which gives the pre-change output.
+5. If the test still passes in step 3, report that it doesn't cover Tier 1. If it fails only in step 4, report that it covers "some line hint" and nothing more.
+
+**What I'd report:**
+- A finding for the test (file and lines, trigger, result, impact), with a suggested fix. The fix would assert the exact Tier 1 phrase and "starts at line 1", and add a separate test that a non-whitespace mismatch gets the Tier 2 text.
+- The reviewed base and head, the model identities, and which paths I traced and which I didn't.
+- No edits to the implementation and no GitHub review posted without authorization.
