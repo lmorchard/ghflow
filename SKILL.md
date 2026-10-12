@@ -9,16 +9,16 @@ Select the requested operation and follow its task reference. Each operation wor
 
 ## Locate the source and tools
 
-Resolve this `SKILL.md` path through any symbolic link. Its parent is `GHFLOW_SKILL_DIR`. Use absolute paths below that directory for references and subagent handoffs. Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` below it before running command examples. Quote the path:
+Resolve this `SKILL.md` path through any symbolic link. Its parent is `GHFLOW_SKILL_DIR`. Use absolute paths below that directory for references and subagent handoffs. Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` below it before running command examples. Quote the path. A command tool can start a new shell for each call, so export the variable in each command that uses it, or write the full path:
 
 ```sh
-GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
+export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
 ```
 
 Replace `ABSOLUTE_SKILL_DIRECTORY` with the resolved directory. The resolved skill directory is the source checkout root. Use its `cli/ghflow.py` directly. Keep the current directory at the target project so Git, GitHub, and identity configuration use that project. Resolve writing guidance through each reference's links, not through the current directory. If source reads need external directory permission, report the resolved checkout path and use the setup instructions in [Source access permissions](docs/setup.md#source-access-permissions). Do not silently change agent permissions.
 
-Apply [Authorization](references/shared/authorization.md) and [Evidence](references/shared/evidence.md). When a fact or choice is missing, apply [Decisions](references/shared/decisions.md). Before a subagent runs Git or GitHub commands, apply [Agent identity](references/shared/identity.md). Before changing GitHub records, apply [GitHub writes](references/shared/github-writes.md). CLI reads do not grant permission to write.
+The selected task reference names the shared rules it needs. Open a shared reference when its condition applies, and read the section that owns the decision; do not read every shared reference before the first action. The conditions: [Authorization](references/shared/authorization.md) when a permission or scope question arises; [Evidence](references/shared/evidence.md) before you report a result or pass on an identifier; [Decisions](references/shared/decisions.md) when a fact or choice is missing; [Agent identity](references/shared/identity.md) before a subagent runs Git or GitHub commands; [GitHub writes](references/shared/github-writes.md) before changing GitHub records. CLI reads do not grant permission to write.
 
 ## Select the requested operation
 

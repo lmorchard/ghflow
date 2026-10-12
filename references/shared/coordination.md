@@ -18,6 +18,8 @@ A delivery coordinator dispatches implementation, review, and submission to suba
 
 Give the subagent its resolved entry skill, task-reference, and CLI paths, the source checkout revision used for instructions and tools, the target checkout, the subject, current revisions, relevant evidence, confirmed decisions, and authorization limits. Supply the text of each finding or decision that the worker must act on or record; a label alone is not enough. Tell it to execute the authorized operations without selecting another. Include unresolved questions only when they affect that task. Require actual results and evidence limits in return. For tasks with [working notes](task-notes.md), carry their exact path and relevant facts in both directions; keep independent reviewer inputs within that reference's limits.
 
+Write the complete handoff before the dispatch call and send it in that call. If a dispatch or a resume goes out with an empty or placeholder prompt, resume the same session with the full handoff; do not start a new session for it, and name the extra call in your report.
+
 Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures or the full issue body. Carry decisions and evidence that the next worker cannot recover from those sources. Distinguish the enclosing flow's authorization from the worker's current stopping point.
 
 For example, an implementation handoff can use this form. Replace the placeholders with actual paths and evidence; omit fields that do not apply:
