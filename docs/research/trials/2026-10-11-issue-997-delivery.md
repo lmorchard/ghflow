@@ -40,7 +40,9 @@ Evidence now treats a recollection of library or runtime behavior, and a comment
 
 submit-pr now applies the identity check instead of `gh auth status`, names the two `verify-commit` forms after push and after creation or on resumption, reads the body back before marking ready as a separate command, requires the body to name who ran each check and to describe only content the worker read, and gives a body file location. Board status states that `set-status` reports the earlier status. Scenarios: `board-status-no-pre-read`, `submit-pr-write-identity`, `submit-pr-unread-finding-text`, and `submit-pr-resume-ready-readback`.
 
-The remaining observations are not yet changes. They concern notes written before results exist and reviewer access to PR comments.
+Task notes and Evidence now say that a result is recorded only after the command has run, that an unperformed step is a next action, and that a pre-written outcome is corrected before work continues. Scenario: `notes-result-before-run`.
+
+The remaining observation that is not yet a change is reviewer access to top-level PR comments.
 
 ## Evidence limits
 
