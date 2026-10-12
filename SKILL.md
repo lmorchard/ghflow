@@ -22,7 +22,7 @@ The selected task reference names the shared rules it needs. Open a shared refer
 
 ## Select the requested operation
 
-Match the user's explicit request to the operation below. Identify the subject repository from the user's request or the target checkout. The source checkout supplies instructions and tools; its remote and the configured account do not identify the subject. If the selected repository, issue, or PR is missing, return the needed input before GitHub searches or dispatch. For an assessment-only request, explain the operation and limits without performing delivery. If a material endpoint is unclear, ask only for that decision. Do not choose backlog work or add a fixed sequence. A delivery request defaults to review follow-up with its PR left open. Read its coordinator reference for subagent dispatch and different-model review requirements.
+Match the user's explicit request to the operation below. Identify the subject repository from the user's request or the target checkout. `python3 "$GHFLOW_CLI" facts` reports the checkout, repository, tooling, identity readiness, and the project facts file; with `--issue ISSUE_URL` it adds the issue's branches, worktrees, PRs, and board items. Use it instead of separate `git` and `gh` reads for that state, and read `.ghflow/project.md` when it reports one. The source checkout supplies instructions and tools; its remote and the configured account do not identify the subject. If the selected repository, issue, or PR is missing, return the needed input before GitHub searches or dispatch. For an assessment-only request, explain the operation and limits without performing delivery. If a material endpoint is unclear, ask only for that decision. Do not choose backlog work or add a fixed sequence. A delivery request defaults to review follow-up with its PR left open. Read its coordinator reference for subagent dispatch and different-model review requirements.
 
 | Request | Task reference |
 |---|---|
@@ -47,6 +47,7 @@ Match the user's explicit request to the operation below. Identify the subject r
 | Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) |
 | Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) |
 | Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
+| Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) |
 
 ## Execute and hand off
 

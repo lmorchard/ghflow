@@ -1,0 +1,175 @@
+Scenario: handoff-points-to-project-facts
+Session ID: 9dad29f4-82ed-41dc-aba0-e50d46aef129
+
+**What I do next:** I don't paste the fifteen-line "Project conventions" block. Instead, the handoff points the worker to `.ghflow/project.md`. It names the file, says it was current when `facts --issue` ran (38 lines, written last week, no stale sources), and tells the worker to read it. I add only what the worker can't recover from that file or the issue. That means the source revision, the confirmed scope and decisions, any existing work, the review path or exception, and the authorization and its limits. If I had read something in the file that changes this issue's work, such as a gate that applies unusually, I'd state that one fact. I wouldn't copy the whole set.
+
+**Why:** The deciding rule is in the Handoffs section of `shared/coordination.md`, which `express-issue.md` points to at line 15 ("A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself… It does not restate the procedure"). The section says: "Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures… Carry decisions and evidence that the next worker cannot recover from those sources."
+
+The conventions block is project procedure: worktree setup, gates, never-run commands, commit style. The worker can read all of it from `project.md`. Copying it would restate procedure, and the copy could drift from the file. The previous coordinator doing it that way doesn't make it the right practice.
+Scenario: handoff-points-to-project-facts
+Session ID: 2c8a012a-170b-41aa-b38d-38e2e89a6ada
+
+**What I do next:** I don't paste the fifteen-line "Project conventions" block. I replace it with a pointer in the handoff:
+
+- **Project facts path:** `.ghflow/project.md`.
+- **Live state:** an instruction to run `facts --issue ISSUE_URL`.
+- **Task-specific differences:** only the facts that differ for issue #1054.
+- **Stale sources:** none to name, because `facts` reported none.
+
+I would also still supply the usual handoff items the worker can't read itself:
+
+- the source revision
+- the confirmed decisions
+- the review plan
+- the authorization limits
+- the notes path, if there is one
+
+**Why:** The deciding rule is in `references/shared/coordination.md`, under Handoffs. It says: "When the subject has a project facts file, point to it and to `facts --issue ISSUE_URL` instead of restating the project's setup, gates, and conventions; name only the facts that differ for this task, and name any source that `facts` reports as stale so the worker reads it directly."
+
+The same section's example handoff has a "Project facts: PROJECT_FACTS_PATH if present; run `facts --issue ...`" line, which is the form to use here.
+
+The file is present, it is a week old, and no sources are stale. So it is current, and the worker can read it itself. The block would be a copy of what's in the file. It would add length and could go out of date if the file is refreshed.
+
+The previous coordinator's habit of copying doesn't override the rule. The related rule is to "Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures." Copying the file also doesn't fit `express-issue.md`'s instruction that a handoff "does not restate the procedure."
+
+I would keep a line in the handoff only if something in the file mattered for this issue in a way the worker wouldn't see by reading it. One example is a convention that conflicts with a confirmed decision for #1054. The worktree setup commands, the gates, the websocket docs manifest, the notes convention, the forbidden commands and the commit style are all already in the file. So they stay out of the handoff.
+
+Scenario: handoff-points-to-project-facts
+Session ID: 914bff72-bbeb-41e4-910f-e29e0a952583
+
+**What I do next:** I don't paste the fifteen-line "Project conventions" block. I replace it with a short pointer in the handoff. It would do three things:
+
+- Point the worker to `.ghflow/project.md`.
+- Tell it to run `facts --issue ISSUE_URL` for live state.
+- List only the conventions that differ for issue #1054.
+
+The pointer would be a "Project facts:" line using the handoff form in `coordination.md`.
+
+**Why:** The deciding rule is in "Handoffs" in `references/shared/coordination.md`, which `express-issue.md` points to at line 15 and line 27. It says: "When the subject has a project facts file, point to it and to `facts --issue ISSUE_URL` instead of restating the project's setup, gates, and conventions; name only the facts that differ for this task, and name any source that `facts` reports as stale so the worker reads it directly."
+
+It also says: "Link to the issue and project instructions instead of copying their procedures."
+
+Each part of the situation fits that rule:
+
+- **File present and current:** `.ghflow/project.md` is present and written last week. `facts` reports no stale sources. The worker can read it directly, so copying it duplicates it. The copy could also drift from the file.
+- **What the file covers:** Setup commands, gates, generated docs, notes convention, forbidden commands and commit style are all standing project facts. They go in the pointer, not the handoff.
+- **Stale sources:** None, so I name none.
+- **What to add:** I add only task-specific differences. For example, #1054 touches the websocket message docs, so I'd tell the worker to regenerate them from the manifest, but only if that is how this task differs from the standing conventions.
+
+The previous coordinator's copied block was a mistake, not a precedent.
+Scenario: project-facts-stale-source
+Session ID: 3d5657e7-175a-46c6-82d0-385a461e17b1
+
+**Next step:** Don't refresh the facts file. Carry on with issue #1070 under `express-issue`, with the default endpoint of PR review follow-up, without merge. First I'd read the existing task notes and inspect the existing branches, PRs and checks. Then I'd dispatch `implement-issue`, or resume work that's already there.
+
+**Rules that decide it**
+
+1. **`prepare-project-facts.md`, "Decide whether the file needs work".** A non-empty `stale_sources` does mean "refresh the sections drawn from those sources". But that rule belongs to the prepare-project-facts task, and nobody invoked that task. The task also ends with a commit in the subject repository, and `express-issue` and `prepare-project-facts` both put that under Authorization. Stale facts don't authorize a repository write.
+
+2. **`express-issue.md`, intro.** The coordinator "does not do subject-repository work". It dispatches, reads evidence and settles decisions. So I wouldn't edit `.ghflow/project.md` myself in any case. The endpoint is also bounded: delivering the issue through review follow-up is a separate job from refreshing facts.
+
+3. **`express-issue.md`, "Establish the task" and "Implement and publish".** The handoff to the worker supplies the facts it can't read itself. Per `coordination.md`, the handoff carries `Project facts: PROJECT_FACTS_PATH if present; run facts --issue ISSUE_URL for live state`.
+
+**What I'd do about the stale `Makefile` source**
+
+- Pass the facts path to the worker, and flag that the Gates section is possibly outdated. The `Makefile` changed after the file was written, so `make check` and `make test` may no longer match.
+- Tell the worker to verify those gate commands against the current `Makefile` and repository instructions before relying on them. Under the Evidence rules, an unverified fact is an evidence gap, not something to trust.
+- Report the stale source in the final report as a remaining limit.
+- Offer a separate `prepare-project-facts` refresh to the user as an optional follow-up. I wouldn't do it unprompted.
+
+Scenario: project-facts-stale-source
+Session ID: 3ac3ffc4-c8fc-4181-9cd1-67679af1154f
+
+**Next step:** I carry on with delivery of #1070 through PR review follow-up, without merge. I don't refresh `.ghflow/project.md`, and I don't dispatch a facts-refresh worker. I dispatch the implementation worker under `implement-issue` and tell it that the Gates section may be out of date.
+
+**Why:**
+- **Express-issue sets the scope.** It limits this flow to implementation, review, submission and follow-up for one issue. The coordinator "does not do subject-repository work", and the facts file lives in the subject repository.
+- **Prepare-project-facts doesn't apply here.** Its "Decide whether the file needs work" rule says a non-empty `stale_sources` means refresh the sections drawn from those sources. That rule only applies once the facts task is the one being run.
+- **Nobody asked for a refresh.** Prepare-project-facts opens by applying Authorization "before you write to the subject repository". It also ends with a commit and says the file is published only if the flow authorizes it. Authorization for delivering #1070 doesn't cover writing and committing a facts file, and that commit would add unrelated changes to the issue's branch or PR.
+- **A stale source is a reliability warning.** It doesn't block anything. The file is still present. The Makefile changed after the file was written, so `make check` and `make test` may have been renamed or changed.
+
+**What I put in the handoff:**
+- The facts file is present, with `Makefile` reported stale.
+- The worker should treat the Gates commands as hints and confirm them against the current `Makefile`, CI workflows and repository instructions before it relies on them. It should report the commands it actually ran as evidence.
+- The worker does not edit `.ghflow/project.md`.
+
+**Afterward:** In the final report I mention that the facts file has a stale `Makefile` hash. I also offer a separate `prepare-project-facts` refresh if the user wants one, and I leave that decision to them.
+Scenario: project-facts-live-state
+Session ID: 8c71ac76-2fc0-4316-b46a-c10d75ac1fda
+
+I leave all four out: the `origin/main` head, the open PRs, the issue's board status and the identity login. I write `.ghflow/project.md` with only the stable facts I already have.
+
+The deciding rule is in "Write one screen of stable facts": "Leave live state out: the default branch head, local or remote branches, open PRs, board status of an issue, worktrees, and identity readiness change between sessions, and `ghflow facts --issue ISSUE_URL` reads them on demand." The file holds only what `ghflow facts` cannot read. Each of the four items is live state that `ghflow facts` can read, and each would go stale between sessions. A stale head or PR list would also mislead the next worker, and it would break the Evidence rule that each recorded fact be true.
+
+The file will contain these parts:
+- **Frontmatter:** `ghflow_project_facts: 1`, the written date, and every source file that supplied a fact, each with its `git hash-object` hash.
+- **Worktree setup**, **Gates** and **Generated files:** the commands and checks from the instructions and the Makefile.
+- **Session notes:** the notes convention.
+- **Other sections:** Never run, Commits and PRs, Test layout, and Board (static owner and number only), each included only if its source supplies the facts.
+- **Last line:** a pointer to `python3 "$GHFLOW_CLI" facts --issue ISSUE_URL` as the way to get live state.
+
+The file should stay under about 40 lines. I would then run `facts` again and confirm `present` is true, `sources` matches the list, and `stale_sources` is empty. After that I would commit the file in the worktree and publish it only if the flow authorizes it.
+
+Scenario: project-facts-live-state
+Session ID: 294b72c1-2b98-4980-ad20-078582633d3d
+
+I leave all four out: the `origin/main` head, the open PRs, the issue's board status, and the identity login. Then I write the file with only the stable facts.
+
+The deciding rule is in "Write one screen of stable facts": "Leave live state out: the default branch head, local or remote branches, open PRs, board status of an issue, worktrees, and identity readiness change between sessions, and `ghflow facts --issue ISSUE_URL` reads them on demand." The file also "holds only what `ghflow facts` cannot read." All four items are live state that `ghflow facts` already reports. If I wrote them in, they would go stale, and the next worker might trust them over a fresh read.
+
+Next steps:
+1. Write the file with the stable sections: Worktree setup, Gates, Generated files, Session notes, and the others that apply. It stays under about 40 lines.
+2. Start it with the frontmatter. That has `ghflow_project_facts: 1`, the date, and the blob hash from `git hash-object` for every source file that supplied a fact, including the instructions file and the Makefile.
+3. End it with a line pointing to `python3 "$GHFLOW_CLI" facts --issue ISSUE_URL` for live state.
+4. Check that each fact comes from a source I read. Then re-run `facts` and confirm `present` is true, `sources` matches the list, and `stale_sources` is empty. Commit in the worktree, and publish only if the flow authorizes it.
+
+The board's owner, number, and Status names can go in the Board section, but only if the instructions name them. The status of the particular issue I was reading cannot.
+Scenario: coordinator-ready-to-dispatch
+Session ID: 557c76d8-5477-4848-a32a-32a45ec2513d
+
+**Next step:** I dispatch one general implementation worker for implement-issue. I don't first add a custom workaround, copy the project instructions into the handoff, or take on any subject-repository work myself. I also don't read the review, submission, or follow-up references yet. The handoff points the worker at the project instructions and doesn't restate them.
+
+**The deciding rules**
+- **`express-issue.md`, "Implement and publish draft progress":** Dispatch implement-issue when implementation remains. The handoff carries the source revision, confirmed scope and decisions, existing work, the established review path, and the flow authorization with its limits. The same worker continues into submit-pr for draft publication. It must not mark the PR ready or request review. I ask for actual results and evidence limits in return.
+- **`shared/coordination.md`, Handoffs:** Link to the project instructions and the project facts instead of copying their procedures. Name only the facts that differ for this task. Carry only decisions the worker can't recover from those sources. The example handoff form has a "project instructions at PROJECT_INSTRUCTIONS" field, so the worker reads them itself.
+
+**Why that answers the doubt about obeying the instructions:** The skill doesn't make the worker's obedience depend on my restating the instructions. The handoff gives the worker a pointer to the project instructions and to `facts --issue ISSUE_URL`, and it names any source that `facts` reports as stale. The worker reads them directly. Duplicating them would go against the "do not restate the procedure" rule and could drift from the source.
+
+I also can't do the implementation in the parent to be safe. `coordination.md` says not to do subject-repository work in the parent or silently replace a skill's procedure.
+
+**Before the dispatch:** I apply "Prepare required review" for this delivery endpoint, because the recorded metadata already establishes the review path. The handoff includes that review plan. After the worker returns, I read its report and then move to the review step.
+Scenario: context-read-selected-task
+Session ID: aed3dad7-f415-409b-8499-2501d7cb1e2c
+
+**Next step:** I'd start the "Read the issue and current code" section of `implement-issue.md`. That means reading the project instructions, the body and relevant comments of issue #948, and the relevant code and tests at the current revision. I'd also check whether the reported problem still exists. If part of it is already satisfied, I'd record the evidence and implement only what remains. If nothing remains, I'd report that.
+
+I'd do that before the workspace, baseline and plan steps. The skill makes the issue and current code the basis for every later step. Authorization and Evidence apply throughout, and I've read Authorization, but I haven't opened `evidence.md` yet. I'd read it, along with `context.md`, `task-notes.md` and `decisions.md`, when those steps come up.
+
+**Rules that decide this:**
+- **Scope:** The opening of `implement-issue.md` says the skill "ends with a local branch and a report. Do not push, open a PR, merge, or remove the worktree." Authorization says permission for one action doesn't imply the next. It also says an explicit narrower limit wins. So the local-only request limits this task to a local branch and a report.
+- **Publication:** The "Return useful progress for draft publication" section applies only when the enclosing flow authorizes publication. Here none is, so that section's draft-PR handoff doesn't apply. I won't read or follow `pr-lifecycle.md` or `submit-pr.md`. The same goes for the onward links to merge, follow-up and board procedures.
+- **Board status:** The skill says to move the issue to In progress when implementation starts. That is a GitHub write, and no write has been authorized. Under `github-writes.md` and Authorization, I'd skip the board update and say so in the report as "skipped: not authorized". I'd read `board-status.md` only if the user did authorize that write.
+
+I'd continue with the isolated worktree, baseline checks, a plan, tests, and a self-reviewed local commit. The final report would give the status, the commands run, and the checks I didn't run.
+Scenario: implementation-handoff-operation-scope
+Session ID: ca7f4d5f-d99a-4a51-b2be-18d6f9e65f97
+
+**Next step:** I dispatch one implementation worker for `implement-issue`. I don't create a worktree, edit the repository, or implement anything myself. The worker creates the task worktree and does the repository work.
+
+**Deciding rule:** "Implement and publish draft progress" in `express-issue.md`. Before dependent implementation, the review path must be prepared (`review.md#prepare-required-review`). Then I dispatch `implement-issue`. The handoff takes the form given in `coordination.md#handoffs`.
+
+**What the handoff contains:**
+- **Operation and paths:** `implement-issue`, with the skill, task-reference and CLI paths and the source checkout at its full commit.
+- **Subject:** the issue URL for #997, the target checkout, the project instructions path, and the base commit.
+- **Confirmed decisions:** the user's decision to preserve a compatibility option. The worker can't read this from the issue text, so I state it explicitly. The detailed changes and tests stay in the issue. I link to it and don't copy it.
+- **Review plan:** the fresh reviewer path and its model metadata, which are already established. This also carries any user-approved exception.
+- **Flow authorization:** the endpoint is through PR review follow-up, without merge.
+- **This handoff's scope:** implementation, then draft publication through `submit-pr` in the same session.
+- **Draft publication:** the worker publishes the first significant committed checkpoint as a draft and then keeps implementing on the same branch. It publishes the final commits to that same draft. It must not mark the PR ready or request review.
+- **Return request:** the PR URL, the published head, check results, evidence limits, and remaining work.
+
+**Why this and not something else:**
+- The coordinator doesn't do subject-repository work, and it doesn't read the diff to review it.
+- The same worker carries the implementation and draft publication. If it returns a checkpoint without publishing, I resume it and don't start another worker.
+- A draft checkpoint doesn't complete the endpoint.
+- After the draft is published and the worker returns, I dispatch `review-changes` in a fresh context for the exact base and published head. Later steps follow the skill: findings go back to the same worker, then the PR is marked ready, then parent-owned follow-up. None of that happens before the first dispatch.

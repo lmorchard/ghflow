@@ -916,6 +916,231 @@ def pr_ready(repo, number, body_file=None, expect_head=None, board=None, gh=run_
         result["errors"].append({"part": "pr_state", "error": "Some parts of the final PR state could not be read."})
     return result, 2 if result["errors"] else 0
 
+PROJECT_FACTS_PATH = Path(".ghflow") / "project.md"
+INSTRUCTION_FILES = ("AGENTS.md", "CLAUDE.md", ".github/copilot-instructions.md", "CONTRIBUTING.md")
+PR_TEMPLATE_CANDIDATES = (".github/PULL_REQUEST_TEMPLATE.md", ".github/pull_request_template.md", "PULL_REQUEST_TEMPLATE.md")
+
+
+def run_git(args, cwd):
+    """Run a read-only git command and return its stdout text."""
+    result = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise GhError((result.stderr or result.stdout).strip() or f"git exited {result.returncode}")
+    return result.stdout
+
+
+def parse_remote(url):
+    """Return OWNER/NAME from a GitHub remote URL, or None."""
+    match = re.search(r"github\.com[:/]([^/\s]+)/([^/\s]+?)(?:\.git)?/?$", url.strip())
+    return f"{match.group(1)}/{match.group(2)}" if match else None
+
+
+def parse_facts_sources(text):
+    """Return (written, [(path, blob_hash)]) from a project facts file's frontmatter."""
+    if not text.startswith("---\n"):
+        return None, []
+    end = text.find("\n---", 4)
+    if end < 0:
+        return None, []
+    written = None
+    sources = []
+    in_sources = False
+    for line in text[4:end].splitlines():
+        if line.startswith("written:"):
+            written = line.split(":", 1)[1].strip() or None
+            in_sources = False
+        elif line.strip() == "sources:":
+            in_sources = True
+        elif in_sources and line.lstrip().startswith("- "):
+            parts = line.lstrip()[2:].split()
+            if len(parts) == 2:
+                sources.append((parts[0], parts[1]))
+        elif line and not line.startswith(" "):
+            in_sources = False
+    return written, sources
+
+
+def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run_gh_paginated, identity=None):
+    """Report the live, deterministic facts about a checkout that a task handoff would otherwise restate.
+
+    Reads only. ``issue`` is ``(repo, number)`` or ``None``. Each part that could not be read
+    is ``null`` with an entry in ``errors``; exit 2 when any part failed.
+    """
+    errors = []
+    read_errors = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError, IndexError)
+
+    def part(name, read):
+        try:
+            return read()
+        except read_errors as error:
+            errors.append({"part": name, "error": str(error)})
+            return None
+
+    start = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        root = Path(git(["rev-parse", "--show-toplevel"], start).strip()).resolve()
+    except read_errors as error:
+        return {"checkout": None, "errors": [{"part": "checkout", "error": str(error)}]}, 1
+
+    def read_checkout():
+        branch = git(["rev-parse", "--abbrev-ref", "HEAD"], root).strip()
+        head = git(["rev-parse", "HEAD"], root).strip()
+        worktrees = []
+        current = {}
+        for block in git(["worktree", "list", "--porcelain"], root).strip().split("\n\n"):
+            if not block.strip():
+                continue
+            current = {}
+            for line in block.splitlines():
+                key, _, value = line.partition(" ")
+                current[key] = value
+            worktrees.append({"path": current.get("worktree"), "head": current.get("HEAD"),
+                              "branch": current.get("branch", "").removeprefix("refs/heads/") or None,
+                              "bare": "bare" in current})
+        primary = next((w["path"] for w in worktrees if not w["bare"]), str(root))
+        dirty = bool(git(["status", "--porcelain"], root).strip())
+        return {"root": str(root), "primary_root": primary, "is_linked_worktree": str(root) != primary,
+                "branch": branch, "head": head, "dirty": dirty, "worktrees": worktrees}
+
+    checkout = part("checkout", read_checkout)
+
+    def read_repository():
+        url = git(["remote", "get-url", "origin"], root).strip()
+        remote = parse_remote(url)
+        default = None
+        try:
+            default = git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).strip().removeprefix("origin/")
+        except GhError:
+            if remote:
+                data = gh(["api", f"repos/{remote}"])
+                default = response_string(response_type(data, dict, "The repository response")["default_branch"], "The default branch")
+        info = {"remote": remote, "remote_url": url, "default_branch": default}
+        if default:
+            origin_head = git(["rev-parse", f"origin/{default}"], root).strip()
+            info["origin_default_head"] = origin_head
+            try:
+                local_head = git(["rev-parse", "--verify", f"refs/heads/{default}"], root).strip()
+                counts = git(["rev-list", "--left-right", "--count", f"refs/heads/{default}...origin/{default}"], root).split()
+                info.update({"local_default_head": local_head, "local_default_ahead": int(counts[0]), "local_default_behind": int(counts[1])})
+            except GhError:
+                info.update({"local_default_head": None, "local_default_ahead": None, "local_default_behind": None})
+            info["recent_subjects"] = git(["log", "--format=%s", "-5", f"origin/{default}"], root).strip().splitlines()
+        fetch_head = Path(git(["rev-parse", "--git-common-dir"], root).strip())
+        if not fetch_head.is_absolute():
+            fetch_head = root / fetch_head
+        fetch_head = fetch_head / "FETCH_HEAD"
+        info["fetch_head_age_seconds"] = int(time.time() - fetch_head.stat().st_mtime) if fetch_head.exists() else None
+        return info
+
+    repository = part("repository", read_repository)
+
+    def read_project_files():
+        tracked = set(git(["ls-files", "-z"], root).split("\0"))
+        tracked.discard("")
+        instructions = [name for name in INSTRUCTION_FILES if name in tracked]
+        make_targets = []
+        if "Makefile" in tracked:
+            for line in (root / "Makefile").read_text(encoding="utf-8", errors="replace").splitlines():
+                match = re.match(r"^([A-Za-z0-9_][A-Za-z0-9_.-]*)\s*:(?!=)", line)
+                if match and not match.group(1).startswith("."):
+                    make_targets.append(match.group(1))
+        return {
+            "instructions": instructions,
+            "make_targets": make_targets,
+            "python_project": "pyproject.toml" in tracked,
+            "node_project": "package.json" in tracked,
+            "conftest_paths": sorted(path for path in tracked if path == "conftest.py" or path.endswith("/conftest.py")),
+            "ci_workflows": sorted(path for path in tracked if path.startswith(".github/workflows/") and path.endswith((".yml", ".yaml"))),
+            "pr_template": next((name for name in PR_TEMPLATE_CANDIDATES if name in tracked), None),
+            "env_example": next((name for name in (".env.example", ".env.sample", "env.example") if name in tracked), None),
+            "lockfiles": sorted(path for path in tracked if path in ("uv.lock", "poetry.lock", "package-lock.json", "pnpm-lock.yaml", "yarn.lock", "Cargo.lock", "go.sum")),
+        }
+
+    project_files = part("project_files", read_project_files)
+
+    def read_facts_file():
+        path = root / PROJECT_FACTS_PATH
+        if not path.exists():
+            return {"path": str(PROJECT_FACTS_PATH), "present": False}
+        text = path.read_text(encoding="utf-8")
+        written, sources = parse_facts_sources(text)
+        stale = []
+        for source, recorded in sources:
+            source_path = root / source
+            if not source_path.exists():
+                stale.append({"path": source, "reason": "missing"})
+                continue
+            current = git(["hash-object", "--", source], root).strip()
+            if current != recorded:
+                stale.append({"path": source, "reason": "changed", "recorded": recorded, "current": current})
+        return {"path": str(PROJECT_FACTS_PATH), "present": True, "written": written, "sources": len(sources),
+                "stale_sources": stale, "lines": len(text.splitlines())}
+
+    facts_file = part("project_facts", read_facts_file)
+
+    def read_identity():
+        config = identity if identity is not None else resolve_identity()
+        return {key: config.get(key) for key in ("login", "configured", "ready", "source")}
+
+    identity_facts = part("identity", read_identity)
+
+    required_checks = None
+    if repository and repository.get("remote") and repository.get("default_branch"):
+        def read_required():
+            rules = gh_paginated(f"repos/{repository['remote']}/rules/branches/{repository['default_branch']}")
+            response_type(rules, list, "The branch rules")
+            contexts = []
+            for rule in rules:
+                response_type(rule, dict, "A branch rule")
+                if rule.get("type") != "required_status_checks":
+                    continue
+                for check in response_type(response_type(rule["parameters"], dict, "The rule parameters")["required_status_checks"], list, "The required checks"):
+                    contexts.append(response_string(response_type(check, dict, "A required check")["context"], "A required check context"))
+            return sorted(contexts)
+        required_checks = part("required_checks", read_required)
+
+    issue_facts = None
+    if issue is not None:
+        issue_repo, number = issue
+
+        def read_issue():
+            data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json", "url,title,state,labels,projectItems"])
+            response_type(data, dict, "The issue response")
+            items = []
+            for item in response_type(data.get("projectItems") or [], list, "The issue project items"):
+                response_type(item, dict, "A project item")
+                status = item.get("status")
+                items.append({"project": item.get("title"), "status": status.get("name") if isinstance(status, dict) else None})
+            return {"url": response_string(data["url"], "The issue url"), "title": data.get("title"), "state": data.get("state"),
+                    "labels": [label.get("name") for label in data.get("labels") or [] if isinstance(label, dict)],
+                    "board_items": items}
+
+        issue_facts = part("issue", read_issue) or {}
+        pattern = str(number)
+
+        def read_branches():
+            names = git(["for-each-ref", "--format=%(refname:short)", "refs/heads/", "refs/remotes/origin/"], root).split()
+            return sorted(name for name in names if re.search(rf"(^|[^0-9]){re.escape(pattern)}([^0-9]|$)", name))
+
+        issue_facts["branches"] = part("issue_branches", read_branches)
+        if checkout:
+            issue_facts["worktrees"] = [w["path"] for w in checkout["worktrees"]
+                                        if w.get("branch") and re.search(rf"(^|[^0-9]){re.escape(pattern)}([^0-9]|$)", w["branch"])]
+
+        def read_prs():
+            prs = gh(["pr", "list", "--repo", issue_repo, "--state", "all", "--search", f"{number} in:title,body", "--json",
+                      "number,url,state,isDraft,headRefName,headRefOid,title"])
+            response_type(prs, list, "The PR list")
+            return [{"number": pr.get("number"), "url": pr.get("url"), "state": pr.get("state"), "is_draft": pr.get("isDraft"),
+                     "head_branch": pr.get("headRefName"), "head": pr.get("headRefOid"), "title": pr.get("title")}
+                    for pr in prs if isinstance(pr, dict)]
+
+        issue_facts["prs"] = part("issue_prs", read_prs)
+
+    result = {"checkout": checkout, "repository": repository, "project_files": project_files, "project_facts": facts_file,
+              "identity": identity_facts, "required_checks": required_checks, "issue": issue_facts, "errors": errors}
+    return result, 2 if errors else 0
+
 
 def identity_config_paths(cwd=None):
     """Return identity config paths in project, primary-checkout, then home order."""
@@ -1091,6 +1316,10 @@ def main(argv=None):
     ready.add_argument("--owner", help="login that owns the project board")
     ready.add_argument("--project", type=int, help="project board number")
     ready.add_argument("--status", default="In review", help='target Status option name (default "In review")')
+
+    facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
+    facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
+    facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     ident = commands.add_parser("identity", help="Report or export the configured agent identity.")
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
@@ -1115,6 +1344,10 @@ def main(argv=None):
             issue_repo, issue_number = parse_issue(args.issue, repo)
             board = (issue_repo, issue_number, args.owner, args.project, args.status)
         result, status = pr_ready(repo, number, args.body_file, args.expect_head, board)
+
+    elif args.command == "facts":
+        issue = parse_issue(args.issue, args.repo) if args.issue else None
+        result, status = project_facts(issue=issue)
     elif args.command == "identity":
         try:
             identity = resolve_identity()
