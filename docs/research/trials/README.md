@@ -160,3 +160,9 @@ Source was hashed mutable working text. The trial establishes neither completed 
 The [transcript review](2026-10-11-coordinator-preparation.md) records repeated preparation before the first implementation dispatch.
 It supplies the source for clearer dispatch ownership, preparation limits, handoffs, and same-model evidence rules.
 The snapshot does not establish completed implementation, review, or delivery.
+
+## 2026-10-11: issue #997 delivery on a local model
+
+The [delivery record](2026-10-11-issue-997-delivery.md) covers the full run of the same session, with every agent on local `llama.cpp/llama` at skills `ddd342e`.
+[PR #1060](https://github.com/lmorchard/decafclaw/pull/1060) ended ready at `c392966` with passed hosted checks and no merge. The reviewer found a shipped defect that the implementation's tests had missed.
+Seven dispatches and about 3 hours 50 minutes for a 60-line change supplied the source for one implementation worker across operations, no coordinator diff assessment, and a conditional follow-up dispatch. Three new scenarios and four updated scenarios cover those decisions. Every changed-text and regression sample passed on Sonnet, and four of five baselines failed on the reversed decision, as the [results](../../../evals/results/2026-10-11-ceremony-reduction.md) record.

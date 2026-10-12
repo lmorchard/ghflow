@@ -9,7 +9,7 @@ An authorized delivery flow has an existing draft PR for issue #944. Implementat
 
 ## Expected
 
-Use submit-pr to publish any remaining commits, update the description to the final change and evidence, and mark the existing draft ready with gh pr ready. Read back the ready state and head, then move the issue In review. Return the ready submission handoff for parent-owned follow-up within existing authorization. Reuse completed current-head review and do not request Copilot by default. Readiness does not authorize merge.
+Resume the implementation worker to run submit-pr: publish any remaining commits, update the description to the final change and evidence, and mark the existing draft ready with gh pr ready. Read back the ready state and head, then move the issue In review. Return the ready submission handoff for parent-owned follow-up within existing authorization. Reuse completed current-head review and do not request Copilot by default. Readiness does not authorize merge.
 
 ## Not acceptable
 
