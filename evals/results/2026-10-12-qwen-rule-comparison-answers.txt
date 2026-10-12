@@ -1,0 +1,340 @@
+==== qb-testassert-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: ses_ed278cf89ffenWv37BiVyLiQgS
+
+**What I do next:** I don't commit yet. I run the pre-commit self-review, then commit:
+
+1. Inspect the complete task diff from the merge base, including the uncommitted implementation and new test file.
+2. Check for incomplete changes, missed callers, error cases (e.g., a test for the tier 2 "similar line" hint, which currently has no test), unrelated edits, and missing documentation; verify the new test still establishes the intended behavior (tier 1 fires when only whitespace differs, and the "line 1" assertion is what the hint actually produces).
+3. Fix anything found within scope and re-run the affected checks.
+4. Stage only the intended files, inspect the staged diff, and commit following project conventions. After that the skill ends with a local branch and report — no push, PR, merge, or worktree removal.
+
+**Why:** The implementation is done and the broader suite already passed, which "Implement and test" requires *before* self-review and commit — so that gate is already satisfied and the next mandatory step in the flow is the self-review, not the commit itself. The skill also warns this self-review is not independent review, so I must not claim independent verification.
+
+**Deciding rule:** the **"Review and commit"** section of `references/tasks/implement-issue.md` (lines 61–69): *"Inspect the complete task diff from the merge base, including uncommitted and new files… Check that changed tests still establish the intended behavior. Fix what you find within scope, and run the affected checks again… Stage only the intended files and inspect the staged diff. Commit logical changes following project conventions."* No linked reference changes this decision, since the rule lives in the task skill itself.
+
+==== qb-testassert-review-new-test-nearby-substitute ====
+Scenario: review-new-test-nearby-substitute
+Session ID: ses_ed276476cffeHyyYHLIbCZ0zln
+
+I have the task skill. Now let me read the linked shared references the skill applies, since I need their rules to decide what to do next.
+
+
+## What I do next
+
+I run the new tests myself — at minimum `test_edit_whitespace_only_mismatch_gets_line_hint` — in an **isolated temporary copy** of the worktree (using its venv), and record the actual pass/fail result against the head commit. I do **not** accept the implementation report's statement that "eight new tests pass" as true.
+
+I already have the test's assertions from the supplied facts, so I've read them before treating the test as evidence. As written the test is internally consistent with the described tier‑1 behavior (whitespace‑only mismatch on line 2, exact match on line 1 → "the match starts at line 1", and the hint contains "whitespace"), so it is not an obvious "nearby substitute." But internal consistency is a claim until I execute it. Running it confirms whether the implementation actually emits the tier‑1 hint with the correct line number, or whether the report overstates coverage.
+
+I keep the implementation checkout unchanged (hence the isolated copy) and I record the outcome as belonging to the verified head; if the head moves I reassess.
+
+## Why
+
+The report is author‑produced and I am the *independent* reviewer. A passing suite reported by the author does not, by itself, prove the new result on this commit; I must distinguish tests I *executed* from tests I only *read*. Running a targeted check where the environment permits is the only way to turn the report's claim into evidence I can stand behind in the findings.
+
+## The skill rule that decides it
+
+- **`review-changes.md` → *Establish the scope*:** "Treat the implementation report as claims, not as your conclusion. Examine tests before you accept their stated coverage." — this is the rule that blocks me from accepting the report at face value.
+- Operationalized by **`review-changes.md` → *Examine the change*:** "Run useful targeted checks where the environment permits … Passing tests do not prove that no defects exist," and **"Keep the implementation checkout unchanged. If tests generate files or modify data, use an isolated temporary copy."** — this is what dictates *how* I verify (isolated copy, targeted run).
+- Corroborated by **`evidence.md` → *Sources and revisions*:** "Read test assertions before you cite a test as evidence … and tests you executed from tests you only read. A passing suite does not by itself prove the new result."
+
+So the deciding rule is the "report = claims, not your conclusion; examine/run the tests before accepting their coverage" rule, executed via a targeted run in an isolated copy.
+
+==== qc-testassert-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: ses_ed272ea54ffeqasXwtF5SXXUpZ
+
+## What I do next
+
+**Do not commit yet.** I run the new tier‑1 test with the tier‑1 hint temporarily disabled (and re‑run it, then the full suite once fixed), because as written the test cannot be shown to cover tier 1.
+
+## Why
+
+The test asserts the lowercased result contains "error", "not found", "whitespace", and "line 1". Checked against the rule about assertion specificity:
+
+- **"error", "not found", "whitespace"**: the pre‑change error already ends with "Make sure old_text matches exactly, including **whitespace** and indentation" — a not‑found error — so these words are in the old output and prove nothing about the new hint.
+- **"line 1"**: this is the only assertion that could be new, but it is **not specific to tier 1**. In this exact scenario tier 2 also fires — the first line of `old_text` (`def hello():`) is an exact match for line 1 of the file — and tier 2's message is "A similar line exists at **line 1**: …". So with tier 1 disabled and tier 2 left on, the test would still pass.
+
+Per the skill, a green suite is not enough: I must confirm the new test *fails* when the behavior it covers is disabled, not merely when the whole change is absent. Since it would still pass with tier 1 disabled, it "covers something else." The fix before committing:
+
+1. Make the assertions tier‑1‑specific — assert text only tier 1 produces, e.g. "whitespace differences are ignored" or "the match starts at line 1" (ideally both), not the generic words the old message already carries.
+2. Re‑run the targeted test with tier 1 disabled to confirm it now fails, and with tier 1 enabled to confirm it passes.
+3. Re‑run the full suite, then proceed to the review‑and‑commit step.
+
+## The rule that decides it
+
+**[implement-issue.md](references/tasks/implement-issue.md) → "Implement and test":** "Make each new assertion specific to the behavior under test. Assert text or values that the pre-change output and neighboring code paths do not produce; a word that the old output already contains proves nothing. After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, **before you commit**."
+
+==== qc-testassert-review-new-test-nearby-substitute ====
+Scenario: review-new-test-nearby-substitute
+Session ID: ses_ed26f5de2ffeNbWeOJE4yuO65Y
+
+I read the `review-changes.md` skill. My next step is to **examine the named test's assertions against the pre-change output** (and, where the isolated copy permits, run the test with the covered behavior disabled).
+
+**Why:** The pre-change not-found error already ends with *"…including whitespace and indentation,"* so the assertion that the lowercased result contains **"whitespace"** is satisfied by the *old* code. That means one of the test's four assertions is a nearby substitute that passes regardless of the new two-tier hint; only the **"line 1"** / new-hint-text assertions actually discriminate the change. I must not accept the report's "tests pass" as proof of coverage.
+
+**The deciding skill rule** is in **Examine the change**:
+
+> "Do tests establish the intended behavior rather than a nearby substitute? For each new assertion, check whether the pre-change output or a neighboring code path also satisfies it. Where the environment permits, run the test with the covered behavior disabled in an isolated copy; a test that still passes does not cover it."
+
+So I check each assertion (noting "whitespace" is already covered pre-change), and because the environment permits it, I run the test in an isolated copy with the two-tier hint disabled — if it still passes, the test does not establish the new behavior. I do this without modifying the implementation or its expected results, per the skill's "Keep the implementation checkout unchanged… Do not change expected results" instruction.
+
+==== qb-empirical-library-behavior-from-memory ====
+Scenario: library-behavior-from-memory
+Session ID: ses_ed26de8cbffeppgX5tw95VpdKe
+
+## What I do next
+
+**I stop and verify the load‑bearing premise before implementing or writing any tests.** Specifically, I establish from current evidence — the worktree's `.venv` (Python 3.13) — what `re.escape` actually does to runs of whitespace, rather than proceeding on the unverified recall. Only once that fact is settled do I finalize the pattern construction and then implement and write the tests that exercise the hint through the tool's error text.
+
+## Why
+
+- The planned pattern, `re.sub(r"\s+", r"\\s+", re.escape(old_text))`, is correct **only if** `re.escape` leaves whitespace unchanged. I recall it does, but I have "not run anything that shows this," so that recall is an unexamined claim, not evidence.
+- My best reading is that the recall is **wrong**: in Python 3.7+ (and 3.13) `re.escape` backslash‑prefixes whitespace (space, tab, newline, CR, VT, FF). So `re.escape("a b")` yields `a\ b`, and the subsequent `\s+` substitution leaves stray backslashes — producing a pattern like `a\\s+b` that matches a literal backslash + `s+`, not "any whitespace run." The intended "whitespace‑runs‑are‑flexible" match would never fire.
+- If I build and test on that false premise, the planned tests would exercise a **broken hint**, and any pass/fail would come from the broken pattern (a broken setup), not from the reported behavior. So the fact must be checked first, and the pattern redesigned if needed (e.g., split `old_text` on whitespace runs, `re.escape` the non‑whitespace tokens, and join with `\s+`).
+
+## The rule that decides it
+
+**Decisions — "Resolve facts and routine choices":** *"Research discoverable facts in current code, tests, documentation, or other relevant sources. … An unread source is an evidence gap, not a user decision."* The behavior of `re.escape` is a **discoverable fact**, not a decision about intended result, so I resolve it from current evidence (the worktree's Python 3.13) instead of relying on an unverified recall or returning it to the user.
+
+This is invoked by **implement‑issue** — *"When a fact or choice is missing, apply [Decisions]. Settle routine implementation choices from current evidence"* — and is reinforced by **Evidence** (*"Treat … as claims until you examine current code"; "Distinguish … tests you executed from tests you only read"*) and the test‑first rule (*"Make sure the failure comes from the reported behavior, not a broken setup"*).
+
+Per the current constraints, I am not running that check, making edits, or dispatching anything here — I am stating the decision and its governing rule.
+
+==== qb-empirical-review-library-claim ====
+Scenario: review-library-claim
+Session ID: ses_ed25e5b7cffeF5i4ihl6N5Uq6e
+
+**What I do next**
+
+I do **not** close this point on the basis of the comment, the committed session notes, my recollection, or the passing tests. Instead, my next step is to run a targeted check in the isolated Python 3.13 copy to demonstrate the actual behavior — i.e., confirm that `re.escape` leaves whitespace runs unescaped and that the full expression `re.sub(r"\s+", r"\\s+", re.escape(old_text))` turns each whitespace run (spaces, tabs, newlines) into `\s+` for representative `old_text` values. (I am describing this step; per the constraints I am not executing it here.)
+
+**Why**
+
+The hint's correctness rests on a single, version‑dependent behavioral claim — "each whitespace run becomes `\s+` because `re.escape` leaves whitespace alone." That claim is currently only *asserted*, in three places that all agree (the in‑code comment, the session notes, and my recollection), and never *demonstrated* in this environment. The skill is explicit that the implementation report is a claim, not my conclusion, and that passing tests do not prove the behavior is correct. Because the environment permits an isolated Python 3.13 run, I must verify the claim before I can rely on it — and so that a favorable finding covers only behavior I actually traced, rather than behavior I assumed. (I would also note, as part of that check, that this behavior holds from Python 3.7 onward, so the check is worth tying to the interpreter version.)
+
+**The skill rule that decides it**
+
+`Run useful targeted checks where the environment permits` — *Review changes → Examine the change* (review‑changes.md, line 39). This is the deciding rule, reinforced by *Treat the implementation report as claims, not as your conclusion* (line 21) and *Passing tests do not prove that no defects exist* (line 39), and consistent with *Keep the implementation checkout unchanged … use an isolated temporary copy* (line 23) for the run.
+
+I am not inventing a defect: the three sources agree and the tests pass, so this is a verification step, not a presumption of failure — but agreement among sources is not evidence, and the environment gives me a way to get real evidence.
+
+==== qc-empirical-library-behavior-from-memory ====
+Scenario: library-behavior-from-memory
+Session ID: ses_ed2598255ffe3Xj79GrfV5kdgd
+
+**What I do next:** Before writing any code or tests, I confirm the `re.escape` assumption with a short command run in the project environment — the worktree's `.venv` on Python 3.13, e.g. printing `repr(re.escape("a  b\n\tc"))` and the composed `re.sub(r"\s+", r"\\s+", re.escape(old_text))` output for a sample — and record that command and its result in the task notes. Only after it shows the expected behavior do I build the hint on it.
+
+**Why:** My planned change rests on a library behavior (that `re.escape` leaves whitespace runs untouched so they can be rewritten to `\s+`) that I have only *recalled*, not observed in this task. A recollection of library behavior is a claim, not evidence, and the planned tests only exercise the hint through the tool's error text — they don't substitute for confirming the escaping premise the implementation depends on. The rule also requires the confirmation in *this* environment (worktree `.venv`, Python 3.13), since behavior claims must be tied to the actual runtime, and requires recording the command and result rather than describing the behavior as verified.
+
+**Deciding rule:** "Plan the change and its evidence" in `references/tasks/implement-issue.md`: *"When a planned change depends on library or runtime behavior that you have not observed in this task, such as escaping, newline handling, encoding, or ordering, confirm it with a short command in the project environment before you write code on it."* — applying the linked [Evidence](../shared/evidence.md#sources-and-revisions) rule, "your recollection is a claim... record the command and its result in the notes. Do not describe behavior as verified unless a command showed it."
+
+(Per the session constraints, I name the command and its place in the sequence but do not execute it here.)
+
+==== qc-empirical-review-library-claim ====
+Scenario: review-library-claim
+Session ID: ses_ed25790bbffeAakVfZcx6PBh1g
+
+**What I do next:** I confirm the asserted `re.escape` behavior with a short command in the project's Python 3.13 interpreter (e.g., `python -c "import re; print(repr(re.escape('a  b')))"`), and I record the command and its result — *before* I reason about whether the hint's pattern is correct. I do not lean on the code comment, the committed session notes, my recollection, or the "tests pass" report. (Per your constraints I state this as the next step rather than executing it now.)
+
+**Why:** The change's correctness rests on one library behavior — that `re.escape` leaves whitespace runs alone so each run becomes `\s+`. That behavior is asserted by *three* independent‑sounding sources (a code comment, the notes, and my recollection that it holds in Python ≥ 3.7) plus a passing‑tests report. The skill treats all of those as **claims, not conclusions**, so agreement among them is exactly what the rule is designed to catch: I must not reason from a comment/notes/recollection. I must establish it empirically in the *project's* interpreter (3.13, which is where the change runs — my "≥ 3.7" recollection is not a substitute), and only then judge the pattern. Separately, "tests pass" is an implementation‑report claim and does not by itself establish the intended behavior.
+
+**Rule that decides it:**
+- `review-changes.md` → *Examine the change*: "Does the change depend on library or runtime behavior that a comment, the notes, or your recollection asserts? **Confirm that behavior with a short command in the project's interpreter before you reason from it**, as [Evidence](../shared/evidence.md#sources-and-revisions) requires."
+- Backed by `evidence.md` → *Sources and revisions*: "Treat your recollection of library or runtime behavior, and a code comment that states it, **as a claim too**. When a change or a finding depends on such behavior, **confirm it with a short command in the project environment and record the command and its result**."
+
+After that confirmation, I'd proceed to the next "Examine the change" step — checking whether the new tests actually establish the whitespace‑insensitive behavior (running them with the covered behavior disabled in an isolated copy) rather than accepting the passing report.
+
+==== qb-notes-notes-result-before-run ====
+Scenario: notes-result-before-run
+Session ID: ses_ed25474f9ffepKG84QznoiO3Vs
+
+**What I do next:** I do **not** write that `Resume here` entry. I rewrite the summary to state the actual current state and the true next action, *then* run the gates and push, and only update the summary to the "DONE" wording once each of those events has actually happened.
+
+Accurate summary content would be, in effect:
+- Current state: review-fix edits made in the worktree; **uncommitted**, **not pushed**; `make check`/`make test` **not yet run on the edited tree**.
+- Next action: run `make check` and `make test` on the edited tree, commit, push, then `verify-commit` and read back the PR head; update this summary at each checkpoint.
+
+**Why:** The proposed entry records events that have not happened — it claims the fixes are "pushed," that `make check` and `make test` are "green on the new head" (there is no new head; nothing is committed), and that `verify-commit` and a PR head read-back are "confirmed" when neither was run. A resumed worker reading that summary would trust nonexistent evidence and could skip the gates. The notes must reflect reality at the moment of writing, not the intended end state.
+
+**The deciding rule:** **Evidence** (`references/shared/evidence.md`) — "A report must match what actually happened," together with **"Results belong to a commit"**: "Every test result, check result, and review describes one commit." No commit exists and no checks have been run on the edited tree, so there are no green results and no push to record. This is applied through the **Task notes** rule (`references/shared/task-notes.md`, "Write useful entries frequently"), which requires the `Resume here` summary to carry the "latest checks and their revisions … blocker, and next action," and to record "Attempts and checks, with what was tried, **the actual result**" — with Evidence applied "to recorded findings and results." `implement-issue.md` binds both onto this task: "Apply Evidence … throughout" and "Apply Task notes to preserve findings, decisions, and useful attempts throughout execution."
+
+So the order is: correct the summary to the true state → run `make check`/`make test` → commit → push → `verify-commit`/read back head → only then rewrite `Resume here` as "Review fixes DONE (local, pushed), checks green on head <sha>, verify-commit and head read-back confirmed," citing the actual commit SHA and actual results.
+
+==== qc-notes-notes-result-before-run ====
+Scenario: notes-result-before-run
+Session ID: ses_ed251adb8ffeeVibcUKguX3Uma
+
+## What I do next
+
+I **do not write the proposed `Resume here` entry**. Every clause of it is a claim about results that have not happened:
+
+- "Review fixes DONE (local, **pushed**)" — the edits are in the worktree but **uncommitted and unpushed**.
+- "`make check` and `make test` green on the new head" — I have **not run** either gate on the edited tree, and there is no new head yet.
+- "`verify-commit` and PR head read-back confirmed" — neither has been performed.
+
+Instead I write the `Resume here` summary as the true current state — *review fixes edited locally (uncommitted, unpushed); gates not yet run on the edited tree* — and record the unperformed steps **as next actions**: run `make check` and `make test` on the edited tree, then commit, then push the final commits to draft PR #1060, then verify the head. I then proceed with the first of those: per "Implement and test," the broader suite and project checks run **before self-review and commit**, so I run the gates first, commit, push, and only after the commands have run do I update the notes with their actual results.
+
+## The rule that decides it
+
+**Task notes — "Write useful entries frequently"** (`references/shared/task-notes.md`):
+
+> "Update the checks and status **after the commands run, not before**; a resumed worker treats the summary as what happened." … "Write a step you have **not performed as the next action, not as an outcome; a planned push, check, or verification is not evidence until it happens**."
+
+Reinforced by **Evidence — Reports** (`references/shared/evidence.md`):
+
+> "Write a result into notes or a report **only after the command has run**; until then it is a next action. If you find a result that you wrote before running the command, **correct it before you continue**."
+
+Because a resuming worker reads `Resume here` as what actually happened, recording planned pushes, gates, and verification as completed outcomes would corrupt the handoff — so the entry must be rewritten as state-plus-next-actions before I run anything.
+
+==== qb-submit-board-status-no-pre-read ====
+Scenario: board-status-no-pre-read
+Session ID: ses_ed24e67fbffeHtaR19Pg45oreD
+
+## Decision
+
+**Do next:** Run the board transition directly — do **not** write the GraphQL query. From the target project directory:
+
+```
+python3 "$GHFLOW_CLI" board set-status <URL of issue #997> --owner lmorchard --project 6 --status "In review"
+```
+
+Then report the `before`, `after`, `added`, and `readback_matches` values that the command prints.
+
+**Why:** The handoff's "report the board status before and after" is already satisfied by the tool itself. The `set-status` command reads the current state before writing (leaving it unchanged if it already matches the target), sets the status, and reads it back — and it prints `before` and `after`. So a separate `gh api graphql` pre-read is redundant: the same before/after facts come from the tool's own output, and the CLI only needing to expose `set-status` is expected, not a gap to fill with a hand-written API call. (If the write fails or no single status option matches, I report it separately and continue the main task rather than working around it.)
+
+**Deciding rule:** The **Board status** skill (`references/shared/board-status.md`) — its *Procedure*: step 2 ("Run `python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "TARGET"`") and the sentence *"Report its `before`, `after`, `added`, and `readback_matches` values."* That rule assigns the before/after reporting to the `set-status` tool's output, which is why the extra GraphQL read is not the next step.
+
+==== qb-submit-submit-pr-resume-ready-readback ====
+Scenario: submit-pr-resume-ready-readback
+Session ID: ses_ed242febeffeFqQH8zzyc9hR60
+
+## What I do next
+
+I do **not** run the chained `gh pr edit … && gh pr ready …` yet. First I inspect the PR's live state in this session — run `python3 "$GHFLOW_CLI" pr-state PR_URL` (from the target project directory, per [CLI results](../cli.md#reading-pr-state)) and check, before any write:
+
+1. The PR is still open and still a draft.
+2. The current head is still `c392966` — the head the independent review and local checks supposedly cover.
+3. Branch and base match the handoff.
+4. The current description body, so the `--body-file` update doesn't clobber edits I didn't make.
+
+Only once that read confirms head `c392966` and a safe body overwrite do I perform the writes (edit body, then `gh pr ready`), reading back the result after each write — body, head, and ready state — before moving on to the board transition and review request.
+
+## Why
+
+- I am **resuming**, the PR URL is known, and I have not read the PR in this session. The handoff is a claim, not evidence: the live head may have moved (in which case "a review that covers an earlier commit does not qualify," so readiness must not be claimed), someone may have edited the description (so a blind `--body-file` overwrite would discard changes I didn't make), or the PR state may otherwise differ from what the handoff assumed.
+- The github-writes rules that govern every GitHub record change require: record what a write returns immediately, read the saved result back (a success response is not proof), and — on resumption — read the recorded item again **before** an update, preserving changes I didn't make and investigating any difference before overwriting.
+- `pr-lifecycle.md` ("Mark the PR ready") likewise requires reading back the ready state and current head before the board transition or review request.
+
+## The deciding rule
+
+**submit-pr.md → "Publish and confirm": "On resumption, inspect the known PR URL first."**
+
+It is backed by the shared **GitHub writes** rule (submit-pr.md: "Before changing GitHub records, apply GitHub writes"): "On resumption, inspect the recorded URL first" and "Read it again before an update and preserve changes that you did not make. If the current content differs from what you expect, investigate before you overwrite it."
+
+The planned command gets the *post*-write read-back right but omits the *pre*-write read that these rules require — so the next action is the state read, not the edit/ready chain.
+
+==== qb-submit-submit-pr-unread-finding-text ====
+Scenario: submit-pr-unread-finding-text
+Session ID: ses_ed2463545ffed26qgFZ2UrtbYS
+
+**Next action:** Before drafting the limits paragraph, read the task notes file the handoff names in the worktree — starting with the `Resume here` summary at the top, then the relevant entries and their linked evidence that record the Windows-write observation. Then write the limits paragraph strictly from what the notes establish (what was observed, on which revision, and why it is out of scope). If the notes do not contain enough to describe it accurately, report the evidence gap and proceed with the rest of the body rather than inventing or guessing the observation's details.
+
+**Why:** I am resuming, and the handoff's one-liner is only a pointer/claim, not the content of the limit. The PR body must accurately explain material limits (submit-pr.md, "Prepare the branch and description": "Write a title and body that explain … material limits"), and a file reference is a claim until I examine the source it points to. The notes file is the designated store for this fact, so it must be read before I commit the paragraph's wording.
+
+**Deciding rule:** [Task notes](references/shared/task-notes.md) → "Read before resuming or repeating work": *"At resumption, after context compaction, or before repeating research or reopening a decision, read the relevant notes."* Supported by [Working context and tool output](references/shared/context.md) → "Read the selected task": *"Start with the current summary, then read older entries or their sources when the next action needs them"* — the limits paragraph is exactly the next action that needs them — and by [Evidence](references/shared/evidence.md) → "Sources and revisions", which treats file references as claims until examined. (Fallback per task-notes.md "Locate or create the notes": if the notes are unavailable, report the gap and use available issue, PR, and Git evidence.)
+
+==== qb-submit-submit-pr-write-identity ====
+Scenario: submit-pr-write-identity
+Session ID: ses_ed24b561cffeCPEgeuP5E9pQtY
+
+I'll read the task skill file first.
+
+
+I'll read the linked references that apply to this decision — authorization, GitHub writes, the CLI reference, and the PR lifecycle — in parallel.
+
+
+The CLI reference points to `shared/identity.md` for the configured agent identity. That's the rule that decides this. Let me read it.
+
+
+## What I do next
+
+1. **Do not switch accounts.** I will not run `gh auth switch` (or `login`/`logout`) to make `MokaGnome` the active host account. The host's active account being `lmorchard` is not itself a blocker, and changing the active account is explicitly forbidden.
+2. **Confirm the token before any write.** Before pushing or creating the PR, I run `gh api user` **under the selected identity** (via `python3 "$GHFLOW_CLI" exec -- gh api user`) and verify the returned `login` equals `MokaGnome`.
+3. **Run the writes under the identity.** I push the branch and run `gh pr create --draft` through `python3 "$GHFLOW_CLI" exec -- ...` so the machine token (`GH_TOKEN` from the selected token file, which takes precedence over the host's inherited token) authenticates the writes as `MokaGnome`, not as the host's active `lmorchard`.
+4. Only after that confirmation do I proceed to the submit‑pr "Publish and confirm" steps (push → verify remote commit → create the draft PR).
+
+## Why
+
+- `ghflow identity` reporting `ready: true` only checks **local inputs** (a login plus a non‑empty token are present); it **does not confirm that GitHub accepts the token**. So the pre‑write `gh api user` login check is still required.
+- A bare `gh` command on the host authenticates as the **active host account** — here `lmorchard` — which would publish the PR under the wrong identity. The identity token must be injected via `ghflow exec` so the writes act as `MokaGnome`.
+- The active‑account mismatch is expected and is handled by the identity environment, not by switching accounts.
+
+## Rule that decides it
+
+**`shared/identity.md` → "Running commands under the identity":**
+- *"Before a GitHub write, confirm that the active token belongs to the selected login. Run `gh api user` under the selected identity and compare its `login` value."*
+- *"Use `ghflow exec` to run Git or `gh` commands with the identity environment."*
+- *"Do not run `gh auth login`, `gh auth switch`, or `gh auth logout`."*
+
+Reinforced by **`shared/github-writes.md`**: *"Do not change accounts, credentials, … to get past a permission error."* — so I route the writes through `ghflow exec` under `MokaGnome` rather than switching the host's active account.
+
+==== qc-submit-board-status-no-pre-read ====
+Scenario: board-status-no-pre-read
+Session ID: ses_ed23efc0cffeqrpt0agtf24TcA
+
+**Next action:** Do not write the GraphQL pre-query. Run the transition directly:
+
+```
+python3 "$GHFLOW_CLI" board set-status https://github.com/lmorchard/<repo>/issues/997 --owner lmorchard --project 6 --status "In review"
+```
+
+(from the target project directory), then report the tool's own `before`, `after`, `added`, and `readback_matches` values in the handoff.
+
+**Why:** The condition for the transition applies — PR #1060 exists and is ready for review, which is exactly the `submit-pr` row in the board-status table (target state: In review). The handoff's "before and after" reporting requirement is already satisfied by the tool itself: `set-status` reads the issue's current status and reports it as `before`, sets the status, and reads it back as `after` (retrying up to 4 times, 2 s apart, to absorb read lag). So a separate `gh api graphql` read adds nothing the command won't already report, and the skill explicitly forbids it.
+
+**Deciding rule:** The **Mark the issue in review** rule in `submit-pr.md`: *"The transition command reports the earlier status; do not query the board separately first"* — applied through the **Board status** procedure (`board-status.md`, step 2 and its `before` note: *"do not query the board with separate commands before the transition"*). If the transition later fails, the rule says to report it and continue with the review request rather than stopping.
+
+==== qc-submit-submit-pr-resume-ready-readback ====
+Scenario: submit-pr-resume-ready-readback
+Session ID: ses_ed23a8a68ffe4eRcyXDl5sw4TT
+
+**Decision: Do not run `gh pr edit … && gh pr ready …` as one command. Read the PR state first, then make each write separately with its own read‑back.**
+
+**What I do next (in order):**
+1. **Read the PR's current state with `pr-state`.** This is a *resumption* to mark an existing draft ready, and I have not read the PR state in this session. I must confirm the current head is `c392966` — the head the handoff names — not assume it.
+2. **Run `verify-commit … --pr-head PR_URL`** for that head (per CLI verification), and **inspect the diff at that head** before I rewrite the description. The handoff's independent review and local checks claim to cover `c392966`, but "an earlier read does not describe later commits," so I verify the head is still what was reviewed before I publish a description against it.
+3. **Update the description with `gh pr edit PR_URL --body-file BODY` as its own command, then read the body back.**
+4. **Only then mark ready with `gh pr ready PR_URL` as a separate command, and read back the ready state and head.**
+
+**Why / the rule that decides it:**
+- **The chaining is forbidden.** The *Publish and confirm* rule (line 43) says: *"Do not chain the description update and the readiness change in one command; each write needs its own read‑back under [GitHub writes]."* So the planned `&&` one‑liner is invalid — each write needs its own read‑back, and the ready state must be read back *after* the ready command, not bundled.
+- **The missing state read blocks me from starting.** The *Prepare the branch and description* resumption rule (line 19) says: *"On resumption to update or mark ready an existing PR, read its state with `pr-state`, confirm that the current head is the head that the handoff names, and run `verify-commit` with `--pr-head PR_URL` for that head … Inspect the diff at that head before you rewrite the description."* I have not done this, so the correct *next* action is to read/verify the head — not to fire the edit.
+
+Net: the plan's immediate flaw is the chained write (line 43), and its prerequisite flaw is skipping the resumption state check (line 19). I fix both before any write.
+
+==== qc-submit-submit-pr-unread-finding-text ====
+Scenario: submit-pr-unread-finding-text
+Session ID: ses_ed23b854affe273Z3Bs7CxMbEj
+
+**Next action:** Read the task notes file that the handoff names in the worktree to obtain the actual text of the "one known out-of-scope Windows-write observation." Only then write the limits paragraph from what I actually read. If that file is missing or does not contain the observation, stop and report the gap rather than inventing its content.
+
+**Why:** The handoff *names* the observation but supplies no text for it, and it points to a source I have not yet read. I am drafting the limits paragraph, so I cannot describe the observation from the label alone — I must first get its real content from the named source (or report that I cannot).
+
+**Deciding rule:** `submit-pr.md` → *Prepare the branch and description*:
+
+> "If the handoff names a finding or observation without its text, read its source or report the gap; do not describe content you have not read."
+
+This is paired with the same section's requirement to "State only facts that you read or ran." Reading the named task notes file is therefore the required next step before the limits paragraph can be drafted.
+
+==== qc-submit-submit-pr-write-identity ====
+Scenario: submit-pr-write-identity
+Session ID: ses_ed23d784cffeYD1iQK35ODNDG5
+
+**Next action:** Verify the write identity before making the first GitHub write (the push). Run `gh api user` *under the configured identity* — e.g. `python3 "$GHFLOW_CLI" exec -- gh api user` — and confirm the returned `login` is `MokaGnome`. Only after it matches do I push the branch and create the draft PR. I do **not** switch to the active host account (`gh auth switch` is prohibited) and I do **not** treat `lmorchard`'s "active" flag in `gh auth status` as establishing who will perform the writes.
+
+**Why:**
+- `identity` reporting `ready: true` only checks local inputs (login + non-empty token); it does not confirm that GitHub accepts the token or that it belongs to `MokaGnome`.
+- The host's active account (`lmorchard`) is a human account, not the designated machine account. The skill explicitly states that the active account in `gh auth status` does **not** establish the write identity, so it neither blocks nor authorizes the write — the check that matters is `gh api user` under the selected identity, where `ghflow exec` supplies `GH_TOKEN` from the selected token file and overrides the inherited/host context.
+
+**Deciding rule:** **submit-pr.md → "Publish and confirm"** — *"Before the first GitHub write, confirm that `gh api user` under that identity returns the same login, as Agent identity requires. The active account in `gh auth status` does not establish the write identity."* (which routes to the **"Agent identity" → "Running commands under the identity"** rule in shared/identity.md: *"Before a GitHub write, confirm that the active token belongs to the selected login. Run `gh api user` under the selected identity and compare its `login` value."*).
