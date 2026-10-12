@@ -1,0 +1,127 @@
+==== nr-baseline-notes-result-before-run ====
+Scenario: notes-result-before-run
+Session ID: ca7dbf60-f3a4-4c8c-88cc-9d253afcdd03
+
+**What I do next:** I don't write that summary. I write a `Resume here` that matches the current state. The gates haven't run, nothing is committed, and nothing is pushed. The summary would say something like this:
+
+- Review fixes are edited locally in the worktree and uncommitted.
+- `make check` and `make test` have not been run on the edited tree.
+- Next action: run targeted tests, then the broader gates, then self-review the diff, commit, and hand off.
+
+I update that line only after each step has actually happened, and I record the revision it was tested on.
+
+**Rules that decide it:**
+- `task-notes.md` says the `Resume here` summary holds the latest checks and their revisions. It also says to apply Evidence to recorded results. A "green" claim with no command behind it is a claim, not a result.
+- `implement-issue.md` says "Do not describe behavior as verified unless a command showed it."
+- `implement-issue.md` also says to run targeted tests first. Then run the broader suite and checks once the implementation is in place, before self-review and commit.
+
+**Why the proposed text is wrong:**
+- "Green" and "`verify-commit` confirmed" have no run behind them.
+- "Pushed" is false. The tree is uncommitted, and there is no new head to read back.
+- The note would mislead a resumed worker into skipping the gates.
+
+**Plan from here:**
+1. Run the targeted tests.
+2. Run `make check` and `make test`, not in parallel if the gates reinstall packages.
+3. For each new or changed test, confirm it fails when the behavior it covers is disabled.
+4. Inspect the full diff from the merge base.
+5. Stage only the intended files, inspect the staged diff, and commit.
+6. Update the notes with the actual results and the tested revision.
+
+**Pushing:** this skill ends with a local commit and a report, and it says not to push. I would push to PR #1060 only if the enclosing flow explicitly authorizes publishing through `submit-pr`. Otherwise I return the committed head, the checks and the next action to the coordinator. Any "pushed" or PR-head read-back claim waits until that has really happened and been observed.
+
+==== nr-changed-notes-result-before-run ====
+Scenario: notes-result-before-run
+Session ID: 1eb64169-337a-4772-9a19-086f9b6c6e2d
+
+**Next step: don't write that summary. Write the true current state, then run the gates.**
+
+**Why.** The Task notes rule in `shared/task-notes.md` decides this. It says to update the `Resume here` checks and status "after the commands run, not before; a resumed worker treats the summary as what happened." It also says to "write a step you have not performed as the next action, not as an outcome; a planned push, check, or verification is not evidence until it happens."
+
+The draft line claims four things that haven't happened:
+- the review fixes are pushed
+- `make check` and `make test` are green on the new head
+- `verify-commit` passed
+- the PR head was read back
+
+None of these has been done. There is also no new head yet, because nothing is committed. The line also contradicts itself: "local, pushed."
+
+**What I'd write now.** The `Resume here` summary would say:
+- The review-finding edits to code and tests are made in the worktree but uncommitted.
+- `make check` and `make test` have not been run on the edited tree.
+- Next action: run the targeted tests, then the full gates, then self-review.
+
+**Then, in order:**
+1. Run targeted tests first, per `implement-issue.md`. Also confirm that each changed or new test fails when the behavior it covers is disabled.
+2. Run `make check` and `make test` once the implementation is in place. Don't run them in parallel if a gate reinstalls packages.
+3. Inspect the full diff from the merge base, including new files. Stage only the intended files and commit. If a hook changes tested files, rerun the affected checks.
+4. Push only if the handoff authorizes publishing to the existing draft PR #1060 through `submit-pr`. Otherwise, hand the committed checkpoint back to the coordinator without pushing, because `implement-issue` itself says not to push.
+5. After the commands actually run, update the notes with the real results, the tested revision, and the PR head read-back. I'd record `verify-commit` only if it was actually run.
+
+Scenario: notes-result-before-run
+Session ID: 9fc2fb30-2b0b-4427-b6a7-fcf582937569
+
+**Next step: don't write that summary. Write the true current state, then run the gates.**
+
+**Why:** The task-notes rule decides this. It says to "Update the checks and status after the commands run, not before; a resumed worker treats the summary as what happened." It adds: "Write a step you have not performed as the next action, not as an outcome; a planned push, check, or verification is not evidence until it happens."
+
+The proposed text claims several things that haven't happened yet:
+- `make check` and `make test` are green.
+- The changes are committed and pushed.
+- `verify-commit` ran.
+- The PR head was read back.
+
+None of those have occurred. If I wrote it and the session were interrupted, a resumed worker would trust it and skip the gates and the push. The PR would then carry unverified review fixes.
+
+**What I do instead:**
+1. Put an accurate `Resume here` entry in the notes. It would say: review-finding edits made to the code and tests in the worktree. Uncommitted, unpushed, and no gates run on this tree. The next action is the gates, then commit, then publish.
+2. Run targeted tests, then `make check` and `make test`, on the edited tree. Per implement-issue, the broad gates run once the implementation is in place and before commit. Gate commands may reinstall packages, so I won't run them in parallel.
+3. For each new or changed test, check that it fails when the behavior it covers is disabled.
+4. Self-review the full diff from the merge base, including new files. Stage only the intended files, inspect the staged diff, and commit. If a hook changes tested files, rerun the affected checks.
+5. Publish to the existing draft PR #1060 only if the handoff authorizes continuing into submit-pr. Otherwise I return the committed head to the coordinator and don't push myself. The skill says "Do not push, open a PR..." unless that authorization exists.
+6. After each step actually runs, update the notes with the real results, the revision tested, the commit hash, and the verify-commit and PR head read-back outcomes. Only then does the summary say "done". If a gate fails, it records the failure instead.
+
+==== nr-regression-reuse-revision-evidence ====
+Scenario: reuse-revision-evidence
+Session ID: cb6e0385-d8f8-402a-892d-1beaeafb4f47
+
+**What I do next**
+
+I treat the two handoff findings differently, then plan.
+
+1. **Completed-task filter (finding from A, checkout now at B).**
+   - I don't redo the research. The A→B diff touches only README spelling, and the cited filter code and default-output test are unchanged. The finding's source, revision and assumptions therefore still apply.
+   - I reuse it and keep its provenance in the plan, for example "verified at A, unchanged at B by diff".
+   - I still read the cited test's assertions before leaning on it. The handoff says the test passed. That is a claim about an earlier run, not something I executed.
+   - My plan treats the filter as already satisfied. I don't plan work to re-implement it.
+   - Local inspection and tests are authorized. If I cite a passing result as current, I run the test at B and record the commit it describes.
+
+2. **JSON export field list (finding from A, now superseded).**
+   - The "no approved field list" finding rested on the old product notes, so it is stale. I don't carry it forward.
+   - I read the revised notes and take the approved external-sharing field list as the new input. I record it in the task notes with its source.
+   - I plan the export against that list. Each planned change is tied to a requirement. Each success condition gets a named check, for example a test that the export contains exactly the approved fields and no others. I mark which tests exist and which I must add.
+   - I don't assume the notes cover every case. If viable readings of the list would change user-visible output, I return that as a decision rather than choosing one. Examples are ambiguity about nested fields, or about whether the list applies by default or only to external sharing. I would continue the independent work meanwhile.
+
+**Rules that decide it**
+
+- The deciding rule is the [Evidence](../shared/evidence.md) rule under "Sources and revisions". It says to reuse an earlier finding when its source, revision and relevant assumptions still apply, and to keep that provenance in the handoff. It also says that if the revision or assumptions change, you recheck the affected claim. Findings the change doesn't affect are preserved.
+- The filter finding survives because its assumptions are intact. The export finding is rechecked because its assumption, the product notes, changed.
+- Two related rules support this. In `implement-issue.md`, "If part of the issue is already satisfied, record the evidence and implement only what remains". In Decisions, research can't choose between conflicting requirements, so those go back to the user.
+
+==== nr-regression-task-notes-changed-evidence ====
+Scenario: task-notes-changed-evidence
+Session ID: 7455e0ef-846d-420f-ad0c-a1784001bd8d
+
+**What I do next:** I keep working from the notes and don't redo the research. I recheck only the finding for the caller that changed at revision B, and I reuse the finding for the unchanged caller as it stands. I keep the confirmed decision to preserve the public API and continue implementing within it. I don't ask the user to reopen that decision, because nothing has changed it.
+
+The concrete steps:
+1. Read the revision-B change to the modified caller. I read the actual code and don't rely on the notes or the other worker's description.
+2. Recheck the notes' claims about that caller against revision B. Then I update the notes. I mark the old finding superseded and record the new finding with its source and revision.
+3. Reuse the revision-A finding for the other caller, and keep its revision-A provenance in the notes and the handoff. Its source, its revision-A code, and the assumptions it relies on are all unchanged.
+4. Continue the implementation on the existing worktree and branch.
+5. Run checks on the resulting commit. Results from revision A don't carry over to the new commit.
+
+**Rules that decide it:**
+- The main rule is in `shared/evidence.md`, under "Sources and revisions". It says to read existing task notes before repeating research after context loss. It says to reuse an earlier finding when its source, revision, and relevant assumptions still apply. It says to recheck the affected claim if the revision or assumptions change, and to preserve findings the change doesn't affect. Here the revision changed for one caller only. So I recheck that caller and keep the other finding.
+- `shared/task-notes.md`, under "Read before resuming or repeating work", says the same thing. It adds that confirmed decisions are used within their scope. A decision goes back through `decisions.md` only on a material conflict or a changed requirement. Revision B doesn't change the API requirement, so the preserve-the-public-API decision stands.
+- `tasks/implement-issue.md` says that when resuming I continue the existing work and don't start a competing implementation. It also says that if the base changes, I reassess which results still apply.
