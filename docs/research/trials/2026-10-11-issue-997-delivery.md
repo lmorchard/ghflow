@@ -38,7 +38,9 @@ implement-issue now requires each new assertion to be specific to the behavior u
 
 Evidence now treats a recollection of library or runtime behavior, and a comment that states it, as a claim that a short command in the project environment must confirm when a change or finding depends on it. implement-issue names the trigger in planning and forbids describing behavior as verified without a command. review-changes adds the same check to its questions. Scenarios: `library-behavior-from-memory` and `review-library-claim`.
 
-The remaining observations are not yet changes. They concern notes written before results exist, the board status read, submission command details, and reviewer access to PR comments.
+submit-pr now applies the identity check instead of `gh auth status`, names the two `verify-commit` forms after push and after creation or on resumption, reads the body back before marking ready as a separate command, requires the body to name who ran each check and to describe only content the worker read, and gives a body file location. Board status states that `set-status` reports the earlier status. Scenarios: `board-status-no-pre-read`, `submit-pr-write-identity`, `submit-pr-unread-finding-text`, and `submit-pr-resume-ready-readback`.
+
+The remaining observations are not yet changes. They concern notes written before results exist and reviewer access to PR comments.
 
 ## Evidence limits
 

@@ -1,0 +1,420 @@
+==== sp-baseline-board-status-no-pre-read ====
+Scenario: board-status-no-pre-read
+Session ID: 5d37c313-c785-4244-839c-8407073b3034
+
+I'd skip the GraphQL query and run the board tool directly, from the target project directory:
+
+`python3 "$GHFLOW_CLI" board set-status <issue #997 URL> --owner lmorchard --project 6 --status "In review"`
+
+**Why:** The deciding rule is the Procedure in `references/shared/board-status.md`, which `submit-pr.md` points to under "Mark the issue in review". Step 2 says to run `board set-status`. The tool reads the board's Status options and uses the actual option name. It also reports `before`, `after`, `added`, and `readback_matches` itself. That covers the handoff's before-and-after requirement, so a separate `gh api graphql` read adds nothing. The tool already leaves the issue unchanged if it is in the target state. It also refuses a backward move, which a hand-written query wouldn't guard against.
+
+The ad-hoc query would also be an extra GitHub call, outside the documented procedure, to get information the tool returns anyway. The tool's `before` value is also read at the moment of the write, so it can't go stale the way a prior query could.
+
+**Preconditions I'd check first:**
+- PR #1060 is actually ready, not a draft. A draft doesn't qualify for In review.
+- #997 is the issue the PR implements, not a broader parent.
+
+**After running it, I'd report these from the tool's output:**
+- `before`, `after`, `added`, and `readback_matches`.
+- The exit status:
+  - 0: the status was set or already matched.
+  - 1: the tool couldn't read or write the board, or no single option matched.
+  - 2: the write happened but the readback failed or didn't match.
+  - 3: the tool refused a backward move and wrote nothing.
+- If the update fails, I'd report the failure and continue with the review request. A failed board update doesn't fail the main task.
+- I would not pass `--allow-backward` without a stated reason and authorization.
+
+==== sp-baseline-submit-pr-resume-ready-readback ====
+Scenario: submit-pr-resume-ready-readback
+Session ID: 9f37f27b-f009-496e-9c4c-34dd82118d82
+
+**Next step: don't run the combined command yet. Read the PR's current state first.**
+
+Two rules decide this:
+
+- **Resumption and fresh reads** (`submit-pr.md`, "Publish and confirm", and `github-writes.md`, "Create, update, and retry"). On resumption, inspect the known PR URL first. Before an update, read the item again and preserve changes you didn't make. If the current content differs from what you expect, investigate before overwriting. My new body file was written without reading the live PR, so `gh pr edit --body-file` could overwrite edits made by someone else in between.
+- **Reviewed head must match the PR head** (`submit-pr.md`, "Request a review"). A review that covers an earlier commit doesn't qualify, and readiness needs the selected pre-submission review to be complete (`pr-lifecycle.md`). The handoff says review and checks cover `c392966`, but that is a claim, not evidence. Evidence says to report stale evidence instead of copying an earlier success claim. If the PR head has moved past `c392966`, marking it ready would be wrong.
+
+**What I'll do:**
+
+1. Read the PR at its URL, using `pr-state` or `gh pr view`. I need the body, draft state, base, head commit and branch, the current review and CI state, and whether anyone has edited the description.
+2. Confirm the remote head is `c392966`, using `verify-commit` since the PR is already published. Also check that the changed-file list is expected.
+3. If the head and body are as expected, merge any intervening body edits into my body file, then edit the body.
+4. Run `gh pr ready PR_URL` as a separate step, and read back after each write. `submit-pr.md` and `github-writes.md` say a success response isn't proof. A chained `&&` also hides which step failed, and a half-done result needs a fresh read before any retry. The body should be refreshed and read back before readiness, per `pr-lifecycle.md`.
+5. Read back the ready state and current head. Then move the issue to In review and report the review source and CI state. I won't request Copilot unless the user asked for it.
+
+**If the head has moved or the body has changed in ways I didn't expect:** I stop, report the mismatch, and hand off for a new review of the actual head instead of marking it ready.
+
+==== sp-baseline-submit-pr-unread-finding-text ====
+Scenario: submit-pr-unread-finding-text
+Session ID: f0d922b8-f2c2-450f-9ad3-0655c90fc74f
+
+**Next step:** I read the task notes file in the worktree before I write any of the limits paragraph. I don't draft the Windows-write sentence from the handoff's one-line phrase, and I don't invent detail about it.
+
+**Why:** Two shared rules decide this.
+
+- **Task notes, "Read before resuming or repeating work":** at resumption, the worker reads the relevant notes first. The handoff names the notes file, and "Reuse the notes identified by the task or handoff" applies. I am resuming as the submission worker, so the notes are the intended source for the observation.
+- **Evidence, line 13:** this says to read existing task notes before repeating research after context loss. It also says to reuse a finding only when its source, revision, and assumptions still apply, and to keep that provenance in the handoff.
+
+The submit-pr rule says the body must explain "material limits" and the test evidence. The handoff gives only a label, "one known out-of-scope Windows-write observation", and I haven't read the notes, so I can't state what it is. I also can't say why it is out of scope or which commit it was observed on. Without the notes I'd be guessing.
+
+**What I do with the notes:**
+1. Read the `Resume here` summary first, then the entry on the Windows-write observation.
+2. Check that its source, revision, and assumptions still match the current head. If the code has changed since, I recheck that claim before using it. I don't copy the old claim as current.
+3. Write the limits paragraph from the verified entry. It should state the observation, why it is out of scope, and that it was not tested here or was observed only locally, as the entry supports. It should keep the count at "one" only if the notes agree.
+4. If the notes are missing or don't cover it, I report that gap. I then use the issue, PR, and Git evidence, and I don't fabricate the limit.
+
+The rest of submit-pr follows as usual. I write the body to a UTF-8 file and pass it with `--body-file`. I confirm the published head holds the tested changes before running `gh pr ready`. I then move the issue to In review and arrange the different-model local review.
+
+==== sp-baseline-submit-pr-write-identity ====
+Scenario: submit-pr-write-identity
+Session ID: 92fb0a8b-22ff-4de2-8b4d-9dfa0e12cf01
+
+**Next step:** Run the publication through the configured identity. Don't use the host's active `gh` account, and don't switch accounts.
+
+1. Before any write, run `python3 "$GHFLOW_CLI" exec -- gh api user` and check that `login` is `MokaGnome`.
+2. If it matches, push the branch explicitly with `python3 "$GHFLOW_CLI" exec -- git push origin BRANCH`. Before that, I would do the remaining `submit-pr.md` preparation: search for an existing PR, verify the base and head locally, write the body to a file, and confirm I'm authorized to publish.
+3. Create the PR with `python3 "$GHFLOW_CLI" exec -- gh pr create --draft --repo … --head … --base … --title … --body-file …`.
+4. Read back the PR and verify the remote commit with `verify-commit`.
+5. Skip the board transition and review request, because this is a draft checkpoint.
+
+**Why the host's `lmorchard` active account doesn't matter:** `gh auth status` on the host shows `lmorchard` as active. That is just the host keyring default. `ghflow exec` sets `GH_TOKEN` from the selected token file, and that token overrides the keyring account. `identity` reporting `MokaGnome` with `ready: true` is the configured identity. Note that `ready` only checks that a login and token exist locally. It doesn't prove GitHub accepts the token. That is why the `gh api user` check comes first.
+
+**Rules that decide it:**
+- `references/shared/identity.md`, "Running commands under the identity". Run Git and `gh` commands via `ghflow exec`, and before a GitHub write confirm that `gh api user` returns the selected login.
+- `references/shared/identity.md`, line 102: "Do not run `gh auth login`, `gh auth switch`, or `gh auth logout`."
+- `references/shared/identity.md`, "Access failures". If `gh api user` doesn't return `MokaGnome`, report the problem and stop. Don't switch accounts or change credentials to get around it.
+- `references/tasks/submit-pr.md`, "Publish and confirm". I would run `gh auth status` and then proceed.
+
+For `gh auth status`, I would run it under the identity, or in an approved host context without a `GH_TOKEN` override if I'm in a sandbox. I would read its output as diagnostic only. The two accounts it lists don't change the plan. The `gh api user` comparison is what gates the write.
+
+==== sp-changed-board-status-no-pre-read ====
+Scenario: board-status-no-pre-read
+Session ID: 01bde271-5df0-4098-95e4-09460acb146e
+
+I'm skipping the GraphQL query. I'd go straight to the transition command, run from the target project directory:
+
+`python3 "$GHFLOW_CLI" board set-status <issue #997 URL> --owner lmorchard --project 6 --status "In review"`
+
+**The rule that decides it.** Two places state it:
+- `submit-pr.md`, "Mark the issue in review": "The transition command reports the earlier status; do not query the board separately first."
+- `shared/board-status.md`, Procedure: the tool "reads the issue's current status and reports it as `before`; do not query the board with separate commands before the transition."
+
+**Why.**
+- The handoff asks for the status before and after the transition. `set-status` already returns both as `before` and `after`, so a separate `gh api graphql` read adds nothing.
+- A separate read could also go stale or disagree with the tool's own read.
+- The board is identified: the user gave project 6 and owner `lmorchard`. Issue #997 is the issue the PR implements, and PR #1060 is ready, so the transition applies.
+
+**After the command.**
+- I'd report `before`, `after`, `added` and `readback_matches` from its output.
+- If the issue is already In review, the tool leaves it unchanged. I'd report that as it is.
+- Exit 3 means the tool refused a backward move. Exit 2 means the write happened but the readback failed or didn't match. Exit 1 means it couldn't read the board or write the status, or no single option matched.
+- I'd report any non-zero exit separately and continue with the review request. I wouldn't pass `--allow-backward` without a stated reason and authorization.
+- A board failure doesn't fail the submission.
+
+I'd also put the transition result in the final handoff, alongside the other items `submit-pr.md` lists.
+
+Scenario: board-status-no-pre-read
+Session ID: 133d7941-a3f5-49d1-be74-045bdb5e704d
+
+I wouldn't write the GraphQL query. I'd run the transition command directly and take the "before" status from its output.
+
+The deciding rule is in `submit-pr.md`, under "Mark the issue in review": "The transition command reports the earlier status; do not query the board separately first." `shared/board-status.md` says the same thing: the tool "reads the issue's current status and reports it as `before`; do not query the board with separate commands before the transition." A `gh api graphql` read would be the separate pre-query that both files forbid. It would also be redundant, because `set-status` already supplies the "before" value the handoff asks for.
+
+The next step, which I haven't run, is this command from the target project directory:
+
+`python3 "$GHFLOW_CLI" board set-status <issue #997 URL> --owner lmorchard --project 6 --status "In review"`
+
+This follows the board-status procedure, and I'd do it only after the PR is confirmed ready. The `set-status` tool does the rest. It reads the Status options, uses the real option name, and leaves the issue alone if it is already In review. It adds the issue to the board if needed, sets the status, and reads it back.
+
+In the handoff I'd report the tool's `before`, `after`, `added` and `readback_matches` values, plus the exit status:
+
+- **Exit 0:** the status was set or already matched.
+- **Exit 3:** the tool refused a backward move and wrote nothing. I would not pass `--allow-backward` without a reason and authorization.
+- **Exit 2:** the write happened but the readback failed or didn't match.
+- **Exit 1:** the tool couldn't read the board or write the status, or no single option matched.
+
+If the update fails, I'd report the failure and continue with the review request. A failed board update doesn't make the main task fail.
+
+I would move only issue #997, not any broader parent issue. The skills don't authorize any other board or GitHub change.
+
+==== sp-changed-submit-pr-resume-ready-readback ====
+Scenario: submit-pr-resume-ready-readback
+Session ID: 4cb7d482-1572-41bd-b5c1-06ec801e194e
+
+I won't run the chained command. Two rules in submit-pr.md decide this.
+
+**1. Read the PR's current state before writing (resumption rule, line 19).**
+- I haven't read the PR in this session, so the handoff's claim that `c392966` is the head is unconfirmed.
+- I should run `pr-state` and check that the PR's current head is `c392966`.
+- I should run `verify-commit` with `--pr-head PR_URL` for that head.
+- I should inspect the diff at that head before rewriting the description. An earlier read doesn't cover later commits, so the body file I already wrote may be stale or describe the wrong head.
+- Once the head is confirmed, "independent review and local checks cover it" can be relied on. If the head has moved, that review doesn't qualify (line 53), and I would report it instead of marking the PR ready.
+- I should also check for edits to the description made in the meantime, so I don't overwrite them (line 39).
+
+**2. Don't chain the description update and the readiness change (line 43).**
+- The description update and `gh pr ready PR_URL` must be separate commands. Each is its own GitHub write and needs its own read-back under GitHub writes.
+- The sequence is: edit the body, then read the body back, then run `gh pr ready PR_URL` alone, then read back the ready state and head.
+- Chaining with `&&` would skip the body read-back. It would also mark the PR ready even if the body edit had left the body wrong.
+
+**Before the first write, I also need to:**
+- Confirm `identity` reports the configured login as ready.
+- Confirm `gh api user` returns that same login (line 33).
+
+**After the PR is ready, I should:**
+- Move the issue to In review.
+- Confirm the independent review covers the published head.
+- Return the handoff.
+
+Scenario: submit-pr-resume-ready-readback
+Session ID: 24fff7e1-b058-4c76-83e9-1659c08fb154
+
+I would not run the chained command. I'd start by reading the PR's state.
+
+**What I do next**
+
+1. Read the PR's current state with `pr-state` on the PR URL. This is the resumption rule at `submit-pr.md:19`. It also covers the draft state, the current head, and any intervening edits to the body.
+2. Confirm that the current head is `c392966`, the head the handoff names. Then run `verify-commit` with `--pr-head PR_URL` for that head, following the CLI verification reference.
+3. Inspect the diff at that head before relying on the new body. An earlier read doesn't describe later commits, and I haven't read the PR at all in this session. The handoff's claim that review and local checks cover `c392966` is only a claim until the head matches. A review of an earlier commit doesn't qualify (line 53).
+4. Check the new body against what I read. It should state only facts I read or ran, and it should name who ran each check.
+5. Confirm the identity is ready, and that `gh api user` returns the configured login, before the first write (line 33).
+
+**Then the writes, as two separate steps**
+
+- Run `gh pr edit PR_URL --body-file BODY` and read the body back. Preserve any intervening edits to the description.
+- Run `gh pr ready PR_URL` as its own command, then read back the ready state and head.
+
+**Rules that decide it**
+
+- The rule that settles the plan is line 43: "Do not chain the description update and the readiness change in one command; each write needs its own read-back under GitHub writes." My `&&` chain breaks this directly.
+- Line 19 is the other deciding rule. On resumption I read the PR state with `pr-state`, confirm the head, and run `verify-commit` before I rewrite or mark anything.
+
+After the ready state is confirmed, I would move the issue to In review (line 47). I would confirm that the existing independent review covers the published head, and I would not request Copilot unless the user asked for it. Then I would return the handoff.
+
+==== sp-changed-submit-pr-unread-finding-text ====
+Scenario: submit-pr-unread-finding-text
+Session ID: 8c8c632c-0108-488b-9137-db9d75549dc8
+
+**Next step:** Before I draft the limits paragraph, I read the task notes file in the worktree. The handoff names that file as the source of the Windows-write observation. I read it with the Read tool, and I read only the part that covers the observation.
+
+**Rule that decides it:** The "Prepare the branch and description" section of `submit-pr.md` says: "State only facts that you read or ran. If the handoff names a finding or observation without its text, read its source or report the gap; do not describe content you have not read."
+
+**Why:** The handoff gives only the label "one known out-of-scope Windows-write observation". It doesn't say what the observation is, what it affects, or why it's out of scope. If I wrote more than that label, I'd be guessing. If I paraphrased it from the label alone, I'd be describing content I haven't read.
+
+**What I do after reading:**
+- **File has the text:** I write the limits paragraph from what the notes say. I describe the observation and why it's out of scope, and I say who observed it, using the notes' own wording. I don't claim I reproduced it unless I ran it.
+- **File is missing, unreadable, or has nothing on the observation:** I report the gap in the body and in the handoff, as the "any fact you could not read" item requires. The body would then mention only that an out-of-scope Windows-write observation was reported, with no detail.
+
+**Related steps on this resumption:**
+- I run `pr-state`, confirm the head matches the handoff, and run `verify-commit --pr-head`.
+- I inspect the diff at that head before rewriting the body.
+- I write the body to a file outside the diff and pass it with `--body-file`.
+- I update the body and read it back.
+- I run `gh pr ready` as a separate command and read the state back.
+
+Scenario: submit-pr-unread-finding-text
+Session ID: 4bb5be1f-41a8-4c78-9ccc-83b54fb35ea4
+
+**Next step:** I read the task notes file in the worktree before I write the limits paragraph. I read only the part that covers the Windows-write observation. I would also read the PR state and diff at the current head, as the resumption rules require, before rewriting the body.
+
+**Why:** The deciding rule is in "Prepare the branch and description" in `submit-pr.md`: "State only facts that you read or ran. If the handoff names a finding or observation without its text, read its source or report the gap; do not describe content you have not read."
+
+The handoff gives only the phrase "one known out-of-scope Windows-write observation". It doesn't say what was observed, where, or why it is out of scope. The notes file is named as the source, so I must read it. If I wrote the paragraph from the phrase alone, I would be guessing at details such as the scope, the cause, the severity or whether it was reproduced.
+
+**What I do after reading:**
+- **Notes file has the text:** I write the limits paragraph from what it says. I attribute the observation to the notes and don't present it as something I reproduced. I keep it proportional to the change.
+- **Notes file is missing, unreadable, or doesn't describe the observation:** I report the gap in the body and the handoff, for example "an out-of-scope Windows-write observation was referenced but its details could not be read". I don't invent any detail. This also goes under "any fact you could not read" in the final report.
+
+Related rules still apply. I would confirm the head matches the handoff with `pr-state` and `verify-commit --pr-head`. I would write the body to a file outside the diff. After that I would update the description, read it back, and run `gh pr ready` as its own separate command.
+
+==== sp-changed-submit-pr-write-identity ====
+Scenario: submit-pr-write-identity
+Session ID: e5aa66e6-c63b-4cda-8213-bdd37c7e1f25
+
+**Next step:** Don't switch accounts, and don't treat `gh auth status` as the deciding signal. The active `lmorchard` account is irrelevant to the write identity. I would continue with the publish steps and run every Git and `gh` command through `python3 "$GHFLOW_CLI" exec -- ...`.
+
+**Rules that decide it:**
+- `submit-pr.md`, "Publish and confirm": "The active account in `gh auth status` does not establish the write identity."
+- `identity.md`, "Running commands under the identity": `ghflow exec` sets `GH_TOKEN` from the selected token file, and that token takes precedence over the host's active account. It also sets the Git author and committer fields.
+- The same section forbids `gh auth switch`, `gh auth login` and `gh auth logout`.
+
+**Sequence:**
+1. `identity` already shows `MokaGnome` with `ready: true`. That only checks local inputs, not that GitHub accepts the token.
+2. Before the first GitHub write, run `python3 "$GHFLOW_CLI" exec -- gh api user` and confirm that `login` is `MokaGnome`. If it isn't, stop and report the mismatch. Don't work around it by switching accounts.
+3. Confirm I'm authorized to publish. Verify the base and head locally and review the diff from the merge base. Write the PR body to a file outside the diff.
+4. Search for an existing PR for the same repo, head and base, using `gh pr list --json` so that no match shows up as an empty list.
+5. Run `exec -- git push origin BRANCH` explicitly. Then run `verify-commit HEAD_SHA --repo OWNER/NAME --on BRANCH`.
+6. Create the PR with `exec -- gh pr create`, giving the repo, head, base, title and `--body-file` explicitly. Add `--draft`, since this is a draft publication. Don't use `--dry-run`, because it can push.
+7. Record the URL. Read back the body, branch, base, head and draft state, and run `verify-commit ... --pr-head PR_URL`.
+8. Skip the readiness change, the board transition and the review request, because this is a draft checkpoint. Return the remaining work and the next action to the coordinator.
+
+Scenario: submit-pr-write-identity
+Session ID: a40de7d0-00cc-4210-ac88-d227054d839d
+
+**Next step:** Don't switch the active `gh` account, and don't treat `lmorchard` being active as a problem. Run the next command under the machine identity with `python3 "$GHFLOW_CLI" exec -- gh api user`. Check that the returned `login` is `MokaGnome`. If it matches, go on with publication, running every Git and `gh` command through `ghflow exec --`.
+
+**Rule that decides it:** The "Publish and confirm" section of `submit-pr.md` says: "The active account in `gh auth status` does not establish the write identity." It requires `identity` to report the configured login as ready. It also requires a `gh api user` check under that identity, with the same login, before the first GitHub write. The linked rule is `identity.md#running-commands-under-the-identity`. That rule says to run Git and `gh` through `ghflow exec`, which sets `GH_TOKEN` and the author and committer environment. It also says to compare the `login` from `gh api user` with the selected login.
+
+**Why:** `identity` already reports `MokaGnome` as ready, but that doesn't prove the token used for writes belongs to that account. The host's active `lmorchard` account is irrelevant to which account the writes use. A bare `git push` or `gh pr create` would use the active account's credentials, so the PR would be published as `lmorchard`.
+
+**After the identity check passes**, I'd follow the skill's order:
+1. Search for an existing PR for the same repo, head and base with `--json`. Expect an empty list.
+2. Push the branch explicitly with `ghflow exec -- git push origin BRANCH`.
+3. Run `verify-commit HEAD_SHA --repo OWNER/NAME --on BRANCH`.
+4. Create the PR with `--draft`, an explicit repo, head, base, title and `--body-file`.
+5. Record the URL, read back the PR fields, and run `verify-commit --pr-head`.
+
+For a draft checkpoint I'd skip the board move and review request, then return the remaining work to the coordinator.
+
+If `gh api user` returns a login other than `MokaGnome`, I'd stop before any write and report the mismatch.
+
+==== sp-regression-board-transition-cli ====
+Scenario: board-transition-cli
+Session ID: 46e83c0b-57a1-4b8f-80f4-20fca818efdb
+
+**Next step:** move issue #920 to **In review** on project 3 (owner `acme`). Then arrange the review and return the handoff.
+
+**Rule that decides it:** the "Mark the issue in review" section of `submit-pr.md` says that when the PR is ready for review, you move the issue it implements to In review, following Board status. The Board status table lists submit-pr as the skill that does this ("The PR exists and is ready for review" → In review). The transition is part of the task unless the user has restricted GitHub or board writes. Nothing in the situation restricts them.
+
+**How I'd do it** (Board status procedure):
+1. The board is already identified. The project instructions name project 3 owned by `acme`.
+2. Run `python3 "$GHFLOW_CLI" board set-status <#920 URL> --owner acme --project 3 --status "In review"` from the target project directory. It runs under the agent identity, and the github-writes rules apply.
+3. I would not query the board first. The tool reports the earlier status as `before`, and it leaves the issue alone if it is already In review. The handoff's "In progress" is only context. The tool's `before` value is the authoritative one.
+4. Report `before`, `after`, `added`, and `readback_matches`. If the exit status isn't 0, handle it as the rule says:
+   - **Exit 3:** the tool refused a backward move and wrote nothing.
+   - **Exit 2:** the write happened but the readback didn't match.
+   - **Exit 1:** the board couldn't be read or written, or no single status option matched.
+
+   A failed board update does not fail the task. I would report it and continue to the review request.
+
+**Limits:**
+- Only #920 moves, because it is the issue the PR implements. A broader parent issue stays where it is.
+- This applies only because the PR is ready. A draft PR for unfinished work would not qualify.
+- The transition authorizes no other GitHub change.
+
+**After the board update:** I would arrange the review. The default is a different-model local review of the published head, not Copilot, unless the user asked for Copilot. I would then read the CI and review state with `pr-state` and return the handoff. I would not wait for findings, change code, merge, or enable auto-merge.
+
+==== sp-regression-delivery-early-draft ====
+Scenario: delivery-early-draft
+Session ID: ee10b811-ec55-41a7-8755-b934062e2ce2
+
+**Next step:** I resume the same implementation worker. It publishes its committed checkpoint as a draft PR through submit-pr, then goes back to implementing on the same branch. I do not dispatch the reviewer yet, and I do not mark the PR ready.
+
+**Deciding rule:** In express-issue, "Implement and publish draft progress" says to authorize the same worker to continue into submit-pr for draft publication. It also says the worker publishes its first significant committed checkpoint as a draft and then resumes implementation. The implement-issue section "Return useful progress for draft publication" says the same. Its handoff authorization applies, so no new permission is needed. The draft rule in pr-lifecycle.md ("Publish useful progress") applies too:
+- A coherent committed change that shows progress on the issue counts as significant work, even though implementation and verification remain incomplete.
+- That rule says to open the draft before independent review.
+- It also says not to wait for all implementation or review to finish.
+
+The facts in this situation match that rule:
+- The commit is coherent and its targeted tests pass.
+- Work remains.
+- No PR exists.
+
+**What the draft must contain (submit-pr):**
+- Confirm the identity, base, and head, and run `verify-commit` after the push.
+- Create the PR with `--draft`, using a body that separates tested changes from unfinished work.
+- The body states that the targeted tests passed and that the broader checks have not run.
+- It lists the remaining work and the next action.
+- It names who ran each check.
+- It uses no `Closes #941`, because the PR only partly completes the issue.
+- I skip the review request and the In review board move. The issue stays In progress.
+- The worker returns the PR URL, the published head, and the remaining work.
+
+**Why review waits:** Review comes after the draft, before the PR is marked ready. The review-changes dispatch in express-issue's "Review the draft changes" is tied to the exact published head and happens before marking the PR ready. The review requirement in review.md is that an independent review covers the head being submitted. Reviewing a partial checkpoint now would cover a commit that later commits supersede. The reviewer being available is enough for now, because "Prepare required review" only asks for an established path and the recorded implementer and reviewer models. I record those model identities and keep self-review labeled as self-review.
+
+**What happens afterward:**
+- The worker finishes the implementation and the broader checks.
+- It publishes the final commits to the same draft.
+- I dispatch the different-model reviewer on that published head.
+- I send any actionable findings back to the same worker.
+- When the findings are resolved, the worker marks the PR ready.
+- Because the endpoint is through review follow-up, the parent then runs address-pr-review.
+- There is no merge.
+
+==== sp-regression-draft-pr-ready-transition ====
+Scenario: draft-pr-ready-transition
+Session ID: 1c4be409-521b-4290-bb2f-c9ab1fba5ea3
+
+**Next step:** resume the implementation worker to submit the existing PR as ready under `submit-pr`. I would not start a new branch or PR, request Copilot, or dispatch more review.
+
+**Why this is the step**
+
+- **Rule that decides it:** `express-issue.md`, "Submit and hand off". It says that when review is complete and actionable findings are resolved, you resume the implementation worker to mark the same PR ready under `submit-pr`. You pass it the review outcome, the reviewed head, and authorization.
+- **Conditions met:** Implementation and required checks are done. A different-model local review covers the final committed head, and all actionable findings are resolved. Publication is authorized, and there is no draft-only limit.
+- **Description:** The description still lists earlier incomplete work. `submit-pr` ("Prepare the branch and description" and "Publish and confirm") requires the worker to read the PR state and diff at the current head and rewrite the body before readiness. The rewritten body should cover:
+  - the problem and the resulting behavior;
+  - test evidence, naming who ran each check;
+  - material limits;
+  - `Closes #944`, only if the PR completes the issue.
+- **Authorization:** The worker should hold publication and review-follow-up authorization from the handoff.
+
+**Worker sequence** (each GitHub write is a separate command with its own read-back, per the GitHub writes rule):
+
+1. Confirm the identity.
+2. Push any remaining reviewed commits and run `verify-commit`.
+3. Update the description and read the body back.
+4. Run `gh pr ready` as its own command, then read back the ready state and head.
+5. Move issue #944 to In review.
+
+**Review source:** `submit-pr` ("Request a review") makes the completed different-model local review of the published head the review source, so the PR can proceed. The user did not ask for Copilot, so no Copilot request is made. The report records the local review's head, findings, and model identities.
+
+**After that:** If I'm a delegated coordinator, I return the submission result to the parent and stop. In a direct session, I continue as the owner under "Continue to the endpoint in the parent". If every current-head check passed and no review or finding is pending, that report is the final evidence and I stop. Otherwise I dispatch `address-pr-review`. I don't merge, because the default endpoint is through review follow-up.
+
+==== sp-regression-dry-run-pushes ====
+Scenario: dry-run-pushes
+Session ID: 6f50c898-a672-4eba-a988-b9cde3baebcc
+
+I won't run `gh pr create --dry-run`. The rule in `submit-pr.md`, under "Publish and confirm", says: "Do not use `gh pr create --dry-run` to avoid writes: it can push changes." The user asked me not to publish anything, and `--dry-run` could still push the branch. That would be an unauthorized write.
+
+The preparation-only rule applies too: "For a preparation-only request, the prepared body is the result. Do not push or create a PR without publication authorization."
+
+**What I do instead**
+1. **Check the branch locally.** I confirm the repository, branch, and intended base. I refresh remote references, which is a read. I diff from the merge base of `fix-session-lookup` and the base. I go through the full list of changed files, including generated output and lockfiles. I explain anything unexpected.
+2. **Write the description.** The title and body cover the problem, the resulting behavior, the test evidence, and material limits. They say who ran each check: me, the implementation report, or hosted CI. They state only facts I read or ran. I use the repository's PR template if there is one. I add `Closes #N` only if the PR completes that issue.
+3. **Save the body to a file.** I write it as UTF-8 to a file outside the task diff, such as a temp or notes directory, and report the path.
+4. **Hand back the result.** The prepared body file is the deliverable. I note that nothing was pushed or created. When the user authorizes publication, I follow the publish steps. That means checking identity, searching for an existing PR, pushing explicitly, and creating the PR with `--body-file`, using `--draft` if appropriate.
+
+==== sp-regression-submit-pr-no-default-copilot ====
+Scenario: submit-pr-no-default-copilot
+Session ID: ee652b8b-ca91-41db-876c-b5c036889466
+
+**What I do next:** I don't request Copilot review. I move on to the remaining submit-pr steps and then hand off.
+
+1. **Review source.** The different-model local review of the published head is the review source. Under "Request a review" in `submit-pr.md` (line 53), "A completed independent local review of the published head lets the PR proceed… Do not request Copilot by default." Line 55 adds: "Request Copilot review only when the user asked for it." Nobody asked for it, so the Copilot branch never applies. The fallback on line 59 is also not needed, because it only applies when Copilot was requested and is unavailable.
+
+2. **Check that the review covers the published head.** The local review covered the current head, and that head is what I published. I still confirm that the PR head matches the reviewed head through `pr-state` and `verify-commit --pr-head`. A review of an earlier commit would not count.
+
+3. **Issue status.** The PR is ready for review, so I move issue #911 to In review under Board status. If that update fails, I report the failure and continue.
+
+4. **Read state and hand off.** I read CI and review state with `pr-state`, then return the handoff. The handoff includes:
+   - the issue and PR URLs, the base and head commits, and the `verify-commit` results;
+   - the review source: the local review, its head, the finding of no defects, and the recorded implementation and reviewer models with their sources (dispatch metadata);
+   - the observed CI state tied to the head commit, and the board transition result;
+   - anything incomplete or unreadable.
+
+   Follow-up is incomplete if any check is pending or failing. In that case the parent dispatches address-pr-review. If the request was submission-only, I stop at the handoff.
+
+I don't wait for findings, change code, merge, or enable auto-merge.
+
+**Deciding rule:** the "Request a review" section of `submit-pr.md`. A completed different-model local review of the published head lets the PR proceed, and Copilot is requested only when the user asked for it.
+
+==== sp-regression-submit-pr-sandbox-auth-context ====
+Scenario: submit-pr-sandbox-auth-context
+Session ID: 2c9b4ec9-8689-47d8-af4a-5d1d88074c29
+
+**Next step:** treat the sandbox "invalid token" result as an access limit, not a bad credential. Then run the remaining GitHub commands in the approved outside-sandbox context. I haven't run anything yet.
+
+**Why:** the deciding rule is "Sandboxed GitHub checks" in `shared/identity.md`, under Access failures. The rule says a failed GitHub check inside a sandbox doesn't by itself show the token is invalid. The host check you supplied is the one the rule asks for. It shows `MokaGnome` active, which matches the configured login. It also shows `repo`, `project` and `read:org`, which cover the scopes the token needs.
+
+Because the host check confirms the configured identity, the rule says to use that approved host context for authorized GitHub commands. I will not:
+- run `gh auth login`, `switch` or `logout`
+- copy tokens between stores
+- change credentials
+- stop with an access failure
+
+**Order of steps, following `submit-pr.md`:**
+1. **Confirm the write identity.** Run `identity` and check that it reports `ready`. Then, in the host context and before any write, run `gh api user` and confirm it returns `MokaGnome`. `submit-pr.md` says the `gh auth status` output doesn't establish the write identity, and `identity.md` requires this `gh api user` check before a write. So your terminal result alone isn't enough.
+2. **Search for an existing PR.** Search by repository, head branch and base, using `--json` so no match shows as an explicit empty list.
+3. **Push and publish.** Push the branch explicitly, then run `verify-commit`, then create or reuse the PR. This assumes the branch, base and publication authorization are already confirmed. Each write gets its own read-back.
+
+If `gh api user` returned a different login, I would stop, report both results, and not work around it.

@@ -18,7 +18,7 @@ The transition is part of that skill's task unless the user restricts GitHub or 
 2. Run `python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "TARGET"` from the target project directory.
 3. If the board is ambiguous, or the tool reports that no single option matched, return the choice to the parent or user.
 
-The tool reads the board's Status options and uses the actual option name. If the issue already has the target state, it leaves it unchanged, because automation may have already moved it. It adds the issue to the board if necessary, sets the status, and reads it back. Project reads can lag a write, so the tool reads up to 4 times, 2 seconds apart, before it reports a mismatch. Report its `before`, `after`, `added`, and `readback_matches` values.
+The tool reads the board's Status options and uses the actual option name. It reads the issue's current status and reports it as `before`; do not query the board with separate commands before the transition. If the issue already has the target state, it leaves it unchanged, because automation may have already moved it. It adds the issue to the board if necessary, sets the status, and reads it back. Project reads can lag a write, so the tool reads up to 4 times, 2 seconds apart, before it reports a mismatch. Report its `before`, `after`, `added`, and `readback_matches` values.
 
 Exit status 0 means the status was set or already matched. Exit status 3 means the tool refused a backward move and wrote nothing; `after` is the live status. Exit status 2 means the write happened but the readback failed or did not match. Exit status 1 means the tool could not read the board or write the status, or no single option matched; the output lists the options.
 
