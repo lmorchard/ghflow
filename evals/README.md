@@ -42,10 +42,10 @@ Use `--runner opencode` with an already running OpenAI-compatible server. Supply
 python3 scripts/run_scenario.py SCENARIO --runner opencode \
   --endpoint http://127.0.0.1:9931/v1 \
   --model ggml-org/Qwen3.8-27B-GGUF:Q4_K_M \
-  --context-window 65536 --repeat 1 --output-dir /tmp/local-scenario-run
+  --context-window 65536 --output-tokens 16384 --timeout 1800 --repeat 1 --output-dir /tmp/local-scenario-run
 ```
 
-Replace `SCENARIO` and use a new output directory. Set `--context-window` to the context available to one server session; it defaults to 32768. A server with several slots can divide its total context between slots. OpenCode runs have a 300-second timeout; use `--timeout SECONDS` to change it. A timeout terminates the CLI process group and preserves emitted usage and errors. The runner does not start a server, load a model, or change server settings. Run one scenario at a time when the existing model is also serving other work. `--dry-run` previews the prompt without contacting the endpoint or starting OpenCode.
+Replace `SCENARIO` and use a new output directory. Set `--context-window` to the context available to one server session; it defaults to 32768. A server with several slots can divide its total context between slots. Set `--output-tokens` to the output limit for one response; it defaults to 4096. A thinking model spends this limit on its reasoning before its answer, so a model such as Qwen3 needs 16384 or more, or the run ends with no answer. The provenance records the limit as `output_limit`, and the diagnostic names it when a run emits close to the limit without an answer. OpenCode runs have a 300-second timeout; use `--timeout SECONDS` to change it. A long reasoning run on a local model can need 1800 seconds or more. A timeout terminates the CLI process group and preserves emitted usage and errors. The runner does not start a server, load a model, or change server settings. Run one scenario at a time when the existing model is also serving other work. `--dry-run` previews the prompt without contacting the endpoint or starting OpenCode.
 
 Before each repeat, the runner checks that the loopback endpoint advertises only the exact selected model. If it reports a load status, that status must be `loaded`. A redirect, missing model, different model, or additional model stops the run before inference. This check cannot prevent another client from changing server state after the check. An inventory without load status establishes advertised identity, not loaded state.
 

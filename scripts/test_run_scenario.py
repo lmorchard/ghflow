@@ -423,6 +423,31 @@ else:
         self.assertEqual(config["agent"]["scenario"]["permission"], config["permission"])
         self.assertEqual(config["plugin"], [])
         self.assertEqual(config["mcp"], {})
+        limit = config["provider"]["scenario-local"]["models"]["local/model"]["limit"]
+        self.assertEqual(limit, {"context": 65536, "output": 4096})
+        raised = run_scenario.opencode_config("local/model", "http://127.0.0.1:9931/v1", snapshot, 65536, 16384)
+        self.assertEqual(raised["provider"]["scenario-local"]["models"]["local/model"]["limit"]["output"], 16384)
+
+    def test_opencode_no_answer_at_output_limit_names_the_limit(self):
+        events = [
+            {"type": "tool_use", "part": {"tool": "read"}},
+            {"type": "step_finish", "part": {"tokens": {"input": 2000, "output": 4100, "reasoning": 0}}},
+        ]
+        stdout = "\n".join(json.dumps(event) for event in events)
+        with patch("run_scenario.guard_local_model", return_value={}), \
+                patch("run_scenario.Path.exists", return_value=False), \
+                patch("run_scenario.subprocess.Popen") as launch:
+            process = launch.return_value
+            process.communicate.return_value = (stdout, "")
+            process.returncode = 0
+            code, session, model, answer, diagnostic, metrics = run_scenario.run_opencode(
+                "prompt", "model", "http://127.0.0.1:9931/v1", self.repo, {}, 32768, output_tokens=4096)
+        self.assertEqual(code, 1)
+        self.assertIn("4096-token output limit", diagnostic)
+        self.assertIn("--output-tokens", diagnostic)
+        self.assertEqual(metrics["output_limit"], 4096)
+        config = json.loads(launch.call_args.kwargs["env"]["OPENCODE_CONFIG_CONTENT"])
+        self.assertEqual(config["provider"]["scenario-local"]["models"]["model"]["limit"]["output"], 4096)
 
     def test_local_endpoint_rejects_nonlocal_credentials_and_ambiguous_paths(self):
         for value in ("http://localhost:9931/v1", "https://127.0.0.1:9931/v1",
