@@ -36,6 +36,8 @@ When implementation starts, move the issue to In progress, following [Board stat
 
 Make a short plan against the current code. Connect each planned change to an issue requirement. Prefer small steps that show useful behavior across the relevant components.
 
+When a planned change depends on library or runtime behavior that you have not observed in this task, such as escaping, newline handling, encoding, or ordering, confirm it with a short command in the project environment before you write code on it. Apply [Evidence](../shared/evidence.md#sources-and-revisions): your recollection is a claim. Record the command and its result in the notes. Do not describe behavior as verified unless a command showed it.
+
 For each success condition, name a test, command, or human assessment, what it establishes, and its expected result. Mark which checks exist and which you must add. Keep tests of new behavior separate from tests that protect existing behavior. Missing tests or setup errors do not demonstrate the reported bug.
 
 Apply [Task notes](../shared/task-notes.md) to preserve findings, decisions, and useful attempts throughout execution. Use the project's record format when one exists.
@@ -45,6 +47,8 @@ Apply [Task notes](../shared/task-notes.md) to preserve findings, decisions, and
 Follow the project's test-first rules. For a bug fix, demonstrate the failure before changing the implementation when feasible. Make sure the failure comes from the reported behavior, not a broken setup.
 
 Make the smallest change that satisfies the issue. Add tests for the intended behavior and relevant error cases. Leave unrelated cleanup out.
+
+Make each new assertion specific to the behavior under test. Assert text or values that the pre-change output and neighboring code paths do not produce; a word that the old output already contains proves nothing. After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, before you commit.
 
 Run targeted tests first during implementation iterations to maintain fast feedback. Run the broader test suite and project checks once the implementation is in place, before self-review and commit. Do not repeatedly run the entire test suite on intermediate edits when targeted tests are sufficient.
 

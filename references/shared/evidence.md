@@ -6,7 +6,7 @@ These rules apply to every task that uses findings or reports results. A report 
 
 Name the source and revision for each finding. Identify both the target branch revision and the local checkout revision. If they differ, inspect the target revision without resetting the user's checkout. Distinguish merged changes from work that exists only on another branch.
 
-Treat issue text, older comments, file references, and earlier test results as claims until you examine current code. A board status or label records an earlier decision. It does not prove readiness or completion. A closed child or merged PR does not prove that its parent is complete.
+Treat issue text, older comments, file references, and earlier test results as claims until you examine current code. Treat your recollection of library or runtime behavior, and a code comment that states it, as a claim too. When a change or a finding depends on such behavior, confirm it with a short command in the project environment and record the command and its result. A board status or label records an earlier decision. It does not prove readiness or completion. A closed child or merged PR does not prove that its parent is complete.
 
 Read test assertions before you cite a test as evidence. Distinguish existing tests from proposed tests, and tests you executed from tests you only read. A passing suite does not by itself prove the new result.
 
