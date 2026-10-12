@@ -165,4 +165,10 @@ The snapshot does not establish completed implementation, review, or delivery.
 
 The [delivery record](2026-10-11-issue-997-delivery.md) covers the full run of the same session, with every agent on local `llama.cpp/llama` at skills `ddd342e`.
 [PR #1060](https://github.com/lmorchard/decafclaw/pull/1060) ended ready at `c392966` with passed hosted checks and no merge. The reviewer found a shipped defect that the implementation's tests had missed.
-Seven dispatches and about 3 hours 50 minutes for a 60-line change supplied the source for one implementation worker across operations, no coordinator diff assessment, and a conditional follow-up dispatch. Three new scenarios and four updated scenarios cover those decisions. Every changed-text and regression sample passed on Sonnet, and four of five baselines failed on the reversed decision, as the [results](../../../evals/results/2026-10-11-ceremony-reduction.md) record.
+Seven dispatches and about 3 hours 50 minutes for a 60-line change supplied the source for one implementation worker across operations, no coordinator diff assessment, and a conditional follow-up dispatch. Three new scenarios and four updated scenarios cover those decisions.
+
+## 2026-10-12: issue #1012 delivery on the local model with the merged text
+
+The [delivery record](2026-10-12-issue-1012-qwen-delivery.md) covers a detached `opencode run` on the same Qwen model at skills `62972b3`, after PRs #63 through #71 merged.
+[PR #1062](https://github.com/lmorchard/decafclaw/pull/1062) ended ready at `eca206b` with CI green, a clean fresh-session review, and no merge. Three working dispatches against seven, no coordinator diff review, the reviewer ran the new tests against the base, and the conditional follow-up stopped the flow without a dispatch.
+Wall clock was 7 hours 7 minutes with the model shared by a second workload, so the time is not comparable to #997; the run was dominated by the worker's investigation of suite deaths it caused by running several full suites concurrently, and by five notes-only commits that each restarted CI. Five candidate changes are listed in the record. Every changed-text and regression sample passed on Sonnet, and four of five baselines failed on the reversed decision, as the [results](../../../evals/results/2026-10-11-ceremony-reduction.md) record.
