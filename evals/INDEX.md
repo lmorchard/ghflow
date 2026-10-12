@@ -156,6 +156,9 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
+- [baseline-environment-bound](scenarios/baseline-environment-bound.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
+- [notes-commit-after-review](scenarios/notes-commit-after-review.md)
+- [one-full-suite-at-a-time](scenarios/one-full-suite-at-a-time.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
