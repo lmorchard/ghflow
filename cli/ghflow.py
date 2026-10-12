@@ -10,6 +10,8 @@ list means GitHub returned nothing. Exit status: 0 when every part was read,
 verify-commit exits 3 when the commit was read and an expectation is false.
 board set-status exits 3 when it refuses a backward move or a detected stale
 transition, and exits 1 when a membership read could not be read in full.
+pr ready exits 3 when it refuses to write because the PR is not open or its head
+is not the expected commit, and 2 when a write happened but a read-back failed.
 """
 
 import argparse
@@ -85,6 +87,26 @@ def run_gh(args):
     if result.returncode != 0:
         raise GhError((result.stderr or result.stdout).strip() or f"gh exited {result.returncode}")
     return json.loads(result.stdout) if result.stdout.strip() else None
+
+
+def run_gh_text(args):
+    """Run a gh write under the configured agent identity and return its text output.
+
+    Commands such as ``gh pr edit`` and ``gh pr ready`` print text, not JSON.
+    The caller confirms the write identity first and reads the result back.
+    """
+    identity = resolve_identity()
+    env = identity_env(identity)
+    result = subprocess.run(["gh", *args], capture_output=True, text=True, env=env)
+    if result.returncode != 0:
+        raise GhError((result.stderr or result.stdout).strip() or f"gh exited {result.returncode}")
+    return result.stdout
+
+
+def confirm_write_identity():
+    """Confirm that the active token belongs to the selected login before a GitHub write."""
+    identity = resolve_identity()
+    confirm_authenticated_login(identity, identity_env(identity))
 
 
 def confirm_authenticated_login(identity, env):
@@ -764,6 +786,137 @@ def board_set_status(repo, number, owner, project, status, allow_backward=False,
     return result, 2
 
 
+def normalize_body(text):
+    """Compare PR bodies without line-ending and trailing-whitespace differences that gh introduces."""
+    return (text or "").replace("\r\n", "\n").rstrip()
+
+
+def pr_ready(repo, number, body_file=None, expect_head=None, board=None, gh=run_gh, gh_text=run_gh_text,
+             confirm=confirm_write_identity, board_write=board_set_status, state=pr_state):
+    """Refresh a PR description, mark the draft ready, move its issue, and read each result back.
+
+    ``board`` is ``(issue_repo, issue_number, owner, project, status)`` or ``None``.
+    Nothing is written when the PR is not open, when ``expect_head`` does not match the
+    current head, or when the write identity cannot be confirmed. Each write has its own
+    read-back; a failed or mismatched read-back stops the sequence before the next write.
+    """
+    result = {"repo": repo, "number": number, "facts": [], "errors": []}
+
+    def fact(step, outcome):
+        result["facts"].append({"step": step, "state": outcome})
+
+    def fail(part, error, status):
+        result["errors"].append({"part": part, "error": str(error)})
+        return result, status
+
+    fields = "number,url,state,isDraft,headRefOid,headRefName,baseRefName,body"
+
+    def read_pr():
+        pr = gh(["pr", "view", str(number), "--repo", repo, "--json", fields])
+        response_type(pr, dict, "The PR response")
+        for name in ("url", "state", "headRefOid", "headRefName", "baseRefName"):
+            response_string(pr[name], f"The PR {name}")
+        response_type(pr["isDraft"], bool, "The PR draft flag")
+        response_string(pr.get("body"), "The PR body", nullable=True, empty=True)
+        return pr
+
+    read_errors = (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError)
+    try:
+        pr = read_pr()
+    except read_errors as error:
+        return fail("pr", error, 1)
+    head = pr["headRefOid"]
+    result.update({"url": pr["url"], "head_branch": pr["headRefName"], "base": pr["baseRefName"],
+                   "before": {"state": pr["state"], "is_draft": pr["isDraft"], "head": head}})
+
+    if pr["state"] != "OPEN":
+        fact("write", "refused")
+        return fail("state", f"The PR is {pr['state']}, not OPEN; nothing was written.", 3)
+    if expect_head is not None:
+        if len(expect_head) < 7 or not head.startswith(expect_head):
+            fact("write", "refused")
+            return fail("head", f"The PR head is {head}, not the expected {expect_head}; nothing was written.", 3)
+        result["expected_head_matches"] = True
+
+    body_text = None
+    if body_file is not None:
+        try:
+            body_text = Path(body_file).read_text(encoding="utf-8")
+        except (OSError, UnicodeDecodeError) as error:
+            fact("write", "refused")
+            return fail("body_file", error, 1)
+
+    try:
+        confirm()
+    except IdentityError as error:
+        fact("write", "refused")
+        return fail("identity", error, 1)
+
+    if body_file is not None:
+        write_failed = False
+        try:
+            gh_text(["pr", "edit", str(number), "--repo", repo, "--body-file", body_file])
+        except GhError as error:
+            write_failed = True
+            result["errors"].append({"part": "description", "error": str(error)})
+        try:
+            after = read_pr()
+        except read_errors as error:
+            result["description_matches"] = None
+            fact("description", "unknown")
+            return fail("description_readback", error, 2)
+        result["description_matches"] = normalize_body(after["body"]) == normalize_body(body_text)
+        if not result["description_matches"]:
+            fact("description", "mismatch")
+            return result, 1 if write_failed else 2
+        fact("description", "confirmed")
+        if after["headRefOid"] != head:
+            result["after"] = {"state": after["state"], "is_draft": after["isDraft"], "head": after["headRefOid"]}
+            return fail("head", f"The PR head moved from {head} to {after['headRefOid']} during the description update; "
+                                "the PR was not marked ready.", 2)
+
+    if pr["isDraft"]:
+        write_failed = False
+        try:
+            gh_text(["pr", "ready", str(number), "--repo", repo])
+        except GhError as error:
+            write_failed = True
+            result["errors"].append({"part": "ready", "error": str(error)})
+        try:
+            after = read_pr()
+        except read_errors as error:
+            fact("ready", "unknown")
+            return fail("ready_readback", error, 2)
+        result["after"] = {"state": after["state"], "is_draft": after["isDraft"], "head": after["headRefOid"]}
+        if after["isDraft"]:
+            fact("ready", "mismatch")
+            return result, 1 if write_failed else 2
+        result["action"] = "reconciled" if write_failed else "ready"
+        fact("ready", "confirmed")
+        if after["headRefOid"] != head:
+            return fail("head", f"The PR head moved from {head} to {after['headRefOid']}; the PR is ready at the new head, "
+                                "which the review may not cover.", 2)
+    else:
+        result["action"] = "unchanged"
+        result["after"] = {"state": pr["state"], "is_draft": False, "head": head}
+        fact("ready", "unchanged")
+
+    if board is not None:
+        issue_repo, issue_number, owner, project, status = board
+        board_result, board_status = board_write(issue_repo, issue_number, owner, project, status)
+        result["board"] = board_result
+        if board_status != 0:
+            result["errors"].append({"part": "board", "error": f"board set-status exited {board_status}."})
+
+    final, final_status = state(repo, number)
+    result["pr_state"] = final
+    if final_status == 1:
+        result["errors"].append({"part": "pr_state", "error": "The final PR state could not be read."})
+    elif final_status == 2:
+        result["errors"].append({"part": "pr_state", "error": "Some parts of the final PR state could not be read."})
+    return result, 2 if result["errors"] else 0
+
+
 def identity_config_paths(cwd=None):
     """Return identity config paths in project, primary-checkout, then home order."""
     current = Path.cwd() if cwd is None else Path(cwd)
@@ -927,6 +1080,17 @@ def main(argv=None):
     set_status.add_argument("--project", required=True, type=int, help="project board number")
     set_status.add_argument("--status", required=True, help="target Status option name")
     set_status.add_argument("--allow-backward", action="store_true", help="permit a backward move; use only with a reason and authorization")
+    pr_group = commands.add_parser("pr", help="PR write operations with read-backs.")
+    pr_commands = pr_group.add_subparsers(dest="pr_command", required=True)
+    ready = pr_commands.add_parser("ready", help="Refresh the description, mark a draft ready, move its issue In review, and read each back.")
+    ready.add_argument("pr", help="PR URL, or PR number with --repo")
+    ready.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    ready.add_argument("--body-file", metavar="FILE", help="UTF-8 file with the final description; omit to keep the current body")
+    ready.add_argument("--expect-head", metavar="SHA", help="refuse to write unless the current head is this reviewed commit")
+    ready.add_argument("--issue", help="issue URL to move on the board; needs --owner and --project")
+    ready.add_argument("--owner", help="login that owns the project board")
+    ready.add_argument("--project", type=int, help="project board number")
+    ready.add_argument("--status", default="In review", help='target Status option name (default "In review")')
     ident = commands.add_parser("identity", help="Report or export the configured agent identity.")
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
@@ -942,6 +1106,15 @@ def main(argv=None):
     elif args.command == "board":
         repo, number = parse_issue(args.issue, args.repo)
         result, status = board_set_status(repo, number, args.owner, args.project, args.status, args.allow_backward)
+    elif args.command == "pr":
+        repo, number = parse_pr(args.pr, args.repo)
+        board = None
+        if args.issue or args.owner or args.project is not None:
+            if not (args.issue and args.owner and args.project is not None):
+                parser.error("--issue, --owner, and --project are required together for a board move.")
+            issue_repo, issue_number = parse_issue(args.issue, repo)
+            board = (issue_repo, issue_number, args.owner, args.project, args.status)
+        result, status = pr_ready(repo, number, args.body_file, args.expect_head, board)
     elif args.command == "identity":
         try:
             identity = resolve_identity()

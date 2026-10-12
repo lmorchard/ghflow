@@ -1,6 +1,6 @@
 # CLI results for PRs and commits
 
-Read this reference when using `pr-state`, local Git verification, or `verify-commit`.
+Read this reference when using `pr-state`, local Git verification, `verify-commit`, or `pr ready`.
 The entry skill resolves `GHFLOW_CLI` to the source checkout CLI. Run commands from the target project directory.
 These commands apply the configured [agent identity](shared/identity.md) to their GitHub reads.
 
@@ -44,3 +44,9 @@ Use the full SHA that the tool reports.
 Exit status 0 means the commit exists and each expectation holds. Exit status 3 means an expectation is false. Exit status 1 means GitHub did not find the commit, which can mean it is not pushed. Do not pass on an identifier that failed. Read the branch again or return the mismatch to the agent that reported it.
 
 An invalid primary commit response also exits 1. An invalid expectation response leaves that expectation `null` with an error. It exits 2 unless another expectation is false, which retains exit status 3. If GitHub provides no commit author or author date, `author_date` is `null` without an error, as the [GitHub REST response schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json) permits.
+
+## Marking a PR ready
+
+When a draft PR meets the readiness conditions, run `python3 "$GHFLOW_CLI" pr ready PR_URL --body-file FILE --expect-head REVIEWED_SHA --issue ISSUE_URL --owner OWNER --project NUMBER` from the target project directory. One command does the ready submission's writes in order, each with its own read-back. It updates the description from the file and reads the body back. It marks the draft ready and reads back the ready state and head. It moves the issue to the Status option, `In review` by default, with the same procedure as `board set-status`. It ends with a `pr-state` read of the current head. It confirms the write identity before the first write. Omit `--body-file` to keep the current description, and omit the three board options when no board move is wanted.
+
+It writes nothing and exits 3 when the PR is not open or when the current head is not the commit in `--expect-head`. Give the reviewed head, so that a commit pushed after review cannot be marked ready unseen. It stops before the next write when a read-back fails or does not match, and exits 2. `description_matches` compares the file with the live body without trailing-whitespace and line-ending differences, which `gh` introduces. `facts` records each step as `confirmed`, `unchanged`, `mismatch`, `unknown`, or `refused`. `action` is `ready`, `unchanged` for a PR that was already ready, or `reconciled` when the ready command reported an error but the read-back shows the PR ready. A head that moves during the command is reported under `errors` with the part `head`; the review may not cover the new head. The `board` and `pr_state` parts carry those commands' results. Report `before`, `after`, `action`, `description_matches`, the board values, and the final `ci` from the output.
