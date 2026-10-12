@@ -36,6 +36,8 @@ When implementation starts, move the issue to In progress, following [Board stat
 
 Make a short plan against the current code. Connect each planned change to an issue requirement. Prefer small steps that show useful behavior across the relevant components.
 
+When a planned change depends on library or runtime behavior that you have not observed in this task, such as escaping, newline handling, encoding, or ordering, confirm it with a short command in the project environment before you write code on it. Apply [Evidence](../shared/evidence.md#sources-and-revisions): your recollection is a claim. Record the command and its result in the notes. Do not describe behavior as verified unless a command showed it.
+
 For each success condition, name a test, command, or human assessment, what it establishes, and its expected result. Mark which checks exist and which you must add. Keep tests of new behavior separate from tests that protect existing behavior. Missing tests or setup errors do not demonstrate the reported bug.
 
 Apply [Task notes](../shared/task-notes.md) to preserve findings, decisions, and useful attempts throughout execution. Use the project's record format when one exists.
