@@ -8,6 +8,8 @@ Read project instructions for an existing notes format or session-directory over
 
 When no convention exists, use `docs/dev-sessions/{timestamp}-{slug}/notes.md`, with a timestamp in `YYYY-MM-DD-HHMM` format and a short slug from the task branch or issue. Create the directory inside the active worktree, because untracked files in the main checkout are not available in another worktree. Create only the notes file that the task needs. Follow project rules for committing or ignoring notes.
 
+When the project commits notes, commit them with the code they describe or once at the end of an operation. Record the code commit and the checks that cover it; do not record the commit that will contain the notes, because it does not exist until after the commit. Do not wait for hosted CI on a notes-only commit; report the code commit's CI and name the notes-only commits after it. After independent review, do not add a notes-only commit before the PR is marked ready; update the notes with the ready result afterwards, in one commit, and name that delta in the report.
+
 Keep the same file when context is compacted, a session resumes, or a worker hands the task to another worker. Record its absolute path in the task handoff. If work moves to another checkout or machine, make the notes accessible there and report the new path. If the notes are unavailable, report the gap and use the available issue, PR, and Git evidence.
 
 ## Write useful entries frequently

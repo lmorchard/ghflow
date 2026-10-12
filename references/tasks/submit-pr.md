@@ -40,7 +40,7 @@ Reuse a matching existing PR and preserve intervening edits to its description. 
 
 Record the returned URL immediately. Read back the body, branch, base, head commit, and draft state. Run `verify-commit HEAD_SHA --repo OWNER/NAME --pr-head PR_URL` for the published head. For a draft checkpoint, skip the readiness, board transition, and review request below, and return to the coordinator with remaining work.
 
-When the work meets the shared readiness conditions, update the description and read the body back. Then mark the existing draft ready with `gh pr ready PR_URL` as a separate command, and read back the ready state and head. Do not chain the description update and the readiness change in one command; each write needs its own read-back under [GitHub writes](../shared/github-writes.md). Leave an explicit draft-only request in draft status.
+When the work meets the shared readiness conditions, update the description and read the body back. Then mark the existing draft ready with `gh pr ready PR_URL` as a separate command, and read back the ready state and head. Mark the reviewed head ready; do not push a notes-only commit first, as [Task notes](../shared/task-notes.md#locate-or-create-the-notes) states. If the head must move after review for a notes-only commit, name that delta and the review's covered commit in the report. Do not chain the description update and the readiness change in one command; each write needs its own read-back under [GitHub writes](../shared/github-writes.md). Leave an explicit draft-only request in draft status.
 
 ## Mark the issue in review
 
