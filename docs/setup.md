@@ -128,6 +128,18 @@ This permits source access and blocks file-tool edits to it. Other tool permissi
 The installer does not change agent permissions or write this configuration.
 See [OpenCode permissions](https://opencode.ai/docs/permissions/#external-directories) for directory and tool rules.
 
+## Dispatch guard for OpenCode
+
+Three local-model delivery runs sent a subagent dispatch or resume with a placeholder prompt, such as `placeholder` or `x`, and lost 10 to 20 minutes each recovering. The skill text names the recovery; it has not prevented the slip. `scripts/opencode-plugins/ghflow-dispatch-guard.js` is an OpenCode plugin that refuses a `task` call whose prompt is shorter than 120 characters, so the coordinator writes the handoff and calls again.
+
+Install it into the global plugin directory with:
+
+```sh
+scripts/install-opencode-plugin.sh
+```
+
+The script links the file into `~/.config/opencode/plugins/`; pass `--remove` to unlink it. The guard applies to every OpenCode session on the machine, so a project that legitimately dispatches subagents with one-line prompts should not install it globally; copy the file into that project's `.opencode/plugins/` instead, or adjust `MIN_PROMPT_CHARS`. Run `node scripts/opencode-plugins/ghflow-dispatch-guard.js --self-test` to check the rule. The plugin follows the [OpenCode plugin API](https://opencode.ai/docs/plugins/): a `tool.execute.before` hook that throws to block the call.
+
 ## Machine account access
 
 The repository owner grants access before an agent works in the repository or project board:
