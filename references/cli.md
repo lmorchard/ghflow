@@ -10,6 +10,8 @@ Read a PR's state with `python3 "$GHFLOW_CLI" pr-state PR_URL`, run from the tar
 
 `base_behind_by` is the number of base-branch commits that the head does not contain. A value of 0 means the head contains the current base tip.
 
+`comments` lists the PR's top-level comments from every result page, each with its author, time, URL, and full body. These are the conversation comments on the PR, not inline review threads; `inline_comments` on each review counts those. An empty list means that the read succeeded and found none. Read the bodies yourself before you describe or dismiss them.
+
 Use `latest_review_requests` to decide whether a review request exists and whether a later review answered it. `pending_review_requests` lists only reviewers that GitHub still shows as requested, and it can be empty while a request is live. Request events do not record a commit; after later pushes, compare the request time with the push times to decide which head it covers.
 
 A part that the tool could not read is `null` and has an entry in `errors`. Exit status 2 means some parts failed. Treat a `null` part as unread, not as empty. The tool does not judge whether a review is favorable; read the review bodies yourself.

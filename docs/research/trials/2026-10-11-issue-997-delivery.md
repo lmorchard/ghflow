@@ -42,7 +42,7 @@ submit-pr now applies the identity check instead of `gh auth status`, names the 
 
 Task notes and Evidence now say that a result is recorded only after the command has run, that an unperformed step is a next action, and that a pre-written outcome is corrected before work continues. Scenario: `notes-result-before-run`.
 
-The remaining observation that is not yet a change is reviewer access to top-level PR comments.
+`pr-state` now returns the PR's top-level comments as a `comments` part, with `null` for a failed read, and review-changes reads reviews and comments through it and reports "no comments" only when a read returned an empty list. Scenario: `review-comments-unread`. With that change, every observation in this record has a corresponding skill or tool change.
 
 After the scenario runner gained `--output-tokens`, the nine scenarios from these changes ran on the local Qwen model against old and new text. The old text failed both test-assertion scenarios, as the trial worker did, and the new text passed one and gave a partial answer on the other. On the other seven, both texts reached the decision, but the new text did so in about half the time and output tokens, and on the empirical implementer scenario in about one eighth. The [Qwen comparison](../../../evals/results/2026-10-12-qwen-rule-comparison.md) records each run.
 

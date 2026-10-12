@@ -22,7 +22,7 @@ Treat the implementation report as claims, not as your conclusion. Examine tests
 
 Keep the implementation checkout unchanged. If tests generate files or modify data, use an isolated temporary copy. Do not change expected results to make the reviewed code pass.
 
-For a published PR, get its current head and review discussions. Include top-level comments and reviews without inline threads. Read all result pages, and report incomplete retrieval.
+For a published PR, read its current head, reviews, and top-level comments with `pr-state`, described in [CLI results](../cli.md#reading-pr-state). Read the comment and review bodies. A `null` part is unread, not empty; read it again or report incomplete retrieval. Do not report that a PR has no comments or reviews unless a read returned an empty list.
 
 ## Examine the change
 

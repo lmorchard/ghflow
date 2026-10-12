@@ -37,7 +37,7 @@ def rules(*contexts):
     return [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": c} for c in contexts]}}]
 
 
-def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0):
+def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0, issue_comments=()):
     def gh(args):
         if args[0] == "pr":
             if "pr" in fail:
@@ -58,6 +58,10 @@ def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=()
             if "reviews" in fail:
                 raise GhError("HTTP 502")
             return list(reviews)
+        if "/issues/" in path and path.endswith("/comments"):
+            if "comments" in fail:
+                raise GhError("HTTP 500")
+            return list(issue_comments)
         if path.endswith("/comments"):
             return list(comments)
         if "timeline" in fail:
@@ -208,6 +212,32 @@ class ReviewTests(unittest.TestCase):
         self.assertIsNone(result["reviews"])
         self.assertIsNone(result["latest_review_requests"][0]["answered"])
         self.assertEqual(result["errors"][0]["part"], "reviews")
+        self.assertEqual(status, 2)
+
+    def test_top_level_comments_are_listed_with_author_time_and_body(self):
+        data = fake(pr(), issue_comments=[
+            {"id": 11, "user": {"login": "les"}, "created_at": "2026-10-11T20:00:00Z",
+             "html_url": "https://github.com/o/r/pull/7#issuecomment-11", "body": "Please also cover CRLF."},
+            {"id": 12, "user": None, "created_at": None, "html_url": None, "body": None},
+        ])
+        result, status = pr_state("o/r", 7, **data)
+        self.assertEqual(status, 0)
+        self.assertEqual(result["comments"], [
+            {"id": 11, "author": "les", "created_at": "2026-10-11T20:00:00Z",
+             "url": "https://github.com/o/r/pull/7#issuecomment-11", "body": "Please also cover CRLF."},
+            {"id": 12, "author": None, "created_at": None, "url": None, "body": ""},
+        ])
+
+    def test_no_top_level_comments_is_empty_list_not_null(self):
+        result, status = pr_state("o/r", 7, **fake(pr()))
+        self.assertEqual(status, 0)
+        self.assertEqual(result["comments"], [])
+
+    def test_failed_comments_read_is_null_not_empty(self):
+        result, status = pr_state("o/r", 7, **fake(pr(), fail={"comments"}))
+        self.assertIsNone(result["comments"])
+        self.assertIsNotNone(result["reviews"])
+        self.assertEqual(result["errors"][0]["part"], "comments")
         self.assertEqual(status, 2)
 
     def test_failed_timeline_read_is_null(self):
@@ -1553,7 +1583,7 @@ def pr_view_out(**overrides):
 
 
 class PrStateSubprocessTests(unittest.TestCase):
-    def _harness(self, head=HEAD, reviews=None, comments=None,
+    def _harness(self, head=HEAD, reviews=None, comments=None, issue_comments=None,
                  timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=()):
         replies = {
             "pr.view:o/r:7": {"out": pr_view_out(headRefOid=head)},
@@ -1562,6 +1592,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             "api:repos/o/r/compare/main...%s" % head: {"out": {"behind_by": behind_by}},
             "api.paginate:repos/o/r/pulls/7/reviews": {"out": [list(reviews or [])]},
             "api.paginate:repos/o/r/pulls/7/comments": {"out": [list(comments or [])]},
+            "api.paginate:repos/o/r/issues/7/comments": {"out": [list(issue_comments or [])]},
             "api.paginate:repos/o/r/issues/7/timeline": {"out": [list(timeline or [])]},
         }
         for part in missing:
@@ -1571,6 +1602,8 @@ class PrStateSubprocessTests(unittest.TestCase):
                 replies["api:repos/o/r/compare/main...%s" % head] = {"code": 1, "err": "HTTP 404"}
             elif part == "reviews":
                 replies["api.paginate:repos/o/r/pulls/7/reviews"] = {"code": 5, "err": "HTTP 502"}
+            elif part == "comments":
+                replies["api.paginate:repos/o/r/issues/7/comments"] = {"code": 1, "err": "HTTP 500"}
         return FakeGhHarness(replies)
 
     def test_pr_state_reports_head_ci_and_exit_zero(self):
@@ -1699,6 +1732,20 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(out["ci"], "green")
         self.assertEqual(out["errors"][0]["part"], "reviews")
 
+    def test_pr_state_reads_top_level_comments_through_gh(self):
+        h = self._harness(issue_comments=[{"id": 3, "user": {"login": "les"}, "created_at": "t",
+                                           "html_url": "u", "body": "Looks fine."}], missing={"comments"})
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(out["comments"])
+        self.assertEqual(out["errors"][0]["part"], "comments")
+        h = self._harness(issue_comments=[{"id": 3, "user": {"login": "les"}, "created_at": "t",
+                                           "html_url": "u", "body": "Looks fine."}])
+        result, out, calls = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["comments"][0]["author"], "les")
+        self.assertEqual(out["comments"][0]["body"], "Looks fine.")
+
     def test_pr_state_malformed_part_is_structured(self):
         h = self._harness()
         h.replies["api.paginate:repos/o/r/pulls/7/reviews"] = {"raw": "not json", "code": 0}
@@ -1728,6 +1775,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             ("api:repos/o/r/compare/main...%s" % HEAD, {"behind_by": "0"}, "base_behind_by"),
             ("api.paginate:repos/o/r/pulls/7/reviews", [None], "reviews"),
             ("api.paginate:repos/o/r/pulls/7/comments", {"message": "not pages"}, "reviews"),
+            ("api.paginate:repos/o/r/issues/7/comments", [None], "comments"),
             ("api.paginate:repos/o/r/issues/7/timeline", [[None]], "review_request_events"),
         )
         for endpoint, value, part in cases:

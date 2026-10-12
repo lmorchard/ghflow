@@ -30,7 +30,7 @@ When a watch command ends, read the results again. The end of a watch does not p
 
 ## Reading PR state
 
-Use `pr-state` to read the current head, checks, review requests, and reviews. Apply the [CLI result rules](../cli.md#reading-pr-state).
+Use `pr-state` to read the current head, checks, review requests, reviews, and top-level comments. Apply the [CLI result rules](../cli.md#reading-pr-state).
 Unread data is an evidence gap. The tool does not judge whether a review is favorable.
 
 ## Verifying a commit
