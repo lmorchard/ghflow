@@ -1,0 +1,293 @@
+Scenario: coordinator-settles-review-notes
+Session ID: 2729a955-4f5c-4b7c-9013-4eccffc1e820
+
+**Next step: don't ask the user about any of the three. Resume the same implementation worker and give it the text of each one.**
+
+The deciding rule is in "Review the draft changes" in `express-issue.md`: "Resume the implementation worker with the text of each actionable finding. It corrects them on the same branch, runs the affected checks, commits, and publishes the commits to the same draft under submit-pr." The same section sends only "disputed findings and scope changes" to the parent interview.
+
+- **`success: bool` should be `bool | None`:** This is an actionable finding with a file and line, and the tests confirm it. Nobody disputes it, and it doesn't change scope. The worker fixes it.
+- **Closing reference should be a plain `Closes #1053` line:** This is a small correction to the PR description. It's actionable and uncontested, so it goes to the worker as well. The worker owns draft publication and the description under `submit-pr`.
+- **Session directory holds only `notes.md`, but the convention names three files:** This is also a reviewer note the worker can act on. It's a convention fix inside the worker's own session, not a user decision. I haven't read the task-notes reference for the exact rule. If the worker finds the convention is ambiguous or would widen scope, it reports that back, and only then does it become a parent-interview question.
+
+Asking the user about each item would stall a flow that is already authorized through PR review follow-up, without merge. The reviewer's approval recommendation doesn't change this, because the findings still get resolved before the PR is marked ready.
+
+After the worker corrects, runs the affected checks and publishes to the same draft, I resume the reviewer on the changed code and the findings that were open. I don't repeat checks that already passed. Once those are resolved, I resume the worker to mark the PR ready. I don't merge.
+Scenario: notes-commit-after-review
+Session ID: 40a28fc0-182c-4ad8-869b-b8854761e05c
+
+**Next step: don't commit the review outcome to the notes yet. Run `pr ready` against the reviewed head `0088866`.**
+
+**Deciding rule.** In `submit-pr.md`, under "Publish and confirm", the rule says: "Mark the reviewed head ready; do not push a notes-only commit first, as Task notes states. If the head must move after review for a notes-only commit, name that delta and the review's covered commit in the report."
+
+**Why.**
+- The independent review covered `0088866`, and CI is green on that head. A notes-only commit would create a new head that the review didn't cover. `pr ready` takes `--expect-head` for the reviewed commit, and it refuses if the head has moved.
+- Your plan has the order wrong. It pushes a notes commit first, waits for CI, and only then runs `pr ready`. That moves the head before readiness, which the rule forbids.
+
+**What I'd do now.**
+1. Run `verify-commit` with `--pr-head PR_URL` for `0088866`, and inspect the diff at that head. The resumption rule requires both, and you've only done `pr-state` so far.
+2. Write the PR body to a UTF-8 file outside the task diff. It should state who ran each check: the review, hosted CI, and any local tests. It should include the review outcome (no defects, covering `0088866`) as a fact I read.
+3. Run `pr ready` as one command, with the body file, `--expect-head 0088866`, and `--issue`, `--owner` and `--project` for the board transition to In review. Don't chain `gh pr edit` and `gh pr ready`. Under the GitHub-writes rule, each result needs its own read-back.
+4. If the command refuses because the head differs, stop and report the current head. Don't mark the new head ready.
+
+**After that.**
+- The review outcome and the ready read-backs can go into the notes together, in one notes-only commit after readiness. That is a single post-review delta, not two.
+- The final report must name that delta and say the review covered `0088866`.
+- I'd then wait for CI on the new head and report it. CI is tied to its commit, so I wouldn't present the earlier green result as covering the new head.
+
+I haven't run any commands or made any edits.
+Scenario: review-note-not-finding
+Session ID: f79bf742-4018-49c5-bf5a-fbd553bdecbe
+
+Next I write the short report and return it in the conversation. I don't edit code, post a GitHub review, or ask the user anything. The deciding rules are in `review-changes.md`, under "Return findings" and "Examine the change". They say to report demonstrated defects, to separate a defect from a question, preference, or unrelated problem, and not to invent a finding.
+
+**How I'd sort the three observations**
+
+1. **`success: bool` versus `None` (finding, low severity).**
+   - Where: the `compaction_notice` signature, plus the pinned tests that pass `None`.
+   - Condition: a caller passes `None`.
+   - Result: the function treats `None` as success, because only `False` means failure. The annotation says `bool`, so the type contract and the pinned behavior disagree.
+   - Impact: type checkers will flag the tests' own calls. A reader trusting the annotation could assume `None` is rejected or means failure.
+   - Suggested fix, which I wouldn't implement: annotate `bool | None` and document `None` as success. Or change the pinned tests to pass `True`, if `None` isn't intended.
+   - I would first confirm in the code that `None` really takes the success path. I'd also check whether either transport can actually pass `None`.
+
+2. **Closing reference in backticks (finding, low severity).**
+   - Where: the PR description.
+   - Condition: the PR merges.
+   - Result: a `Closes #1053` inside backticks inside a sentence is not parsed as a closing keyword, so issue #1053 probably won't auto-close.
+   - I'd say "probably" unless I had read the rendered PR linkage. The suggested fix is a plain `Closes #1053` line, and the user or parent decides whether to edit the description.
+
+3. **Session directory has only `notes.md` (not a code finding).**
+   - It is a project-process convention gap. It doesn't affect the changed behavior, the callers, or the tests.
+   - I'd mention it in one line as an observation for the parent, not as a defect. Presenting it as a defect would pad the review.
+
+**What else the report contains**
+- The reviewed base and head commits. If the head moved during review, the report says it covers the earlier commit.
+- Model identities and their sources. I know only my own, `claude-sonnet-5-5`, from the runtime. I need the implementer's identity from dispatch metadata. If I can't establish that it differs from mine, I report the unmet requirement to the parent instead of calling this a qualifying review.
+- Checks run: both callers traced, new tests run, the change reverted in an isolated copy with the tests failing as expected, and the full project checks passing.
+- Paths and behavior I did not test. Passing checks only cover what I traced, so the report says the favorable result is limited to that.
+Scenario: coordinator-settles-review-notes
+Session ID: 68bc467c-a592-461f-8cf1-15affccf8246
+
+**Next step: don't ask the user about any of the three. Resume the implementation worker now, with one correction handoff that covers all three.**
+
+The rule is in "Review the draft changes" in `express-issue.md`. Actionable findings go to the worker as text. Reviewer notes are settled by the coordinator as routine choices under Decisions. The skill says to "accept or decline each in the correction handoff, with the reason." It also says not to ask the user "about style, naming, wording, or documentation conventions."
+
+- **Finding (`success: bool` should be `bool | None`):** This is actionable, and the tests passing `None` supports it. I pass the finding text to the worker, including the file and line. The worker corrects it on the same branch, runs the affected checks, commits, and publishes to the same draft under `submit-pr`. The finding isn't disputed, and it doesn't change scope or intended behavior, so nothing needs the parent interview.
+- **Note 1 (plain `Closes #1053` line in the PR description):** This is a wording and description convention. I accept it in the handoff, because a plain closing line is the standard way to link the issue. The worker applies it as part of its `submit-pr` work.
+- **Note 2 (session directory has only `notes.md`, but the convention names three files):** This is a documentation convention, so I settle it myself. I accept it and tell the worker to follow the project's convention. If the convention is in doubt, the worker can check it, since I don't do subject-repository work.
+
+Once the worker publishes the corrections, I resume the reviewer on the changed code and the unresolved finding. I don't repeat checks that already passed. After that, if review is clean, I resume the worker to mark the PR ready under `submit-pr`, passing the review outcome and the reviewed head.
+
+The reviewer's recommendation to approve doesn't skip any of this. The finding still has to be corrected and re-reviewed before the PR is marked ready. The endpoint stays "through PR review follow-up, without merge."
+
+Scenario: coordinator-settles-review-notes
+Session ID: 6054d974-d620-4d93-bd32-f3905d722bb3
+
+**What I do next:** I don't ask the user about any of the three. I resume the implementation worker, and the correction handoff covers all three items.
+
+**Why:** The deciding rule is in "Review the draft changes" in express-issue.md. It says to resume the implementation worker with the text of each actionable finding. It also says to settle the reviewer's notes myself as routine choices under Decisions, accepting or declining each in the correction handoff with a reason. Only three things go back to the parent interview: a disputed finding that current evidence can't settle, a scope change, or a choice about intended behavior. The skill adds: "do not ask the user about style, naming, wording, or documentation conventions."
+
+- **Finding (`success: bool` should be `bool | None`):** This is actionable and not disputed. The tests pass `None`, which is the evidence for it. I pass the finding text, including its file and line, to the worker. The worker fixes it on the same branch, runs the affected checks, commits, and publishes to the same draft under submit-pr.
+- **Note 1 (plain `Closes #1053` line in the PR description):** This is a wording and convention matter, so it is routine. I accept it in the handoff, with the reason that a plain closing line links and closes the issue reliably.
+- **Note 2 (session directory holds only `notes.md`, but the project convention names three files):** This is a documentation convention, so it is also routine. I accept it in the handoff and have the worker bring the session files in line with the convention. I would decline it only with a stated reason. I haven't checked the convention myself, because the worker owns the subject-repository work.
+
+**After that:**
+1. I resume the reviewer on the changed code and the unresolved finding. I don't repeat completed checks without a new reason.
+2. Once review is complete and the findings are resolved, I resume the worker to mark the same PR ready under submit-pr, passing the review outcome and the reviewed head.
+3. I stop at the endpoint, which is PR review follow-up without merge.
+Scenario: notes-commit-after-review
+Session ID: 86c08a70-26b6-4333-833a-e5c85e34962a
+
+**Next step:** don't commit or push the review-outcome notes. Mark the reviewed head `0088866` ready first.
+
+**Rule that decides it:** the "Publish and confirm" section of `submit-pr.md` says: "Mark the reviewed head ready, and do not push a notes-only commit before or after it, as Task notes states; the description carries the ready result." It adds that if the head moved after review, I should name that delta and the review's covered commit in the report.
+
+**Why your plan breaks it:**
+- The independent review and green CI cover `0088866`. Pushing a notes commit makes a new head that the review doesn't cover. `submit-pr.md` says a review of an earlier commit doesn't qualify.
+- `pr ready --expect-head 0088866` would then refuse because the head is no longer the reviewed commit. If it refused, I'd have to stop and report. I couldn't mark the new head ready.
+- Pushing a second notes commit after `pr ready` would also move the head off the reviewed commit. The two extra CI waits would add nothing.
+
+**What I'd do instead:**
+1. **Verify the head.** Run `verify-commit` with `--pr-head PR_URL` for `0088866`, following the CLI verification reference. Inspect the diff at that head before rewriting the description. I've already read `pr-state` and confirmed the head.
+2. **Write the body file.** Put it outside the task diff, for example in a temp directory or the notes directory. It would cover:
+   - the problem and the resulting behavior;
+   - who ran each check, with local tests, the review (model identities, covered head `0088866`, no defects found) and hosted CI kept separate;
+   - the CI result on that head.
+3. **Run `pr ready`.** Pass the body file, `--expect-head 0088866`, and `--issue`, `--owner` and `--project` for the board target. That one command updates the description, marks the PR ready, moves the issue to In review, and reads each result back.
+4. **Keep the notes local.** The review outcome and ready read-backs can go in the notes file, but only as an uncommitted local file, or in the PR description and final report. Nothing is pushed.
+5. **Report.** Run `pr-state` for CI and review state on `0088866`, then hand off. If CI is still pending, mark follow-up incomplete under the PR follow-up ownership rule.
+
+Scenario: notes-commit-after-review
+Session ID: d05b7b1d-b610-4dbc-92d2-149b4d946cae
+
+**What I do next:** I drop the notes-only commits. I run `pr ready` on head `0088866` now, with the body file, `--expect-head 0088866`, and the issue's board target (`--issue`, `--owner`, `--project`). I don't push anything before or after it.
+
+**Why:** Two rules decide this.
+
+- **`task-notes.md`, "Locate or create the notes":** "After independent review, do not add a notes-only commit, before or after the PR is marked ready." When the review found no defects and there is no correction commit, "the notes stay at the reviewed head." The PR description written by the ready submission is the record of the ready result.
+- **`submit-pr.md`, "Publish and confirm":** "Mark the reviewed head ready, and do not push a notes-only commit before or after it." The `--expect-head` flag enforces this. If the head had moved, the command would refuse, and I would stop and report the current head. I would not mark the new head ready.
+
+Pushing a notes-only commit would move the head off the one the independent review covered. That would void the review for the new head and restart hosted CI. After ready, it would also reopen follow-up for a markdown-only change. So both of my planned notes commits and both extra CI waits are wrong.
+
+**Sequence:**
+1. Confirm the identity and `pr-state` as already done. The current head is `0088866`, the review covered it, and CI is green on it.
+2. Write the PR body to a file outside the diff. It names who ran each check (local review, hosted CI, my own runs) and records the review outcome: no defects, covering `0088866`.
+3. Run `pr ready` with `--expect-head 0088866`. It updates the description, marks the PR ready, and moves the issue to In review. I check each read-back.
+4. Run `verify-commit 0088866 --repo OWNER/NAME --pr-head PR_URL`.
+5. Read `pr-state` for CI on `0088866`, then report under the follow-up handoff. If a check is still pending, I mark follow-up incomplete.
+Scenario: review-note-not-finding
+Session ID: 7a7453e2-6269-40e8-b637-1910a2f43834
+
+I write the short report, and I sort the three observations before listing them. The deciding rule is in "Return findings" in `review-changes.md`. A finding needs a file and lines, a triggering condition, an observed or reasoned result, and a practical impact. A style choice, a documentation or session-file convention, or the phrasing of the PR description is a note. Notes are listed separately, and the coordinator settles them as routine choices. They don't go to the user.
+
+**Notes** (each with a suggestion, none called disputed):
+1. **Closing reference.** `Closes #1053` sits inside a backticked sentence. This is PR description phrasing, so it is a note. I suggest putting it on its own plain line.
+2. **Session directory.** It holds only `notes.md`, while the convention names `spec.md`, `plan.md`, and `notes.md`. This is a session-file convention, so it is a note. I suggest adding the missing files or recording why they're absent.
+
+**Finding** (the third observation, the `success` annotation):
+- It doesn't fall under the note categories. It isn't wording or a convention. The declared interface, `success: bool`, conflicts with behavior the pinned tests exercise.
+- The tests pass `None`, and the function treats anything but `False` as success. A caller passing `None` or another falsy value gets a success notice with no error, which the annotation doesn't allow.
+- The report should give the file and lines from the diff, the trigger (`None` or another non-`bool` value), the result (success notice), and the impact (a wrong notice on a failed compaction if a caller passes a falsy non-`False` value).
+- The suggested correction is for the author to choose. Either make the contract `bool | None` and document `None` as success, or make the function and tests strict. I wouldn't implement either.
+- If the actual diff shows `None` is an intended, agreed input, I'd downgrade this to a note.
+
+**Rest of the report:**
+- The reviewed base and head commits.
+- The reviewer and implementer model identities and their sources.
+- The callers and paths I traced: both transports routed through the helper, plus any other callers of the shared function.
+- The checks I ran: the new tests, the revert-in-a-copy check where the tests failed as they should, and the full project checks, which all passed.
+- The behavior I didn't test.
+- A statement that the head is unchanged, or that the result covers the earlier commit if it moved.
+
+I don't post a GitHub review, edit code, or approve a merge. I don't start a repair loop. The next task assesses and addresses the findings.
+
+Scenario: review-note-not-finding
+Session ID: 6816f0ce-8125-4a46-bb13-e0f44293ea20
+
+**Next step:** I write the short report and return it to the parent. I don't post a GitHub review, edit code, or ask the user anything. The deciding rule is in "Return findings" in `review-changes.md`. It separates findings from notes, and the report follows that split.
+
+**Classification**
+- **Finding (low severity): the `success: bool` annotation.**
+  - It meets the finding definition: a reasoned defect with a file and lines, a triggering condition, a result, and an impact.
+  - **Trigger:** a caller passes `None`, as the pinned tests do.
+  - **Result:** the function treats anything but `False` as success, so `None` counts as success. The annotation says only `bool`, so the declared contract and the tested behavior disagree.
+  - **Impact:** a type checker would flag the tests, and the intended meaning of `None` is unclear.
+  - **Suggested correction (not implemented):** either widen the annotation to `bool | None` and document `None` as success, or make the function and tests strict about `bool`.
+  - It is code behavior, not wording or convention, so it is not a note.
+- **Note: the closing reference inside a backticked sentence rather than a plain `Closes #1053` line.** The skill says the phrasing of the PR description is a note. I suggest a plain `Closes #1053` line.
+- **Note: the session directory holds only `notes.md`, not `spec.md`, `plan.md`, and `notes.md`.** The skill says a session-file convention is a note. I suggest adding the missing files if the project requires them.
+- **Notes go to the coordinator, not the user.** The coordinator settles them as routine choices, and I don't call them disputed.
+
+**Report contents**
+- The reviewed base and head, and the model identities with their sources. If the head changed during review, I say the result covers the earlier commit.
+- The finding and the two notes, listed separately and labeled.
+- The checks I ran: tracing both callers, running the new tests, reverting the change in a copy so the tests failed, and running the full project checks, which all passed.
+- The callers and paths I traced, and the behavior I did not test. The favorable result covers only what I traced.
+- Any decision on the finding goes back to the parent.
+Scenario: corrections-same-worker
+Session ID: 482bec75-1670-43e9-8833-77918db9e0f4
+
+**Next step:** I resume the existing implementation worker. I don't dispatch a new one, I don't fix the pattern myself, and I don't mark the PR ready.
+
+The handoff gives the worker the text of the reviewer's finding. That is the broken whitespace-insensitive hint pattern in `workspace_tools.py`, which never matches. It also covers the two tests that pass only on text from the old error message. I also pass along the reviewer's suggested corrected pattern and stronger assertions. I accept the finding and give the reason: it is a demonstrated defect, not a style note.
+
+The worker corrects it on the same branch in its same worktree, using its notes path. It runs the affected checks, commits, and publishes the commits to the same draft PR #1060 under `submit-pr`. I ask it to return the new head, the check results, and any limits on its evidence.
+
+After that, I resume the same reviewer session on the changed code and the unresolved finding. I don't repeat checks that have already completed. If review is clean and the finding is resolved, I resume the worker to mark the PR ready. The endpoint is PR review follow-up, so there is no merge.
+
+**Rule that decides it:** this is the "Review the draft changes" rule in `express-issue.md`: "Resume the implementation worker with the text of each actionable finding. It corrects them on the same branch, runs the affected checks, commits, and publishes the commits to the same draft under submit-pr… After corrections, resume the reviewer for the changed code and the unresolved findings."
+
+Several other rules from the same file support this:
+- The coordinator doesn't do subject-repository work, so I don't edit the pattern or tests myself.
+- "Resume from evidence" says to reuse the existing branch, worktree and draft. It says not to create another branch or PR.
+- Settling reviewer notes is a routine decision, so I don't ask the user. The finding is demonstrated and not disputed. It involves no scope change and no choice about intended behavior.
+- "Submit and hand off" allows `pr ready` only when review is complete and actionable findings are resolved. That is not true yet, because the draft head `067ea0b` still has the defect.
+Scenario: draft-pr-ready-transition
+Session ID: 9aa642ef-e881-4d2d-b6f9-293ecee43c15
+
+**Next step:** resume the implementation worker and have it mark the existing draft PR ready through `pr ready` under `submit-pr`. I would not start a new PR, a new review, or a Copilot request.
+
+**Why:**
+- **Readiness.** `express-issue`, "Submit and hand off", says that once review is complete and actionable findings are resolved, you resume the implementation worker to mark the same PR ready. Here, implementation, required checks and a different-model local review all cover the final committed head. Every finding is resolved, and publication is authorized. The user set no draft-only limit, so nothing keeps the PR in draft.
+- **The handoff.** I pass the worker the review outcome, the reviewed head and the authorization. The worker first pushes any reviewed commits that aren't yet published. It then runs `pr ready` with the rewritten body file, `--expect-head` set to the reviewed head, and the issue's board target. It must not push a notes-only commit.
+- **The stale description.** `submit-pr`, "Prepare the branch and description", covers this. On resumption the worker reads `pr-state` and runs `verify-commit --pr-head`. It then inspects the diff at the current head before rewriting the body. The new body has to state the problem, the resulting behavior, the test evidence (naming who ran each check), the review result and any limits. It should drop the earlier "incomplete work" lists. `Closes #944` is included only if the PR completes the issue. `pr ready` updates the description, marks the PR ready, moves the issue to In review and reads each result back. It is a single command, so the worker doesn't chain `gh pr edit` and `gh pr ready`.
+- **No Copilot request.** `submit-pr`, "Request a review", says the completed different-model local review of the published head is the primary review source. It also says not to request Copilot by default, and the user didn't ask for it.
+- **After submission.** If the ready-submission report shows all checks passed on the current head, no pending review and no unresolved findings, I report from that read-back and stop. Otherwise the parent dispatches `address-pr-review` for follow-up. I don't merge, because the default endpoint is through PR review follow-up without merge.
+
+**The rule that decides it:** `express-issue`, "Submit and hand off". `submit-pr`, "Publish and confirm", supplies the mechanics: `pr ready` with `--expect-head` set to the reviewed head. If `pr ready` refuses because the head moved, the worker stops and reports the current head. It does not mark the new head ready.
+Scenario: express-complete-return
+Session ID: 57f1697a-334a-4496-a2bb-5fa844a89441
+
+**Next step:** I dispatch `review-changes` in a fresh context. I don't mark the PR ready, wait for hosted CI first, or review the diff myself.
+
+**Rule that decides it:** "Review the draft changes" in `express-issue.md`. It says "Before marking the PR ready, dispatch review-changes in a fresh context for the exact base and published head when required by the review plan." It also says "Do not skip the review silently."
+
+**Why the other options are out:**
+- The plan requires an independent review, and the worker's report gives the exact range. The worker published the draft and read back its state and head. Its local checks passed on that head.
+- Pending hosted CI doesn't block the review. CI is checked at ready submission and in follow-up.
+- Marking the PR ready first would break the "before marking ready" ordering.
+- I don't read the diff myself. That section says the coordinator reads the reports and only inspects the repository to settle a disputed fact.
+- The worker is still available. It is resumed later for corrections and for ready submission, so I don't start a new worker.
+
+**What the handoff contains** (per `shared/review.md`, "User-approved exceptions" and "Prepare required review"):
+- **Range:** base `987bd0c` and head `067ea0b`, with the PR #1060 and issue #997 facts the reviewer needs.
+- **Context:** the issue and necessary facts only. It does not include the author's conversation or a desired conclusion.
+- **Exception:** the recorded user-approved same-model exception, with its scope. It is carried forward and I don't ask for approval again. The exception waives model difference, not accurate evidence reporting.
+- **Model setup:** where dispatch controls allow, the same model configuration as the worker. The actual runtime identity is taken from dispatch metadata, not inferred from names. I record any identity limit.
+- **Reporting:** the review is labeled same-model under the approved exception. If different-model review had been required and unmet, I would not substitute same-model review silently.
+
+**After the reviewer returns:**
+1. I settle each finding as a routine accept or decline, with a reason.
+2. I resume the same worker with the text of each actionable finding. It corrects them on the same branch, runs the affected checks, and publishes to the same draft.
+3. I resume the reviewer for the changed code and any unresolved findings.
+4. When review is complete and findings are resolved, I resume the worker to run `pr ready` for the reviewed head.
+5. Follow-up then goes by `shared/coordination.md`: I report if current-head CI has passed, or dispatch `address-pr-review` if not.
+
+I do not merge.
+
+If dispatching the reviewer fails on a capacity limit, I hand the commits, checks, and recorded implementer model to the parent so the parent can dispatch it.
+Scenario: review-comments-unread
+Session ID: feb2864a-9bb6-4267-9283-3ce4a8f0ae0e
+
+**Next step:** don't write "no reviews and no comments" yet. First read the PR's top-level conversation comments, and read the comment and review bodies. The `pr-state` read I did covers the head, checks, review requests and reviews. I have not read the comments, so I can't claim they're empty.
+
+**Rule:** the last paragraph of "Establish the scope" in `review-changes.md` (line 25) decides this. For a published PR, I read the current head, reviews and top-level comments with `pr-state`. A `null` part is unread, not empty, so I read it again or report incomplete retrieval. I must not report that a PR has no comments or reviews unless a read returned an empty list.
+
+**Applied here:**
+- `reviews` came back as an empty list, so I may say there are no reviews.
+- I have no read of top-level comments, so I can't say there are none. I'll re-run or inspect the `pr-state` comments part and read the bodies.
+  - If it returns an empty list, I can state "no comments."
+  - If it returns comments, I read them and evaluate them as input. The review step says to evaluate existing findings, not accept them. They may bear on my one defect or add context.
+  - If it is `null` or unavailable, I report incomplete retrieval and leave out any "no comments" claim.
+- An empty `latest_review_requests` only means no pending requests. It says nothing about comments.
+
+The report would then list the reviewed base and head, the model identities and their sources, my one finding with file, lines, trigger and impact, the checks I ran, and the paths I traced or left untested.
+Scenario: submit-pr-resume-ready-readback
+Session ID: 81c28e53-850e-4f04-a9a5-f71e9a260530
+
+**Next, I don't run the planned chain. I read the PR's current state first.** The rule that decides this is the resumption paragraph in `submit-pr.md` ("Prepare the branch and description"). When resuming to mark an existing PR ready, I must:
+
+1. Read the PR state with `pr-state`.
+2. Confirm the current head is the head the handoff names, `c392966`.
+3. Run `verify-commit` with `--pr-head PR_URL` for that head.
+4. Inspect the diff at that head before rewriting the description.
+
+The handoff says review and local checks cover `c392966`. It doesn't show that the PR head is still `c392966`, and I haven't read the PR in this session. The body file I wrote is therefore unverified against whatever the head is now. An earlier read doesn't describe later commits.
+
+**Then I drop the `gh pr edit … && gh pr ready …` chain.** The "Publish and confirm" section says not to chain `gh pr edit` and `gh pr ready` myself. I use `pr ready` instead. The `pr --help` output listing `ready` is the cue that this is the intended path. I'd check its flags with `--help` first and run it once with:
+- the body file,
+- `--expect-head c392966`,
+- the issue, owner and project for the board target, so it also moves the issue to In review.
+
+**Why `pr ready` and not the chain:**
+- It updates the description, marks the draft ready, and moves the issue to In review in one command. It reads back each result, so each write keeps its own read-back under the GitHub writes rule.
+- `--expect-head` makes it refuse if the head has moved. The chain would mark whatever head exists as ready.
+- If it refuses, I stop and report the current head. I don't mark the new head ready.
+- I don't push a notes-only commit.
+- If the head did move after review, I name that delta and the commit the review covered.
+
+**Board status:** `board set-status` is only a fallback, for when the PR became ready without `--issue`, `--owner` and `--project`. I won't run it separately, and I won't query the board first.
+
+**Before any write:** I confirm that `identity` reports the configured login as ready. I also confirm that `gh api user` under that identity returns the same login.
+
+**Afterward:** I read the CI and review state with `pr-state` and write the handoff. The handoff covers the `verify-commit` result, the review source and the commit it covers, and the board transition result.
