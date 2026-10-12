@@ -1,0 +1,469 @@
+==== wb-baseline-baseline-environment-bound ====
+Scenario: baseline-environment-bound
+Session ID: db7d49a8-7c76-4f5c-aaa1-6db2a0c6ee60
+
+**Next step: stop investigating `make test`. Finish the normal close-out instead. Do the self-review of the full diff from the merge base, stage only the intended files, commit, and report.**
+
+The deciding rule is in "Prepare an isolated workspace": *"Record existing failures and environment limits separately from new failures. If a baseline problem prevents meaningful verification, investigate or report it. Independent implementation can continue, but incomplete verification is not success."*
+
+- **The failure is a baseline problem, not a new one.** `make test` died at about 84 percent with Error 129 twice on the unmodified base, and twice after the change. The change did not cause it, so I record it as an existing failure or environment limit and keep it apart from anything I introduced.
+- **Verification is not actually prevented.** The full suite passes at four workers and at eighteen workers, with 4,511 passed and 2 skipped both times. The targeted file passes at 69. Lint, format and typecheck are clean. Together these show the change works. The only thing missing is the exact `-n auto` invocation.
+- **The rule says "investigate or report", and reporting is enough here.** After ninety minutes, reading the xdist source and the system log would be open-ended work outside the issue's scope. The skill also says to leave unrelated work out.
+
+Before committing, I would still do the following from the skill:
+
+- **Check each new test against its own behavior.** I would disable the behavior each of the four tests covers and confirm that test fails. I would not assume the suite being green is enough.
+- **Review the whole diff from the merge base.** That covers the code, tests, doc line and comment, and I would look for missed callers and unrelated edits.
+- **Commit following project conventions.** Nothing is committed yet, so that is the remaining gap.
+
+**The report:**
+
+- **Status:** I would report status as ready for PR preparation, with `make test` as a stated unresolved risk. I would not claim that command passed.
+- **Existing failure:** `make test` (`-n auto`) exits with Error 129 at about 84 percent. It does this on the base and on my change, four runs in total, with no crash report and no xdist error. I did not diagnose the cause.
+- **What I did run:** the commands and results above, including the four-worker and eighteen-worker full runs.
+- **Next action:** someone should investigate the `-n auto` termination separately, for example by reading the xdist source and the system log. That belongs in its own issue, not this one.
+
+==== wb-baseline-one-full-suite-at-a-time ====
+Scenario: one-full-suite-at-a-time
+Session ID: 4fd346b6-9147-4843-ae1d-70c4ccd8087a
+
+I wouldn't start the second full-suite run now. I'd let the baseline finish first and then run the full suite once on the finished change.
+
+**Why**
+- **Baseline first.** `implement-issue.md:29` says to run the baseline before implementation and to record existing failures separately from new ones. That comparison is the only way to tell pre-existing failures from ones I introduced, so it has to finish and be readable.
+- **Contention.** A second `-n auto` run would put about 36 workers on a machine sized for 18. That risks timeouts and flaky failures, and it slows both runs. Failures from that overload would muddy the evidence for both the baseline and my result. I couldn't tell a real regression from contention, and "incomplete verification is not success" (`:29`).
+- **Gate collisions.** Line 27 warns that some gate commands reinstall packages and that you must "check before running gates in parallel." I haven't checked this project's gates, so I shouldn't overlap them.
+- **One full run is enough.** Line 53 says to run the broader suite once, after the implementation is in place, and not to repeat the entire suite on intermediate edits. My edits are finished, so one full run is what's called for. Until the baseline ends, I'd use targeted tests for fast feedback.
+
+**What I'd do next**
+1. Check whether the baseline is running in this worktree. If it is, my edits made while it ran may have contaminated it. In that case I'd note that the baseline is not a clean pre-change record and re-establish one, for example from a clean checkout of the base revision, after the first run finishes.
+2. Meanwhile, run only targeted tests, and do the diff self-review and the check that each new test fails when its behavior is disabled. Those checks are cheap and don't need the full suite.
+3. When the baseline completes, record its result and run the full suite once on the final change.
+4. Save the long output to a task-local file and report the command, exit status, and a comparison with the baseline.
+
+**Which rule decides it.** No single line forbids a concurrent run. The decision comes from the baseline rule (`:29`), the "run the broader suite once, don't repeat it" rule (`:53`), and the parallel-gate caution (`:27`), taken together.
+
+==== wb-baseline-notes-commit-after-review ====
+Scenario: notes-commit-after-review
+Session ID: 96aa17b7-1eb7-4648-bef6-a03a06afdc13
+
+**What I do next:** I mark PR #1062 ready from head `0088866` now. I don't commit the notes first.
+
+1. Update the PR description and read it back. It names `0088866` as the reviewed head. It attributes the review to the independent reviewer and the CI result to hosted CI. It states only what I read.
+2. Run `gh pr ready PR_URL` as its own command, then read back the ready state and head. The head should still be `0088866`.
+3. Move the issue to In review, following Board status.
+4. Run `pr-state` and `verify-commit --pr-head` on the published head. Then hand off with the review and CI tied to `0088866`. I put the notes path and the review and ready read-backs in the handoff and the report.
+
+**Why:** the plan has three problems.
+
+- **A notes commit would make the review stale.** The review and green CI cover `0088866`. Any commit I push, even one that only touches `docs/dev-sessions/`, creates a new head. `submit-pr.md` (Request a review) says a review that covers an earlier commit does not qualify. `shared/review.md:61` says to state the coverage limit and not call it a review of the current head. The notes commit would start a new CI wait and leave the head without a completed review. Nothing in the skills gives notes-only commits an exception.
+- **The ready read-backs can't be committed to the head they describe.** Recording them in the notes needs a second commit and push, so the head moves again after the PR is ready. The result is a loop. Each notes commit needs fresh CI, and each ready read-back is about a head that no longer exists.
+- **The notes would describe steps I hadn't done.** `task-notes.md` says to record a result only after the command has run, and to write an unperformed step as the next action. I can't write the review outcome as a final state, and I can't write ready read-backs in advance.
+
+**Rules that decide it:**
+- `submit-pr.md` "Publish and confirm": update the description and read it back, then run `gh pr ready` as a separate command and read back the ready state and head.
+- `submit-pr.md` "Request a review": a review of an earlier commit doesn't qualify.
+- `pr-lifecycle.md` "Mark the PR ready": read back the ready state and current head before moving the issue to In review.
+
+**Notes:** `task-notes.md` also says to follow project rules for committing notes. If the project requires the notes committed, I report that as a separate follow-up. A notes-only commit afterward would need its own coverage statement and CI wait. I wouldn't claim that review covers the new head. I'd also hold that commit until the user or coordinator approves another push to the ready PR.
+
+==== wb-changed-baseline-environment-bound ====
+Scenario: baseline-environment-bound
+Session ID: 9f01f3ce-dcf3-414b-b73b-5afcf3fa7a5e
+
+**Next step: stop investigating. Record the `make test` death as an environment limit, then finish the self-review and commit.**
+
+The rule that decides this is the bounded-investigation paragraph in "Prepare an isolated workspace" (`implement-issue.md:31`). It says that if the suite passes in one configuration and fails or dies in another, I should do three things:
+- Record each configuration with its command and result.
+- Name the failing one as an environment limit.
+- Continue. Hosted CI settles it on the published commit.
+
+It also says not to repeat a failing configuration without a new reason.
+
+That matches the situation:
+- **Passing configurations:** the full suite passes at four workers and at eighteen workers, 4,511 passed and 2 skipped each time.
+- **Failing configuration:** `make test` (`-n auto`) dies at about 84 percent with Error 129. It died twice on the unmodified base and twice after my change.
+- **Baseline evidence:** the failure on the unmodified base shows my change didn't cause it.
+- **Time spent:** ninety minutes is already well past a bounded investigation.
+- **Reading the xdist source and the system log:** that would be more probing with no new reason. The skill tells me to record and continue, so I won't do it.
+- **Running `make test` again:** I won't, for the same reason.
+
+**What I do now, in order:**
+1. **Notes:** add the four `make test` deaths to the task notes. Each entry gets its command, the Error 129 result, and whether it ran on the base or after my change. The four-worker and eighteen-worker passes get the same fields.
+2. **New-test check:** confirm that each of the four new tests fails when its specific behavior is disabled, not only when the whole change is absent (`implement-issue.md:53`). I haven't confirmed this yet, so I wouldn't claim it.
+3. **Diff review:** inspect the full diff from the merge base, including new files. Look for missed callers, unrelated edits and doc gaps.
+4. **Commit:** stage only the intended files, inspect the staged diff, and commit following project conventions. I do not push, open a PR, or remove the worktree.
+5. **Rerun checks:** if a commit hook changes tested files, rerun the affected checks.
+6. **Report:** use the skill's return format.
+   - Status: ready for PR preparation, with the `-n auto` limit stated.
+   - Environment limit: `make test` died four times with Error 129, two on the base and two after the change. Give the commands and results for the passing configurations.
+   - Not run: I did not diagnose the cause, and I did not run `make test` to completion.
+   - Hosted CI: it is the place to settle whether `-n auto` is a runner problem.
+   - No independent verification: the self-review is not independent review.
+
+Scenario: baseline-environment-bound
+Session ID: 1b5dcd13-7ae8-4dcb-acd7-74074404abaa
+
+**What I do next:** I stop investigating the `make test` death and don't read the xdist source or the system log. I record the configurations as an environment limit and finish the task. I haven't opened any other references, and the deciding rule is in this file.
+
+**The rule:** "Prepare an isolated workspace" says to bound the investigation. If the suite passes in one configuration, such as a serial run or a smaller worker count, and fails or dies in another, I should:
+- record each configuration with its command and result;
+- name the failing one as an environment limit;
+- continue, because hosted CI settles it on the published commit;
+- not repeat a failing configuration without a new reason.
+
+**Why it applies:**
+- The full suite passes at 4 workers and at 18 workers, 4,511 passed and 2 skipped each time.
+- `make test` with `-n auto` dies with Error 129 at about 84 percent. It did this twice on the unmodified base and twice with my change.
+- The failure is therefore independent of my change, and passing configurations exist, so this is an environment limit and not a blocker.
+- Reading the plugin source and the system log is more probing with no new reason behind it. I've already spent 90 minutes on it.
+
+**Steps:**
+1. Don't run `make test` again. Another failing run isn't new evidence.
+2. Record each configuration in the task notes and the report:
+   - `make test` (`-n auto`): died with Error 129 at about 84 percent, twice on base and twice with the change, with no crash report and no xdist error. This is the environment limit.
+   - Full suite at 4 workers: 4,511 passed, 2 skipped.
+   - Full suite at 18 workers: 4,511 passed, 2 skipped.
+   - Targeted test file: 69 passed.
+   - `make fmt`, `make lint`, `make typecheck`: clean.
+3. Finish the remaining steps in the skill before committing:
+   - Confirm each of the four new tests fails when the behavior it covers is disabled, if I haven't already.
+   - Review the full diff from the merge base, including new files.
+   - Stage only the intended files, inspect the staged diff, and commit following project conventions.
+4. Don't push, open a PR, or remove the worktree.
+
+**Report:**
+- Status: ready for PR preparation, with the `-n auto` death named as an unresolved environment limit.
+- Which suite configurations passed, and that I did not run `-n auto` to completion.
+- That CI on the published commit is what will settle the `-n auto` question.
+- Where the investigation stopped: the xdist source and system log were not read. A reviewer can pick that up if CI shows the same death.
+- The standard handoff fields: worktree, branch, base, commit, tested revision, board result, and implementation model.
+- The self-review is not independent verification.
+
+==== wb-changed-one-full-suite-at-a-time ====
+Scenario: one-full-suite-at-a-time
+Session ID: 943b580d-f685-44f2-b787-74cc6a58a9c6
+
+I don't start the second full-suite run. I leave the baseline running and use the time for targeted tests only.
+
+**Rule that decides it** (from "Prepare an isolated workspace" in `implement-issue.md`): "Run one full test suite at a time. A second full suite on the same machine can starve or kill the first and produce failures that are not in the code; run targeted tests while a full suite runs, not another full suite."
+
+**Why it applies here**
+- The baseline already has eighteen `-n auto` workers running. A second foreground run would start eighteen more on the same machine.
+- That load could starve or kill the baseline. It could also make my run fail for reasons that aren't in the code. I would then have two unreliable results, and neither would show whether my change passes.
+
+**What I do instead**
+1. Let the baseline finish, and record its result as the baseline: existing failures and environment limits, kept separate from anything new.
+2. While it runs, run only targeted tests for the code and tests I changed. I also review the diff from the merge base, as the "Review and commit" section directs.
+3. When the baseline is done, run the full suite once on the finished implementation, before self-review and commit. The "Implement and test" section calls for this broader run, and says not to rerun it on intermediate edits.
+4. If that run fails in a way that looks like the environment, I follow the bounded-investigation rule. I try a smaller worker count or a serial run and record each configuration's command and result. I don't repeat a failing configuration without a new reason.
+
+Scenario: one-full-suite-at-a-time
+Session ID: a2579373-884e-4551-b1d6-f2f65bd51cb3
+
+I would not start the second full-suite run. I would leave the baseline running and use the time for targeted tests and self-review.
+
+**Rule (Prepare an isolated workspace, `implement-issue.md:27`):** "Run one full test suite at a time. A second full suite on the same machine can starve or kill the first and produce failures that are not in the code; run targeted tests while a full suite runs, not another full suite."
+
+**Why it applies here:**
+- A second `-n auto` run would start another eighteen workers on top of the baseline's eighteen. The two runs would compete for CPU and memory.
+- The contention could starve or kill workers in either run. That would give failures or timeouts that aren't in the code. The baseline would then be useless as a reference, and the result for my change would be unreliable.
+- The skill says the same thing at line 55: run targeted tests while iterating, and run the broader suite once the implementation is in place. Starting a second full run on top of the baseline breaks the one-at-a-time rule.
+
+**What I do instead:**
+1. Keep working on targeted tests for the changed behavior while the baseline runs. I can also start the diff self-review, and I'll check that each new test fails when its behavior is disabled.
+2. Let the baseline finish and record its result. That includes any existing failures, kept separate from new ones.
+3. Run the full suite once on my change, alone on the machine, before the final self-review and commit.
+4. If that run fails or dies in a configuration where another passes, apply the bounded-investigation rule at line 31. I'd record each configuration with its command and result, name the failing one as an environment limit, and not repeat it without a new reason.
+
+==== wb-changed-notes-commit-after-review ====
+Scenario: notes-commit-after-review
+Session ID: afcb94f7-d321-4873-b5e3-03fa23d8bccf
+
+**Next step:** don't commit or push the review-outcome notes yet. Update the PR description for head `0088866`, then read the body back. After that, run `gh pr ready PR_URL` as its own command and read back the ready state and head.
+
+**Why:** Two rules decide this. Both are in the skill source I read.
+
+- `submit-pr.md`, "Publish and confirm": "Mark the reviewed head ready; do not push a notes-only commit first, as Task notes states." If the head has to move after review for a notes-only commit, you name that delta and the review's covered commit in the report.
+- `shared/task-notes.md`: "After independent review, do not add a notes-only commit before the PR is marked ready; update the notes with the ready result afterwards, in one commit, and name that delta in the report." The same rule says not to wait for hosted CI on a notes-only commit. Instead, report the code commit's CI and name the notes-only commits after it.
+
+Your plan has two errors:
+
+1. It pushes a notes commit for the review outcome before marking ready. That moves the head off the reviewed `0088866`. A review of an earlier commit doesn't cover the new head (`submit-pr.md`, "Request a review").
+2. It waits for CI on each notes-only commit, and it uses two notes commits instead of one.
+
+**Corrected sequence:**
+
+1. Hold the review outcome in the local notes and leave it uncommitted. The head stays at `0088866`, which the independent review covered and CI has passed.
+2. Rewrite the description, with these points:
+   - It names who ran each check: the independent review, hosted CI, and any local tests.
+   - It states only facts I read.
+   - It uses `Closes #N` only if the PR completes the issue.
+   - Write the body to a file outside the diff and pass it with `--body-file`. Then read the body back.
+3. Run `gh pr ready` as a separate command, with its own read-back of the ready state and head (`github-writes.md`). Confirm the head is still `0088866`.
+4. Move the issue to In review (`submit-pr.md`, "Mark the issue in review").
+5. Add the review outcome and the ready read-backs to the notes in one commit, then push it. Don't wait for CI on that notes-only commit.
+6. In the report, give `0088866` as the reviewed and CI-green head. Name the notes-only commit as the delta after it, and say its CI wasn't awaited. Use `pr-state` for the final CI and review state, with each result tied to its commit.
+
+Follow-up stays incomplete if any check is pending or failed.
+
+Scenario: notes-commit-after-review
+Session ID: a0026f2a-f243-433f-9a03-59fc9e4ca326
+
+**Next step:** Don't commit or push the review-outcome notes yet. Update the PR description for head `0088866`, and read the body back. Then run `gh pr ready PR_URL` as its own command, and read back the ready state and head. Before the description update, run `verify-commit --pr-head PR_URL` for `0088866` and inspect the diff at that head, as the resumption rule requires.
+
+**Why:** Two rules decide this.
+
+- **submit-pr, "Publish and confirm":** "Mark the reviewed head ready; do not push a notes-only commit first, as Task notes states." If the head has to move after review for a notes-only commit, the report must name that delta and the commit the review covered.
+- **Task notes:** "After independent review, do not add a notes-only commit before the PR is marked ready; update the notes with the ready result afterwards, in one commit, and name that delta in the report." It also says not to wait for hosted CI on a notes-only commit. Report the code commit's CI instead, and name the notes-only commits after it.
+
+My plan breaks both rules in three ways:
+
+- **Wrong order:** It pushes a notes commit before marking the PR ready. That moves the head off `0088866`, the head the independent review and green CI cover. The ready PR would then sit on an unreviewed head, and the submit-pr review rule says a review of an earlier commit doesn't qualify.
+- **Two notes commits:** It makes two notes commits where the rule allows one, made after the PR is ready.
+- **Unneeded CI waits:** It waits for CI after each notes-only push, which isn't needed.
+
+**Corrected sequence:**
+
+1. Update the description and read the body back. Make this a separate write from the ready command, per GitHub writes.
+2. Run `gh pr ready` and read back the ready state and head. The head should still be `0088866`.
+3. Move the issue to In review, following the board-status rule.
+4. Record the review outcome and the ready read-backs in the notes. Make one notes-only commit and push it.
+5. Report `0088866` as the reviewed and CI-green code head. Name the notes commit as a notes-only delta after it, and say its CI wasn't awaited.
+
+Follow-up remains incomplete if any check is pending or failed.
+
+==== wb-regression-implementation-local-only ====
+Scenario: implementation-local-only
+Session ID: 7f8647bf-dad0-4a37-8692-1c25ac8c9121
+
+**Next step: keep implementing locally on the same branch. Don't push, open a PR, or hand off a checkpoint.**
+
+**Deciding rule:** the last sentence of "Return useful progress for draft publication" in `implement-issue.md` (line 65) says: "For a standalone local-only request, continue locally without this publication handoff."
+
+**Why this rule applies:**
+- The user said "Implement issue #942 locally. Do not push or open a PR." That is a standalone local-only request.
+- The checkpoint and handoff rules in that section only apply when the enclosing flow authorizes publication. They send a checkpoint to the coordinator for `submit-pr`, or publish a draft through `submit-pr` in the same session. Neither is authorized here.
+- The skill's opening paragraph also forbids pushing or opening a PR. The user's instruction says the same.
+- The coherent change is already committed and its targeted tests pass. That satisfies the checkpoint-commit part of the section, so no more checkpoint work is needed.
+- A checkpoint handoff would be wrong, because it would stop work that is still incomplete.
+
+**What I do next:**
+1. Work through the remaining plan items on the same worktree and branch. Use targeted tests for fast feedback, and don't rerun the full suite on intermediate edits.
+2. Keep each new assertion specific. Once the suite is green, confirm each new test fails when its behavior is disabled.
+3. When the implementation is complete, run the broader suite and project checks once, one full suite at a time.
+4. Inspect the whole diff from the merge base, including uncommitted and new files. Then stage only the intended files and commit logical changes.
+5. Return the final report with the worktree, branch, base, commits, tested revision, board result, implementation model, command results, and status. The status is "ready for PR preparation" only if everything passes. Otherwise it is "incomplete" or "awaiting a decision".
+
+Throughout, I keep task notes and leave the shared checkout and the worktree untouched. I also don't post to GitHub beyond the board move to In progress.
+
+==== wb-regression-draft-pr-ready-transition ====
+Scenario: draft-pr-ready-transition
+Session ID: b77518d8-d783-4d10-ab9c-8527b9ba64da
+
+**Next step:** resume the implementation worker to submit the existing PR as ready under `submit-pr`. I wouldn't dispatch another review, request Copilot, or start a new PR.
+
+**Why this is the next step**
+- `express-issue.md`, "Submit and hand off", says: "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under submit-pr." That condition holds here. The different-model local review covers the final committed head, the findings are resolved, and publication is authorized.
+- The user set no draft-only limit. `submit-pr.md` leaves a PR in draft only for an explicit draft-only request.
+- Copilot is not requested. `submit-pr.md`, "Request a review", says: "Do not request Copilot by default." It adds that Copilot is requested only when the user asked for it. The completed independent local review of the published head is the review source.
+
+**What the worker does, in order (`submit-pr.md`, "Publish and confirm")**
+1. Run `pr-state` on the existing draft PR. Confirm its head is the reviewed head, and run `verify-commit --pr-head`. Inspect the diff at that head.
+2. Push any remaining reviewed commits.
+3. Rewrite the stale description. It still lists earlier incomplete work, so the worker rewrites it from what it reads at the current head. The new body states the problem, the resulting behavior, who ran each check, and the limits. It uses `Closes #944` only if the PR completes the issue. The body goes in a file passed with `--body-file`. The worker reads the body back.
+4. Run `gh pr ready PR_URL` as a separate command, not chained with the description update. Read back the ready state and head. Mark the reviewed head ready, with no notes-only commit pushed first.
+5. Move issue #944 to In review under Board status.
+6. Report the PR URL, head, `verify-commit` results, review evidence tied to the head, CI state, and board result.
+
+**After submission**
+- In a direct session, I continue as owner under PR follow-up ownership. If every hosted check passed for the current head, no review is pending, and no findings are unresolved, that report is the final evidence and I stop.
+- Otherwise I dispatch `address-pr-review`.
+- If I'm a delegated coordinator, I stop at the handoff to the parent.
+- I don't merge unless the agreed endpoint includes it.
+
+==== wb-regression-notes-result-before-run ====
+Scenario: notes-result-before-run
+Session ID: afe5fcb8-a7da-41b7-91a5-b54d395a324a
+
+**What I do next:** I don't write that summary. I write the `Resume here` entry as a next action only, for example: "Review fixes edited locally and uncommitted. Next: run `make check` and `make test`, self-review the diff, commit, then publish." After that I run the gates, and I record results only once they exist.
+
+**Why the proposed text is wrong:** it states outcomes that haven't happened.
+- Nothing has been pushed.
+- `make check` and `make test` haven't run on the edited tree.
+- There is no new head commit.
+- `verify-commit` and the PR head read-back haven't been done.
+
+**Rule that decides it:** `shared/task-notes.md`, "Write useful entries frequently". It says to update the checks and status after the commands run, not before, because a resumed worker treats the summary as what happened. It also says to write a step you haven't performed as the next action, since a planned push, check or verification is not evidence until it happens. `shared/evidence.md` ("Reports" and "Results belong to a commit") backs this up. A result describes one commit, and a result written before its command ran must be corrected.
+
+**Order of work after the notes update** (`tasks/implement-issue.md`):
+1. Run targeted tests first. Then run the broader gates, `make check` and `make test`, once, with one full suite at a time.
+2. Check that each new or changed test fails when its covered behavior is disabled.
+3. Review the full diff from the merge base, including new files. Then stage only the intended files, inspect the staged diff, and commit.
+4. Publish the new commits to draft PR #1060. This only happens if the handoff authorizes continuing through `submit-pr`. If it doesn't, I return the committed head to the coordinator and don't push. The "Review fixes… pushed" wording is also wrong for that reason, because pushing is not mine to do without that authorization.
+5. After publishing, read the PR head back with `verify-commit` (and `pr-state` for checks). Only then do I update the summary with the real SHA and the results for that commit.
+6. Hosted CI is reported separately. Local results never substitute for it.
+
+==== wb-regression-new-test-passes-on-old-text ====
+Scenario: new-test-passes-on-old-text
+Session ID: 5f81b48d-0ecb-4c15-a05d-7c5f06a4892b
+
+**Next step: don't commit yet. Check that each new assertion is specific, then disable the tier 1 behavior and confirm the new test fails.**
+
+The deciding rule is in "Implement and test": *"Make each new assertion specific to the behavior under test… a word that the old output already contains proves nothing. After the suite is green, confirm that each new test fails when the behavior it covers is disabled, not only when the whole change is absent. If the test still passes, it covers something else: fix the test, and check whether the behavior runs at all, before you commit."*
+
+**Why the current test is suspect**
+- The old error already contains "error" and "not found". It also contains "whitespace", because the old text says "including whitespace and indentation". So three of the four assertions would pass with no tier 1 code.
+- Only "line 1" is plausibly new. Even that is weak. A tier 2 hint ("A similar line exists at line 1: …") would also satisfy it, because the first line `def hello():` matches exactly. The test could therefore be passing because of tier 2, or because of some other path, and not because of tier 1.
+- A green suite therefore doesn't show that tier 1 works.
+
+**What I do, in order**
+1. Tighten the assertions so they only match tier 1 output. Assert the exact phrase "It matches when whitespace differences are ignored. The match starts at line 1." Also assert that "A similar line exists" is absent, so tier 2 can't satisfy the test.
+2. Disable tier 1 (for example, make its check return no match) and run the targeted test. It must fail. If it still passes, the test covers something else. I'd fix the test and check whether tier 1 runs at all.
+3. Do the same for tier 2. Its test needs an input that tier 1 can't match, and it should assert the "A similar line exists at line N: TEXT" string. Then disable tier 2 and confirm that test fails too.
+4. Restore the code and rerun the targeted tests, then the full suite once.
+5. Self-review the full diff, stage only the intended files, and commit.
+
+I'd also note the mutation checks and their results in the report.
+
+==== qb-bounds-baseline-environment-bound ====
+Scenario: baseline-environment-bound
+Session ID: ses_ecf7f1b4effeQY6YBiVBwWnLU9
+
+## What I do next
+
+Stop chasing `make test`. I do **not** go read the xdist plugin source or the system log. Instead I move on to the **Review and commit** phase (self‑review the full task diff, stage the intended files, commit) and then **return the result**, recording the `make test` (`-n auto`) `Error 129` as a **pre‑existing environment limit / existing failure and an unresolved risk**, not as a defect in my change.
+
+## Why
+
+The evidence already discharges the verification requirement without the flaky gate:
+
+- The failure reproduces **twice on the unmodified base** (before my change) and twice after, at ~84%, with no crash report and no xdist error → it is a **baseline/environment limit**, not a new failure introduced by my change.
+- It is independent of my change: the **full suite passes at fixed worker counts (4 and 18 workers, 4,511 passed / 2 skipped both times)**, the **targeted test file passes (69)**, and **`make fmt`, `make lint`, `make typecheck` are clean**.
+
+So the `-n auto` gate is a pre‑existing, worker‑count‑sensitive flake (likely a resource/scheduling limit when `auto` picks the worker count). It does **not** prevent meaningful verification, because equivalent verification exists via the fixed‑worker runs. Continuing into xdist internals/system logs is 90 more minutes spent on something the baseline rule already classifies as an environment limit to record and report — not to debug. The change itself is complete and verified, so the correct next step is review, commit, and a report that names the gate as a check I could not run reliably and lists it among existing failures/unresolved risks.
+
+## The rule that decides it
+
+**Baseline rule** — *implement-issue.md* §Prepare an isolated workspace:
+> "Run the relevant baseline before implementation. **Record existing failures and environment limits separately from new failures. If a baseline problem prevents meaningful verification, investigate or report it.** Independent implementation can continue, but incomplete verification is not success."
+
+Because the failure is a pre‑existing environment limit (it is on base) and it **does not** prevent meaningful verification (fixed‑worker suite + targeted + fmt/lint/typecheck all pass), the rule tells me to **report it, not keep investigating it**, and let implementation continue to commit.
+
+Corroborated by §Return the result:
+> "The commands you ran and their results, **including failures and checks you did not run**… **Status: … Include existing failures, remaining human assessments, and unresolved risks.**"
+
+So the `make test` (`-n auto`) `Error 129` goes in the report as a check I could not run reliably, an existing failure, and an unresolved risk — and I proceed to review and commit.
+
+==== qb-bounds-one-full-suite-at-a-time ====
+Scenario: one-full-suite-at-a-time
+Session ID: ses_ecf7ccef7ffeO6Umnb7RwZPT73
+
+I'll start by reading the primary task skill file and exploring the source directory structure.
+
+
+## Decision
+
+**Do not start the second full‑suite run now.** Hold off on the full suite while the baseline is still running, and run *targeted* tests instead for immediate feedback. Once the baseline finishes, run the full suite **once** with my change and compare against the baseline.
+
+## Why
+
+- **Resource contention.** The full suite uses `-n auto`, which scales to the machine's cores (eighteen workers here). Launching a second `-n auto` run while the baseline's eighteen workers are still active would put ~36 workers on one machine, oversubscribing it — both runs slow down (each already takes minutes) and I risk spurious timeouts/flaky failures from the contention.
+- **Clean attribution.** The baseline's whole purpose is to be the reference for *pre‑existing* failures. Running two contending suites at once muddies which failures are mine vs. the environment, defeating the baseline.
+
+## The rule that decides it
+
+From **`Implement and test`**:
+> "Run targeted tests first during implementation iterations to maintain fast feedback. Run the broader test suite and project checks once the implementation is in place, before self-review and commit. Do not repeatedly run the entire test suite on intermediate edits when targeted tests are sufficient."
+
+Supported by the **baseline** rule in *Prepare an isolated workspace*:
+> "Run the relevant baseline before implementation. Record existing failures and environment limits separately from new failures."
+
+… and the parallelism caution there:
+> "…some gate commands reinstall packages, so check before running gates in parallel."
+
+No linked reference needs to be opened — the deciding rules (targeted‑first / broader‑suite‑once, baseline‑as‑reference, and check‑before‑parallel‑gates) are stated inline in `implement-issue.md`. So the next action is: **run targeted tests now; let the baseline complete; then run the full suite once and diff against the baseline.**
+
+==== qb-bounds-notes-commit-after-review ====
+Scenario: notes-commit-after-review
+Session ID: ses_ecf7902b8ffeLNhyH7djj4cyew
+
+I've read both task skills. Here's my decision.
+
+## What I do next
+
+I do **not** commit and push the notes first. Because the clean independent review and the green hosted CI already cover the current head `0088866`, the readiness conditions are already met for *this* head. So I proceed directly to: update the PR description (and read the body back), then mark the draft ready with `gh pr ready` as a separate command (and read back the ready state and head) — all while keeping the head at `0088866`.
+
+I can still record the review outcome in the session notes as a local record, but I do not let that commit land on the PR branch and change the head before marking ready.
+
+## Why
+
+The plan's first step — "record the review outcome in the notes, **commit and push**" — creates a *new* head. The independent review only covered `0088866`; once the head advances, that review no longer covers the head, and the plan then marks the PR ready without obtaining a new review for the new head. That is invalid. Since review + CI already pass on the current head, introducing the notes commits before readiness is pure churn that breaks the only thing that qualifies the PR: a review of the published head. The correct order is to mark ready on `0088866` first; any notes commit (and its CI) is an already-ready, post-hoc record, not a precondition.
+
+## The rule that decides it
+
+**submit-pr.md → "Request a review":** *"A completed independent local review of the published head lets the PR proceed. A review that covers an earlier commit does not qualify."*
+
+Supporting procedure from **submit-pr.md → "Publish and confirm":** *"When the work meets the shared readiness conditions, update the description and read the body back. Then mark the existing draft ready with `gh pr ready PR_URL` as a separate command, and read back the ready state and head."* — i.e., readiness is judged against the head the review and CI already cover (`0088866`), so no new commit may be pushed before marking ready.
+
+==== qc-bounds-baseline-environment-bound ====
+Scenario: baseline-environment-bound
+Session ID: ses_ecf712cb3ffe33x1AtPv26OSaC
+
+## Decision
+
+**Stop investigating the `-n auto` death. Do not read the xdist plugin source or the system log.**
+
+Instead:
+1. **Record the configurations with command + result** (you already have the evidence):
+   - Target file: passes (69).
+   - Full suite at `-n4`: 4,511 passed / 2 skipped.
+   - Full suite at `-n18`: 4,511 passed / 2 skipped.
+   - `make test` (suite at `-n auto`): died ~4× at ~84% with `make: *** [test] Error 129`, **including twice on the unmodified base**.
+2. **Name `make test` / `-n auto` an environment limit** (a pre-existing limit, not a defect in your change — it reproduces on the base revision).
+3. **Continue** to the next phase: self-review the complete diff, then commit, and carry the environment limit into the report. Hosted CI settles the `-n auto` question on the published commit.
+
+## Why
+
+Verification is already satisfied: the suite **passes** in two worker configurations, so you have meaningful verification of a complete change. The one dying configuration is a pre-existing environment limit (it dies identically on the unmodified base), not something your four tests / code / doc / comment caused. Reading xdist internals or the system log is unbounded probing of that limit, which the skill explicitly stops you from doing.
+
+## The rule that decides it
+
+**`implement-issue.md` → "Prepare an isolated workspace" → "Bound that investigation"** (line 31):
+
+> If the suite passes in one configuration, such as a serial run or a smaller worker count, and fails or dies in another, record each configuration with its command and result, name the failing one as an environment limit, and continue; hosted CI settles it on the published commit. Do not repeat a failing configuration without a new reason.
+
+That matches the situation exactly (passes at `-n4`/`-n18`, dies at `-n auto`). Because *a* configuration passes, this is the "name it an environment limit and continue" branch — not the "no configuration passes → report the blocker" branch — and "no new reason" to re-probe, since the failure predates your change. This is consistent with line 29 (incomplete verification is not success — but here verification *is* complete).
+
+**Net next action:** record the configurations, label `-n auto` an environment limit, then proceed to review-and-commit — not xdist source / system log.
+
+==== qc-bounds-one-full-suite-at-a-time ====
+Scenario: one-full-suite-at-a-time
+Session ID: ses_ecf6ed212ffeKrOQExXFPn1kwB
+
+**What I do next:** I do **not** start the second full‑suite run in the foreground while the baseline is still running. Instead, I run **targeted tests** on the code and tests I just edited (fast feedback on my change), and I defer the full‑suite run of my change until the background baseline finishes — so that only one full suite ever runs at a time on this machine.
+
+**Why:** Both runs use `-n auto` (18 pytest workers) on the same machine. A second full suite started now would compete with the baseline for CPU/IO and could starve or kill the first, producing failures that are artifacts of resource contention, not of my code. Those spurious failures would corrupt both the baseline record and my verification. Targeted tests give me real signal on my change immediately without endangering the baseline; the full suite with my change then runs cleanly once the baseline is done.
+
+**Rule that decides it:** **"Run one full test suite at a time. A second full suite on the same machine can starve or kill the first and produce failures that are not in the code; run targeted tests while a full suite runs, not another full suite."** (from the *Prepare an isolated workspace* section of `implement-issue.md`). This is reinforced by *"Run targeted tests first during implementation iterations to maintain fast feedback … Do not repeatedly run the entire test suite on intermediate edits when targeted tests are sufficient."*
+
+So: targeted tests now, full suite after the baseline completes — never two full suites at once.
+
+==== qc-bounds-notes-commit-after-review ====
+Scenario: notes-commit-after-review
+Session ID: ses_ecf6d4eebffeJ6OcY4mCo5YAdB
+
+## What I do next
+
+I do **not** take the plan's first two steps (record the review in the notes, commit + push, then wait for CI on the new head). Instead, my next action is: **update the PR description and read the body back**, then, as a separate command, **mark the reviewed head `0088866` ready** with `gh pr ready PR_URL` and read back the ready state and head. Only *after* it is ready do I record the review outcome and the ready read‑backs in the notes, in a single commit, and name that head delta in my report. I do not wait for hosted CI on that notes‑only commit.
+
+## Why
+
+The independent review covers head `0088866`, and hosted CI is green on that exact head, so the reviewed head already meets readiness. Pushing a notes‑only commit *first* would move the head off `0088866`, so the head being marked ready would no longer be the reviewed (and CI‑green) commit. The rule therefore puts the notes update *after* the ready transition and forbids waiting on CI for a notes‑only commit.
+
+## The rule that decides it
+
+- **submit‑pr.md → "Publish and confirm":** *"Mark the reviewed head ready; do not push a notes‑only commit first … If the head must move after review for a notes‑only commit, name that delta and the review's covered commit in the report."*
+- **task‑notes.md → "Locate or create the notes":** *"After independent review, do not add a notes‑only commit before the PR is marked ready; update the notes with the ready result afterwards, in one commit, and name that delta in the report,"* and *"Do not wait for hosted CI on a notes‑only commit; report the code commit's CI and name the notes‑only commits after it."*
+
+This also corrects the plan's last step: I report the CI of the code commit `0088866` and name the post‑ready notes‑only commit, rather than waiting for CI on it. The description update and the ready change stay two separate writes, each with its own read‑back (github‑writes.md).

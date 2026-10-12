@@ -83,7 +83,7 @@ opencode run --model llama.cpp/llama --auto --format json \
 
 ## Candidate changes
 
-Candidates 1 to 3 became changes after this record: implement-issue bounds the investigation of a verification-environment failure and requires one full suite at a time; task-notes and submit-pr keep notes-only commits from moving the reviewed head and from each waiting on CI. Scenarios: `baseline-environment-bound`, `one-full-suite-at-a-time`, and `notes-commit-after-review`.
+Candidates 1 to 3 became changes after this record: implement-issue bounds the investigation of a verification-environment failure and requires one full suite at a time; task-notes and submit-pr keep notes-only commits from moving the reviewed head and from each waiting on CI. Scenarios: `baseline-environment-bound`, `one-full-suite-at-a-time`, and `notes-commit-after-review`. [Worker bounds samples](../../../evals/results/2026-10-12-worker-bounds.md) record the runs: every sample passed on both texts, and on Qwen the new text halved the time and tokens.
 
 1. implement-issue: bound the investigation of a verification-environment failure. When the change is complete and a full run is green in any configuration, report the failing configuration as an environment limit with the run counts and hand off; hosted CI settles it.
 2. implement-issue: run one full suite at a time; name concurrent suite runs, not only installs, as a cause of false failures.
