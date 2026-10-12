@@ -19,7 +19,7 @@ opencode run --model llama.cpp/llama --auto --format json \
 
 | | #997 run | #1012 run |
 | --- | --- | --- |
-| Wall clock | 3 h 50 min | 7 h 7 min |
+| Wall clock | 3 h 50 min | 7 h 7 min, with the model shared by a second workload for part of the run |
 | Task calls | 7 | 4, of which 3 did work |
 | Coordinator preparation before first dispatch | 23 min | 27 min |
 | Coordinator read task references it would dispatch | yes | yes |
@@ -29,7 +29,7 @@ opencode run --model llama.cpp/llama --auto --format json \
 | Review time | 47 min | 28 min |
 | Review ran new tests against the base | no | yes, in an isolated copy |
 | Final follow-up dispatch | yes, with nothing pending | no, conditional rule applied |
-| Dominant cost | model speed across seven dispatches | one worker's 2.5 h investigation of a self-inflicted test failure, then a notes-commit loop |
+| Dominant cost | model speed across seven dispatches | one worker's investigation of a self-inflicted test failure, then a notes-commit loop, both at roughly half throughput |
 
 ## Timeline
 
@@ -91,4 +91,4 @@ opencode run --model llama.cpp/llama --auto --format json \
 
 ## Evidence limits
 
-This is one run on one issue and one model. The worker's own concurrency is the established cause of most suite deaths, by its own `-n 18` and `-n auto` results and by hosted CI; the first death on the unmodified base is attributable to the tool timeout. Wall-clock figures come from session timestamps and include model generation on a shared server that also served scenario runs earlier in the evening. The run did not exercise the correction cycle, because the review found no defects, so it does not test the resumed-worker correction path. The comparison with #997 is between different issues of similar size, not a controlled repeat.
+This is one run on one issue and one model. The worker's own concurrency is the established cause of most suite deaths, by its own `-n 18` and `-n auto` results and by hosted CI; the first death on the unmodified base is attributable to the tool timeout. Wall-clock figures come from session timestamps and include model generation on a shared server. Les reports that a second workload was making requests to the same llama server during this run, which roughly halves the tokens per second available to each. The wall-clock total and the per-step durations are therefore not comparable to the #997 run, which had the server to itself; the dispatch count, the decisions, and the order of events are unaffected. The run did not exercise the correction cycle, because the review found no defects, so it does not test the resumed-worker correction path. The comparison with #997 is between different issues of similar size, not a controlled repeat.
