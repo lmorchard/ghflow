@@ -44,7 +44,7 @@ Use the full SHA that the tool reports.
 
 ## Reports
 
-Report what you did, what you checked, and what remains. State which checks you executed and which you only inspected. Report completed, failed, and uncertain steps separately, with enough information to resume.
+Report what you did, what you checked, and what remains. State which checks you executed and which you only inspected. Report completed, failed, and uncertain steps separately, with enough information to resume. Write a result into notes or a report only after the command has run; until then it is a next action. If you find a result that you wrote before running the command, correct it before you continue.
 
 A partial result is useful when its limits are explicit. If you are blocked or interrupted, preserve the worktree and report the next useful action.
 

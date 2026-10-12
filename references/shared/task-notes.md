@@ -14,13 +14,13 @@ Keep the same file when context is compacted, a session resumes, or a worker han
 
 Update notes soon after useful discoveries, settled decisions, and failed attempts, and before a handoff or known interruption. Use these events rather than a fixed interval or an entry for every tool call.
 
-Put a short `Resume here` summary at the top of the file. Keep the current goal and scope, issue or PR, worktree and branch, confirmed decisions, latest checks and their revisions, blocker, and next action there. Update this summary at useful checkpoints so a resumed worker can find the next step without reading the whole history.
+Put a short `Resume here` summary at the top of the file. Keep the current goal and scope, issue or PR, worktree and branch, confirmed decisions, latest checks and their revisions, blocker, and next action there. Update this summary at useful checkpoints so a resumed worker can find the next step without reading the whole history. Update the checks and status after the commands run, not before; a resumed worker treats the summary as what happened.
 
 Keep older findings and attempts underneath. Read the summary first, then relevant entries and linked evidence as needed. Condense repetitive or superseded entries while retaining decision reasons and source references. Add concise entries for:
 
 - Findings, with their source, revision, and relevant assumptions.
 - Decisions, with who settled them, the reason, and relevant scope or authorization limits. Distinguish proposals and unresolved questions from confirmed decisions.
-- Attempts and checks, with what was tried, the actual result, and why another attempt would differ.
+- Attempts and checks, with what was tried, the actual result, and why another attempt would differ. Record a result only after the command has run. Write a step you have not performed as the next action, not as an outcome; a planned push, check, or verification is not evidence until it happens.
 
 Link to code, commits, discussions, or detailed output instead of copying logs. Correct or mark superseded entries when evidence changes, so a resumed agent can identify the current conclusion. Apply [Evidence](evidence.md) to recorded findings and results, and [Decisions](decisions.md) to choices that remain unresolved. Notes support the task; issues, PRs, and actual code still supply their current state.
 
