@@ -351,6 +351,30 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated):
 
     reviews = part("reviews", read_reviews)
 
+    def read_comments():
+        items = response_type(gh_paginated(f"repos/{repo}/issues/{number}/comments"), list, "The top-level comments")
+        comments = []
+        for item in items:
+            response_type(item, dict, "A top-level comment")
+            response_integer(item["id"], "A comment id")
+            user = item.get("user")
+            if user is not None:
+                response_type(user, dict, "A comment user")
+                response_string(user["login"], "A comment author")
+            for name in ("created_at", "html_url"):
+                response_string(item.get(name), f"A comment {name}", nullable=True)
+            response_string(item.get("body"), "A comment body", nullable=True, empty=True)
+            comments.append({
+                "id": item["id"],
+                "author": user["login"] if user is not None else None,
+                "created_at": item.get("created_at"),
+                "url": item.get("html_url"),
+                "body": item.get("body") or "",
+            })
+        return comments
+
+    comments = part("comments", read_comments)
+
     def read_requests():
         events = response_type(gh_paginated(f"repos/{repo}/issues/{number}/timeline"), list, "The timeline events")
         requests = []
@@ -413,6 +437,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated):
         "latest_review_requests": latest_requests,
         "review_request_events": request_events,
         "reviews": reviews,
+        "comments": comments,
         "errors": errors,
     }
     return result, 2 if errors else 0
