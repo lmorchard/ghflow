@@ -6,7 +6,7 @@ Apply these rules when delegating tasks or returning their results. [Authorizati
 
 The **parent** agent owns the conversation with the user. It makes workflow decisions, conducts interviews, and dispatches tasks. A **subagent** does work in the **subject repository**, the project that the task changes. That work includes code changes, commits, pushes, issue and board updates, PRs, review replies, and merges. When a separate identity is configured, subagents follow [Agent identity](identity.md).
 
-A subagent returns questions to the parent instead of interviewing the user or waiting for an answer. Apply [Decisions](decisions.md#return-unresolved-decisions) to frame the question. Apply [Authorization](authorization.md#limits) to missing answers.
+If a dispatch or a resume reaches a subagent with an empty or placeholder prompt, the subagent returns one line that asks for the handoff and stops; it does not reread its task, restate its state, or act on a guess. A subagent returns questions to the parent instead of interviewing the user or waiting for an answer. Apply [Decisions](decisions.md#return-unresolved-decisions) to frame the question. Apply [Authorization](authorization.md#limits) to missing answers.
 
 For an unpublished implementation handoff, pass the supplied checkout path, branch, base, full tested head, and publication state. Verify the base and head locally before review, as [Evidence](evidence.md#verifying-a-commit) requires. Local verification establishes local existence only. Use remote verification after publication.
 
