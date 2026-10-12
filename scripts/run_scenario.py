@@ -448,7 +448,7 @@ def guard_local_model(endpoint, model):
     return {"endpoint": endpoint, "advertised_model": model, "status": status}
 
 
-def opencode_config(model, endpoint, snapshot, context_window):
+def opencode_config(model, endpoint, snapshot, context_window, output_tokens=4096):
     permission = {"*": "deny", "read": {"*": "deny"}}
     for path in sorted(snapshot.rglob("*.md")):
         absolute = path.resolve()
@@ -465,7 +465,7 @@ def opencode_config(model, endpoint, snapshot, context_window):
         "provider": {"scenario-local": {
             "npm": "@ai-sdk/openai-compatible", "name": "Existing local model",
             "options": {"baseURL": endpoint, "apiKey": "local-no-credential"},
-            "models": {model: {"name": model, "limit": {"context": context_window, "output": 4096}}},
+            "models": {model: {"name": model, "limit": {"context": context_window, "output": output_tokens}}},
         }},
         "agent": {"scenario": {
             "description": "Read committed scenario sources and answer the decision question",
@@ -532,7 +532,7 @@ def parse_opencode_events(stdout, snapshot=None):
     }
 
 
-def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout=300):
+def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout=300, output_tokens=4096):
     # Managed configuration takes precedence over all runtime overrides.
     managed_paths = [Path("/Library/Application Support/opencode"), Path("/etc/opencode"),
                      Path("/Library/Managed Preferences/ai.opencode.managed.plist"),
@@ -541,7 +541,7 @@ def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout
         raise ScenarioError("Managed OpenCode configuration is present; isolation cannot be guaranteed")
     guard = guard_local_model(endpoint, model)
     runtime_env = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(
-        opencode_config(model, endpoint, snapshot, context_window))}
+        opencode_config(model, endpoint, snapshot, context_window, output_tokens))}
     command = ["opencode", "run", "--pure", "--model", "scenario-local/" + model,
                "--agent", "scenario", "--format", "json", "--dir", str(snapshot),
                "--title", "Decision scenario"]
@@ -565,6 +565,12 @@ def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout
             code = code or 1
             errors.append(f"OpenCode exceeded {timeout} seconds; its process group was terminated.")
         metrics["timed_out"] = timed_out
+        metrics["output_limit"] = output_tokens
+        emitted = (metrics.get("tokens") or {}).get("output", 0)
+        if not answer.strip() and not timed_out and emitted >= output_tokens * 0.9:
+            errors.append(f"Emitted {emitted} output tokens against the {output_tokens}-token output limit "
+                          "without an answer; a thinking model can spend the limit before it answers. "
+                          "Raise --output-tokens.")
         if errors or not answer.strip():
             code = code or 1
         diagnostic = safe_diagnostic("\n".join(errors + [stderr]), env) if code else ""
@@ -583,6 +589,8 @@ def parser():
     result.add_argument("--endpoint", help="existing local OpenAI-compatible endpoint (OpenCode only)")
     result.add_argument("--timeout", type=int, default=300, help="OpenCode run timeout in seconds (default: 300)")
     result.add_argument("--context-window", type=int, default=32768, help="local per-session context tokens (default: 32768)")
+    result.add_argument("--output-tokens", type=int, default=4096,
+                        help="OpenCode output token limit per response, which a thinking model also spends on reasoning (default: 4096)")
     result.add_argument("--repeat", type=int, default=1)
     result.add_argument("--commit", default="HEAD", help="source commit (default: HEAD)")
     result.add_argument("--output-dir", type=Path)
@@ -656,6 +664,8 @@ def main(argv=None):
             parser().error("--timeout must be at least 1")
         if args.context_window <= 4096:
             parser().error("--context-window must exceed 4096")
+        if args.output_tokens < 256 or args.output_tokens > args.context_window:
+            parser().error("--output-tokens must be at least 256 and at most --context-window")
         try:
             args.endpoint = local_endpoint(args.endpoint)
         except ScenarioError as error:
@@ -718,6 +728,7 @@ def main(argv=None):
                 elif args.runner == "opencode":
                     code, session, runtime_model, answer, diagnostic, metrics = run_opencode(
                         prompt, args.model, args.endpoint, snapshot, env, args.context_window, args.timeout,
+                        args.output_tokens,
                     )
                 else:
                     code, session, runtime_model, answer, diagnostic = run_claude(
