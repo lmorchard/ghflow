@@ -2,9 +2,7 @@
 
 Coordinate implementation, independent review, and submission for one selected issue. One implementation worker carries implementation, draft publication, corrections, and ready submission through their task references. A separate fresh context reviews. The coordinator dispatches, reads the returned evidence, and settles decisions. It does not do subject-repository work. A delegated coordinator stops after ready submission and hands the remaining agreed endpoint to the parent. Each operation remains usable without this coordinator.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Apply [Coordination](../shared/coordination.md) to dispatch and handoffs. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
-
-Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
+Read this reference and [Handoffs](../shared/coordination.md#handoffs) before the first dispatch. Open the other shared references when their conditions apply, as [Working context and tool output](../shared/context.md) states: [Authorization](../shared/authorization.md) when the endpoint or a limit is in question; [Evidence](../shared/evidence.md) when you read a worker's report; [Review](../shared/review.md) before you select or dispatch a reviewer; [GitHub writes](../shared/github-writes.md) before you change a GitHub record yourself, which this coordinator rarely does. Reading all of them first delays the first dispatch and changes no decision.
 
 ## Establish the task and endpoint
 
@@ -12,7 +10,7 @@ Read the selected issue, repository instructions, existing work, and user decisi
 
 Use the endpoint agreed in the conversation. If none was given, state the default: through PR review follow-up, without merge. A narrower request takes precedence. A request through merge authorizes that step, subject to the merge rules in [merge-pr](merge-pr.md).
 
-Locate the linked task references before dispatch. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure.
+Confirm the paths of the linked task references before dispatch. Do not read a worker's procedure: the handoff names it, and the worker reads it. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure.
 
 ## Resume from evidence
 
@@ -50,7 +48,7 @@ If you are a delegated coordinator, return the submission result and remaining e
 
 ## Continue to the endpoint in the parent
 
-Apply [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership) to the ready submission report. If that report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, it is the final follow-up evidence. Report the result and stop.
+Apply [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership) to the ready submission report. If that report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, it is the final follow-up evidence. Report the result from that read-back and stop. Do not read the worker's notes, the PR, or the diff to confirm it, and do not edit the worker's notes to record the endpoint; the endpoint belongs in your report.
 
 Otherwise, the parent directly dispatches [address-pr-review](address-pr-review.md) and receives its final report. Preserve that task's one-cycle review limit and CI repair. A review requested after corrections can still be pending when it ends. Report a missing or timed-out review separately from passed CI and completed repairs.
 

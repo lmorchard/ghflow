@@ -1,0 +1,417 @@
+Scenario: endpoint-report-from-readback
+Session ID: 1af2a3d2-1d68-4c42-884f-5a786ef348bc
+
+**Next step: don't read or edit the notes. Report the result and stop.**
+
+**Rule that decides it:** "Continue to the endpoint in the parent" in `express-issue.md`, lines 53 and 61. If the ready submission report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, then "it is the final follow-up evidence. Report the result and stop."
+
+PR #1061's report meets all of those conditions:
+- It is ready at head `42e9a74`.
+- Every hosted check passed for that head.
+- No review is requested or pending, and there are no comments or unresolved findings.
+- The issue is In review, with a matching read-back.
+
+The default endpoint is "through PR review follow-up, without merge." That endpoint is reached, so I don't dispatch `address-pr-review` and I don't merge.
+
+**Why I skip the notes:**
+- **Read-back is already done.** Line 61 says to take the report's facts from the responsible worker's read-back, "not from your own subject-repository reads." The worker's read-back already confirms the state, so reading its worktree notes adds nothing.
+- **It isn't my job.** Line 3 says the coordinator "does not do subject-repository work." The notes sit in the worker's worktree, so reading them, and especially editing them, would be that kind of work.
+- **A status edit would not be evidence.** An edit saying the endpoint is reached would be me writing into the worker's record. It would not be a read-back. The evidence is the PR, check and issue state the worker read back. Line 63 says to preserve the worktree and leave it for resuming.
+
+**My report will include:**
+- The issue #1054 and PR #1061 URLs.
+- The current commit, `42e9a74`.
+- The test and check evidence, and the independent review evidence as the worker reported it.
+- The remaining limits: the PR is not merged, by design.
+
+All of it comes from the worker's read-back, not from my own reads.
+Scenario: placeholder-dispatch-recovery
+Session ID: 63ae6604-8bae-4279-8df5-6d20bfd2c47a
+
+**What I do next:** I resume the same implementation worker's session, which is still available, with a proper ready-submission handoff. I don't start a new worker, and I don't mark the PR ready myself. The worker's reply to `x` isn't a submission result, so it doesn't count as evidence for anything.
+
+**The handoff to the worker:**
+- **Operation:** `submit-pr`, to mark the same PR ready.
+- **Review outcome:** the independent reviewer found no actionable findings for head `42e9a74`. That is the reviewed head.
+- **Authorization:** it may publish any remaining reviewed commits, refresh the description, mark the PR ready, and move the issue to In review. The endpoint is PR review follow-up, without merge.
+- **What to return:** the PR URL, the published head, and a read-back of the ready state. The read-back must cover current-head checks and reviews, plus the actual results and evidence limits.
+- **Anything else it needs:** the notes path, if there is one.
+
+I also tell the worker to ignore the earlier `x` prompt.
+
+**Rules that decide this:**
+- `express-issue.md`, "Submit and hand off": once review is complete and findings are resolved, "resume the implementation worker to mark the same PR ready under submit-pr. Pass the review outcome, the reviewed head, and authorization."
+- `coordination.md`, "Handoffs": one worker carries implementation through ready submission, so "reuse the worker when it returns." Another worker is for a new role or when the responsible worker is unavailable, and neither applies here. The handoff must also be specific: supply the facts, current revision, and authorization the worker can't read itself.
+- `coordination.md`, "Roles": I coordinate and don't do subject-repository work, so I don't mark the PR ready myself.
+
+**After the worker reports:**
+- If I'm a delegated coordinator, I stop at the submission report and return the handoff to the parent. It carries the exact revisions, checks, reviews, and request times.
+- If this is a direct session and the read-back shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, that read-back is the final follow-up evidence. I report it and stop, without merging.
+- If any of those conditions fails, I dispatch `address-pr-review`.
+Scenario: shared-references-on-condition
+Session ID: f2274b28-67ee-4125-be19-3a4e3b4fccd3
+
+**Next step: I don't read all thirteen references. I go to "Establish the task and endpoint" in express-issue. That means reading the issue, the repository instructions, any existing work (task notes, branches, PRs) and the user's decisions. I load shared rules only as each step needs them.**
+
+**Rules that decide it**
+- **`SKILL.md`: "Load only the task and shared rules needed now. Apply Working context and tool output to reference loading…"** This rules out preloading everything.
+- **express-issue, "Establish the task and endpoint":** "Read the selected issue, repository instructions, existing work, and user decisions."
+- **express-issue, "Locate the linked task references before dispatch."** The rule says to locate them, not to read them. The coordinator confirms that the implement-issue, submit-pr and review-changes paths resolve. It then names them in the handoffs.
+- **express-issue, intro and "Handoffs":** the handoff "names the task reference and supplies the facts, decisions, and authorization… It does not restate the procedure." The coordinator "does not do subject-repository work." Workers read the procedures in implement-issue, submit-pr and review-changes. Reading them now would spend context on procedure the coordinator doesn't execute.
+
+**What I do**
+1. **Read the issue and existing work.** I read #1054 and the repository instructions. I read any task notes first, then look for existing branches, PRs, review records and checks, so I resume from evidence and don't start a duplicate. I confirm the repository from the request, not from the source checkout's remote.
+2. **State the endpoint.** The user's agreed endpoint is PR review follow-up without merge, and it matches the default. I record it along with the user's settled design choice, so it goes into the handoff and isn't reopened.
+3. **Load shared rules only when a step needs them.**
+   - `coordination.md` (handoffs and PR follow-up ownership) and `review.md` (prepare the review path before implementation) come before dispatch.
+   - `github-writes.md` comes before any GitHub change.
+   - `pr-lifecycle.md` is for the draft and ready rules.
+   - `authorization.md` and `evidence.md` are already named as applying throughout.
+   - `decisions.md`, `identity.md` and the rest are read only if a gap or a subagent Git/GitHub step triggers them.
+4. **Prepare review, then dispatch.** I prepare the required review under `review.md` and check that a different-model reviewer is available. Then I dispatch implement-issue to a worker. The worker continues into draft publication under submit-pr and must not mark the PR ready. A fresh-context review-changes reviewer comes next. After that the worker marks the PR ready, and the parent runs address-pr-review. I don't merge.
+
+I would read a task reference myself only if I had to settle a fact the coordinator needs, for example if a worker's report contradicted a rule.
+Scenario: endpoint-report-from-readback
+Session ID: 865782bb-2c33-4ec9-943f-33c32f02e58b
+
+I don't read the notes and I don't edit their status line. I report the result from the worker's ready submission report and stop.
+
+**Rule that decides it:** the "Continue to the endpoint in the parent" section of `express-issue.md`, line 51. It applies [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership) to the ready submission report. If that report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, it is the final follow-up evidence. The rule then says to report from that read-back and stop. It also says: "Do not read the worker's notes, the PR, or the diff to confirm it, and do not edit the worker's notes to record the endpoint; the endpoint belongs in your report."
+
+**Why it applies here:** the worker's report matches each of those conditions.
+- PR #1061 read back as ready at head `42e9a74`.
+- Every hosted check passed for that head.
+- No review is requested or pending, there are no comments, and no findings are unresolved.
+- The issue moved to In review, with a matching read-back.
+
+The endpoint was the default, which is through PR review follow-up without merge. This report already satisfies it. I don't dispatch `address-pr-review` and I don't merge.
+
+**What I report:**
+- The URLs for issue #1054 and PR #1061.
+- The current head, `42e9a74`.
+- The test and check evidence, and the review state: none requested or pending, no unresolved findings.
+- Remaining limits: the PR is not merged, as the endpoint specifies.
+- That the endpoint is reached.
+
+Reading the notes would be redundant confirmation. Editing them would change the worker's records, which this coordinator doesn't do. The worktree and notes stay as they are so the work can be resumed.
+
+Scenario: endpoint-report-from-readback
+Session ID: a73692d5-48f8-4aef-89e2-e0f4ede66cb5
+
+**What I do next:** I don't read the worker's notes, and I don't edit their status line. I report the result from the worker's ready-submission read-back and stop.
+
+**Why:** The rule is in "Continue to the endpoint in the parent" in `express-issue.md`, at line 51. The worker's report shows three things:
+- Every hosted check passed for the current head, `42e9a74`.
+- No review is requested or pending.
+- There are no unresolved findings.
+
+That makes the report the final follow-up evidence. The skill says to report from that read-back and stop. It also says not to read the worker's notes, the PR, or the diff to confirm it, and not to edit the worker's notes to record the endpoint. The endpoint belongs in my report. Reading the notes would be redundant confirmation. Editing them would change the worker's records, which is outside my role as coordinator.
+
+Because the report is final, I also don't dispatch `address-pr-review`. That step applies only when the evidence is incomplete. The endpoint is the default one, through PR review follow-up without merge, so I don't merge.
+
+**What the report includes** (line 59), all taken from the worker's read-back:
+- The issue #1054 and PR #1061 URLs.
+- The current commit, `42e9a74`.
+- Test and review evidence: all checks passed for that head, with no review pending and no findings open.
+- The issue state, In review, with its matching read-back.
+- Remaining limits: the PR is not merged, as agreed.
+
+I preserve the worktree and the notes as they are, so work can resume if needed.
+Scenario: placeholder-dispatch-recovery
+Session ID: e1e1dc51-5946-487b-8cdb-4727ae6ea450
+
+**What I do next:** I resume the same implementation worker session with a complete ready-submission handoff. I don't start a new session, and I don't treat the worker's "work is complete" reply as the submission.
+
+**Why:** The deciding rule is in `references/shared/coordination.md`, under Handoffs. It says that if a dispatch or resume goes out with an empty or placeholder prompt, you resume the same session with the full handoff, not a new one, and you name the extra call in your report. The prompt `x` was a placeholder, and the session is still available, so this rule applies directly.
+
+The worker's reply doesn't change that. Its reply only tells me the implementation is finished. It never received the review outcome, the reviewed head, or the authorization, and `express-issue.md` ("Submit and hand off") requires all three for the ready step.
+
+**What the handoff contains:**
+- **Operation:** `submit-pr`, to mark the same PR ready.
+- **Review outcome:** the independent reviewer returned no actionable findings for head `42e9a74`.
+- **Reviewed head:** `42e9a74`.
+- **Authorization and limits:** the flow's endpoint is PR review follow-up without merge. The worker may mark the PR ready but may not merge.
+- **Worker steps:** publish any remaining reviewed commits, refresh the description, and read back the ready state plus the current-head checks and reviews. Then move the issue to In review.
+- **Return:** the PR URL, the head, the check and review read-back, and any evidence limits.
+
+**After the worker returns:**
+- **No further review needed:** I don't repeat the review, because the reviewer already covered `42e9a74`.
+- **No verification of my own:** I don't read the diff or the PR myself.
+- **Delegated or direct session:** If I'm a delegated coordinator, I stop and hand the ready-submission result to the parent. In a direct session, I continue as the conversation owner.
+- **Clean read-back:** If every hosted check passed for the current head, no review is pending, and no findings are unresolved, that read-back is the final follow-up evidence. I report it and stop.
+- **Anything else:** I dispatch `address-pr-review`.
+- **Report:** I name the extra resume call caused by the placeholder prompt.
+
+Scenario: placeholder-dispatch-recovery
+Session ID: d7c592a9-cafa-4df8-aa78-9183b6339606
+
+**Next step:** Resume the same implementation worker session now. Send a complete ready-submission handoff in that call. Don't start a new worker, and don't treat the worker's "work is complete" reply as the ready submission.
+
+**Deciding rule:** `references/shared/coordination.md`, Handoffs, line 21. It says: "If a dispatch or a resume goes out with an empty or placeholder prompt, resume the same session with the full handoff; do not start a new session for it, and name the extra call in your report." The prompt `x` was a placeholder. The worker's reply came from guessing what I meant. It did not come from a handoff, so no ready submission has been requested yet.
+
+**What the handoff contains**, following `express-issue.md`, "Submit and hand off":
+- **Operation:** `submit-pr`, to mark the same PR ready. This continues the worker's existing session on the same branch.
+- **Review outcome:** the independent reviewer found no actionable findings for the reviewed head `42e9a74`.
+- **Authorization and limits:** the endpoint is PR review follow-up, without merge. The worker may mark the PR ready. It must not merge.
+- **Worker duties:** publish any remaining reviewed commits, refresh the description, read back the ready state and the current-head checks and reviews, and move the issue to In review.
+- **Return:** the PR URL, the published head, check results, review state, and evidence limits.
+
+**After the worker reports:**
+- Under "Continue to the endpoint in the parent," I apply the PR follow-up ownership rule to its read-back.
+- If every hosted check passed for the current head, no review is requested or pending, and no findings are unresolved, that read-back is the final follow-up evidence. I report it and stop. I don't re-read the PR, the diff, or the notes.
+- Otherwise the parent dispatches `address-pr-review` directly.
+- Either way, I don't merge.
+- The final report names the extra resume call caused by the placeholder prompt.
+Scenario: shared-references-on-condition
+Session ID: d47ba224-5dff-4028-9d67-fd56b0a0ecf1
+
+**Next step: don't read the ten shared references or the worker task references. Start establishing the task, which means reading the issue, repository instructions and existing work, and confirming the endpoint.**
+
+**Deciding rules**
+
+- **SKILL.md**, "Locate the source and tools": "do not read every shared reference before the first action." Shared references are opened "when its condition applies."
+- **express-issue.md**, opening section: "Reading all of them first delays the first dispatch and changes no decision."
+- **express-issue.md**, "Establish the task and endpoint": "Do not read a worker's procedure: the handoff names it, and the worker reads it." That covers the implement-issue, submit-pr, and review-changes references. As coordinator I only confirm that their paths exist before dispatch.
+
+**Why my plan was wrong**
+
+I planned to read thirteen references up front. Under the rules above, that is wasted context and delay. It also pulls me into the workers' procedures, and the coordinator doesn't do the subject-repository work.
+
+**What I do instead**
+
+1. Read the coordinator's required pair: express-issue (already read) and [Handoffs](references/shared/coordination.md#handoffs) in coordination.md, before the first dispatch.
+2. Follow "Establish the task and endpoint":
+   - Read issue #1054, the repository instructions, any existing branches, PRs and task notes, and the user's settled design decision.
+   - Confirm the endpoint. The user asked for "through PR review follow-up, without merge", which matches the default.
+   - Confirm the paths of the linked task references without reading their procedures.
+3. Open the other shared references only when their condition triggers:
+   - **Review** (`review.md#prepare-required-review`): before substantial implementation and before choosing a reviewer, since the plan needs a different-model reviewer.
+   - **Evidence:** when I read a worker's report.
+   - **Authorization:** only if the endpoint or a limit is in question.
+   - **GitHub writes:** only if I write to GitHub myself, which is rare for a coordinator.
+4. Dispatch implement-issue once the facts are settled. The handoff carries the source revision, scope, the user's design decision, the review path and the authorization limits. It also says the worker must publish a draft PR and must not mark it ready.
+
+Scenario: shared-references-on-condition
+Session ID: 2209a542-27f3-490d-a48a-a8797de34a8b
+
+**Next step: don't read the planned thirteen references. Start the coordinator's "Establish the task and endpoint" step instead.** That means reading issue #1054, the repository instructions, any existing work and the user's decisions. Then I'd confirm the task reference paths and check for resumable evidence (task notes, branches, PRs) before the first dispatch.
+
+**Rules that decide it:**
+- express-issue.md, intro paragraph: "Open the other shared references when their conditions apply… Reading all of them first delays the first dispatch and changes no decision." SKILL.md says the same: "do not read every shared reference before the first action."
+- express-issue.md, "Establish the task and endpoint": "Do not read a worker's procedure: the handoff names it, and the worker reads it." The implement-issue, submit-pr and review-changes references are worker procedures. The coordinator only confirms their paths. The workers read the contents.
+
+**Why the plan is wrong:**
+- Each shared reference has a trigger condition:
+  - Authorization: when the endpoint or a limit is in question.
+  - Evidence: when I read a worker's report.
+  - Review: before I select or dispatch a reviewer.
+  - GitHub writes: before I change a GitHub record myself.
+  - Coordination#handoffs: before the first dispatch. This is the one I do need.
+- None of the other conditions has arisen yet.
+- The user already settled the endpoint (review follow-up, no merge), so authorization isn't in question.
+- The coordinator doesn't do subject-repository work, so pre-reading the three task references would only add context I don't use.
+
+**Concrete sequence:**
+1. Read [Handoffs](references/shared/coordination.md#handoffs), which express-issue.md requires before the first dispatch. Read the shared rules when their conditions trigger.
+2. Read the issue, repository instructions and the user's decisions. State the endpoint as through PR review follow-up, without merge.
+3. Check task notes, branches and PRs, and reuse existing work.
+4. Apply the review.md "Prepare required review" section before substantial implementation. That is the point where the Review condition triggers.
+5. Dispatch implement-issue, with draft publication through submit-pr authorized. The handoff names the task reference and carries the facts, decisions and authorization.
+
+I haven't read the issue or the repository yet.
+Scenario: coordinator-ready-to-dispatch
+Session ID: 61831011-caef-42b5-8277-983d428fb5a0
+
+**Next step: write the full implementation handoff and dispatch the general implementation worker. Don't read the later task procedures first, and don't try to vouch for the worker's obedience by copying or reading the project instructions yourself.**
+
+**Deciding rules**
+- `express-issue.md`, "Establish the task and endpoint": "Do not read a worker's procedure: the handoff names it, and the worker reads it." The handoff names the task reference and supplies facts the worker can't read itself. "It does not restate the procedure." That means I don't need to read `submit-pr`, `review-changes` or `address-pr-review` before dispatching. They're later steps, and the workers read them.
+- `shared/coordination.md`, Handoffs: "Link to the issue and project instructions instead of copying their procedures or the full issue body." The handoff gives the path to the project instructions, in the template's `Subject:` line (`project instructions at PROJECT_INSTRUCTIONS`). It also gives the source checkout and revision that the instructions and CLI come from.
+
+**Why this resolves the doubt**
+Whether the worker obeys the project instructions is not a reason to hold the dispatch, and it isn't something I fix by restating the instructions. The worker reads the instructions from the linked path in its own context. I don't do subject-repository work as coordinator. After the worker returns, I check actual results and evidence limits, not whether it followed the instructions. The express-issue rule against reading the diff and the Handoffs requirement for actual results cover that.
+
+**Handoff contents** (following the template in Handoffs)
+- **Operation and paths:** `implement-issue`, with resolved paths to the entry skill, the task reference and the CLI.
+- **Source and subject:** the source revision, the target checkout, issue #997, and the project-instructions path.
+- **Base and existing work:** the current base, plus any existing worktree, branch, head and publication state. The worker reuses these and doesn't start a new branch or PR.
+- **Decisions and review plan:** the confirmed decisions, written out as text, and the recorded review path with its model evidence or limit.
+- **Flow authorization:** the endpoint is PR review follow-up, without merge. This handoff covers implementation, then draft publication through `submit-pr` in the same session. The worker must not mark the PR ready or request review.
+- **Instructions to the worker:** execute only the authorized operations, and return actual results and evidence limits. That means the PR URL, the published head, check results and remaining work.
+
+I send it in the dispatch call itself, never with an empty or placeholder prompt.
+
+**What follows**
+After the worker returns, I dispatch `review-changes` in a fresh context for the exact base and published head. Then I resume the same worker for corrections and for ready submission.
+Scenario: express-complete-return
+Session ID: 3c05cd10-bd1f-4996-b4c4-f8080440088d
+
+**Next step:** I dispatch `review-changes` in a fresh context. It reviews the exact range from base `987bd0c` to published head `067ea0b`. I don't mark PR #1060 ready yet, and I don't wait for hosted CI first.
+
+**Deciding rule:** "Review the draft changes" in `express-issue.md`. It says that before marking the PR ready, I dispatch `review-changes` in a fresh context for the exact base and published head when the review plan requires it. It also says not to skip the review silently.
+
+**How I carry it out:**
+- **Exception:** The agreed plan is a same-model review under a recorded user-approved exception. I carry that exception into the reviewer handoff, as `shared/review.md` (User-approved exceptions) requires. I don't ask for the approval again, and I don't swap in a different-model reviewer.
+- **Model evidence:** I record the reviewer's actual model identity from dispatch metadata, not from its name or style. I report the review as same-model under the user's exception, not as a different-model review. If the metadata can't confirm the models match, I report that identity limit.
+- **Handoff contents:** I give the reviewer the issue, the necessary facts, the base, the head, and the exception. I leave out the author's conversation and any desired conclusion.
+- **Coordinator limits:** I read the worker's report and the reviewer's report, and I don't read the diff to review it myself.
+- **CI:** Pending hosted CI doesn't block dispatching the review. It does block the final read-back. Ready submission and the endpoint need current-head CI results.
+
+**After the review:**
+- **Actionable findings:** I resume the same implementation worker with the text of each finding. It fixes them on the same branch and publishes to the same draft under `submit-pr`. Then I resume the reviewer for the changed code and the unresolved findings.
+- **Disputed findings:** I return disputed findings and scope changes to the parent.
+- **Capacity failure:** If dispatch fails because of a capacity limit, I hand the parent the commits, checks and recorded implementer model. The parent then dispatches the reviewer.
+- **Ready submission:** When review is complete and findings are resolved, I resume the worker to mark the PR ready. I pass it the review outcome and the reviewed head.
+- **Endpoint:** The endpoint is PR review follow-up, without merge.
+Scenario: followup-already-green
+Session ID: 858bc592-6c19-4285-8c9b-3a1d04d10bc8
+
+**Next step: stop and report. Don't dispatch `address-pr-review`, and don't re-read the PR, the diff, or the worker's notes.**
+
+**The rule that decides it** is the first paragraph of "Continue to the endpoint in the parent" in `express-issue.md`. It says: "If that report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, it is the final follow-up evidence. Report the result from that read-back and stop." The same paragraph says not to read the worker's notes, the PR, or the diff to confirm it. It also says not to edit the worker's notes to record the endpoint, because the endpoint belongs in my report.
+
+**Why it applies here:**
+- **Checks:** `lint-and-test`, `js-test`, and `check-tui` all passed on head `c392966`, which is the current head.
+- **Reviews:** `pr-state` shows no review requests and no reviews, so nothing is requested or pending. The user didn't ask for Copilot or a human reviewer. `submit-pr` says "Do not request Copilot by default," so the empty state is correct.
+- **Local review:** the independent same-model review of `c392966` found no unresolved findings. It was done under a recorded user-approved exception, which `submit-pr` and `shared/review.md` accept. I should report the waiver and its scope instead of asking for a substitute reviewer.
+- **PR comments:** there are none.
+- **Endpoint:** no endpoint was stated, so the default applies: PR review follow-up, without merge. That follow-up evidence is already complete, so `address-pr-review` has nothing to act on. I also don't merge.
+
+**What I report:**
+- The issue #997 and PR #1060 URLs.
+- Head `c392966`, with the three passing checks tied to that commit.
+- The local review: its head, no findings, and the recorded model identities, including the same-model exception and its approved scope.
+- No review requests, no reviews, and no comments on the PR.
+- The board transition to In review.
+- The limits: the PR is not merged, and no Copilot or human review was requested because the user didn't ask for one.
+Scenario: endpoint-report-from-readback
+Session ID: ses_eced1021cffe8XmSj6JVjuXv7e
+
+## What I do next
+
+**Report the result and stop at the endpoint.** I do **not** read the worker's task notes in its worktree, and I do **not** edit their status line.
+
+The worker's ready-submission report already satisfies the final-evidence condition:
+- PR #1061 read back **ready** at head `42e9a74`
+- **every hosted check passed** for that head
+- **no requested or pending review**
+- **no unresolved findings**
+- issue moved to **In review** with a matching read-back
+
+The agreed endpoint is the default — *through PR review follow-up, without merge* — so this report is the last thing this invocation needs. I report the issue/PR URLs, the current commit `42e9a74`, the check and review evidence, and stop. I do not merge.
+
+## Why not the two actions I was considering
+
+- **Reading the worker's notes** to "confirm" is a subject-repository read. The coordinator's report content comes from the responsible worker's read-back, not from my own repository reads.
+- **Editing the status line** is a subject-repository write. The coordinator dispatches, reads returned evidence, and settles decisions — it does not do subject-repository work.
+
+## The deciding rule
+
+**`express-issue.md` → "Continue to the endpoint in the parent":**
+> "If that report shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, it is the final follow-up evidence. **Report the result and stop.**"
+
+Reinforced by two other lines in the same skill:
+- Line 3 — "It does not do subject-repository work."
+- Line 61 — "Take these from the responsible worker's read-back, not from your own subject-repository reads."
+
+So the read of the notes and the status-line edit are both out of scope; the correct move is to report and stop.
+Scenario: placeholder-dispatch-recovery
+Session ID: ses_eced7b0ceffe75et9SO4WGRrzg
+
+**Next action:** Re‑resume the same implementation worker's session (it is still available) and answer its question with a proper ready‑submission handoff, instead of dispatching a new worker. The handoff carries only the changed facts: operation `submit-pr`; the review outcome in text — no actionable findings for reviewed head `42e9a74`; authorization to mark the same PR ready, publish any remaining reviewed commits, refresh the description, read back the ready state and current‑head checks/reviews, and move the issue In review; and the limit: stop after ready submission, no merge. Require its actual results and evidence limits in return. Do not replay unchanged context it already has from the implementation session.
+
+**Why:** Review is complete and all findings are resolved, so the flow's next step is ready submission, which only this worker may perform. The worker's "what did you mean?" is a subagent question returned to me, the parent — not a user question and not a reason to start over. The first resume failed because prompt `x` was not a handoff: a handoff must supply the text of the decision the worker must act on, and a label or garbled prompt is not enough. Since one implementation worker carries implementation through ready submission and the session is still available, I reuse it with the corrected handoff rather than spawning another worker.
+
+**Rule that decides it:** **"Submit and hand off"** in `express-issue.md` — "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under submit-pr. Pass the review outcome, the reviewed head, and authorization" — applied with the **Handoffs** rule in `coordination.md`: "reuse the worker when it returns," supply the text of each finding or decision the worker must act on, and on resumption supply changed facts and the current revision instead of replaying unchanged context.
+Scenario: shared-references-on-condition
+Session ID: ses_ecec8c6a0ffe3lF61V26V2jR1v
+
+## What I do next
+
+I **do not** preload the ten shared references plus the three worker task references. Instead I move straight to the express-issue step **"Establish the task and endpoint"**:
+
+1. Read issue #1054 and the target repository's instructions (the repository is identified from the user's request/checkout, not from the skill source).
+2. Check existing work for the issue — task notes, existing branches/worktrees, PRs, review records — so I can resume from evidence rather than start fresh.
+3. Confirm the endpoint, which is already settled in the conversation: **through PR review follow-up, without merge** (this is also the delivery default, so nothing narrower or wider applies).
+
+Shared references are loaded selectively, at the step that needs them — `context.md` first, since it governs reference loading itself — and `authorization`, `evidence`, `review`, `coordination`, `github-writes`, `identity`, `task-notes`, `pr-lifecycle` come in as each phase (dispatch, review, writes) approaches. The worker task references (`implement-issue`, `submit-pr`, `review-changes`) are located and named **before dispatch**, since I, as coordinator, don't do subject-repository work and hand them off rather than follow them myself.
+
+## Why — the deciding rule
+
+- **SKILL.md, "Select the requested operation":** *"Load only the task and the shared rules needed now."* The planned bulk read of 10 shared references plus 3 task references before even seeing the issue is exactly what this rule forbids; the issue's contents are what determine which rules are needed.
+- **express-issue.md, "Establish the task and endpoint":** *"Read the selected issue, repository instructions, existing work, and user decisions. Identify the repository, the issue, and the endpoint."* That is the first action after operation selection, and the endpoint is already agreed in the conversation, so no interview/define/reconsider detour is needed — but reading the issue precedes everything else.
+- **express-issue.md line 7 / SKILL.md line 8:** apply *Working context and tool output* **"to reference loading"** (selective source reads) — which is the rule that makes the planned full pre-read wrong.
+- **express-issue.md, "Implement and publish draft progress":** *"Locate the linked task references before dispatch"* — so reading `implement-issue`/`submit-pr`/`review-changes` belongs to the dispatch step, not the setup step.
+
+In short: the "load only what's needed now" rule plus the "Establish the task and endpoint" step decide it — read the issue and repository next, and pull in each reference only when the flow reaches the point that requires it.
+Scenario: endpoint-report-from-readback
+Session ID: ses_ececd1b44ffeczG3T0blAMseG0
+
+## What I do next
+
+I **report the endpoint from the worker's ready‑submission read‑back and stop.** I do **not** read the worker's task notes, and I do **not** edit their status line to say the endpoint is reached.
+
+The report I report: issue #1054 delivered through PR #1061, read back **ready at head `42e9a74`**, every hosted check passed for that head, no review requested or pending, no comments or unresolved findings, and the issue moved to **In review** with a matching read‑back. That read‑back *is* the final evidence.
+
+## Why
+
+The ready submission report already satisfies the "final follow‑up evidence" test: every hosted check passed for the current head, no requested or pending review, and no unresolved findings. The skill says that when this is true, the submission read‑back after marking the PR ready is the *final* read required — so there is nothing left to confirm. The endpoint belongs in **my report**, not in the worker's notes. Reading their notes adds no evidence, and editing their status line to "record the endpoint" is exactly the act the skill forbids, because the coordinator's report — not the worker's notes — is where the endpoint is recorded.
+
+## The rule that decides it
+
+**`express-issue.md` → "Continue to the endpoint in the parent" (line 51):**
+> "…it is the final follow‑up evidence. **Report the result from that read‑back and stop. Do not read the worker's notes, the PR, or the diff to confirm it, and do not edit the worker's notes to record the endpoint; the endpoint belongs in your report.**"
+
+Supported by the linked reference **`coordination.md` → "PR follow‑up ownership" (line 53)**, which this section directs me to apply:
+> "A ready submission report can complete the follow‑up endpoint. If it shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, the parent reports that result as the endpoint without dispatching address‑pr‑review. **The submission read‑back after marking the PR ready is the final read that Evidence requires.**"
+
+So both of the tempting actions (read the notes, edit the status line) are ruled out by the same rule, and the correct move is to report the read‑back and stop at the endpoint.
+Scenario: placeholder-dispatch-recovery
+Session ID: ses_eced47de0ffeGNGmolGt4LLfmg
+
+I'll read the linked Handoffs reference, since my next step is to re-issue a resume and I need its rule to compose the handoff correctly.
+
+
+## What I do next
+
+Re‑resume the **same, still‑available** implementation worker session — not a new worker — with the *complete* ready‑submission handoff. That handoff supplies, per the ready‑submission rule:
+
+- **Operation:** `submit-pr` — mark the *same* PR ready (no new PR, no merge).
+- **Review outcome:** independent review complete, no actionable findings.
+- **Reviewed head:** `42e9a74`.
+- **Authorization:** mark ready, refresh the description, move the issue *In review*, then read back the ready state and the current‑head checks/reviews.
+- **Return:** the actual ready‑state read‑back and evidence limits.
+
+I do **not** accept the worker's "work is complete" as the endpoint. It never received the ready‑marking instruction (the resume carried only `x`), so the PR is not yet ready and no read‑back exists to close out the endpoint.
+
+## Why
+
+The first resume was a **failed handoff**, not a completed step: it went out with the placeholder prompt `x`, which carries none of the required facts, decisions, or authorization, so the worker correctly asked what I meant. The ready‑submission work (mark PR ready + read‑back) has not actually happened. Because the session is still available, the correct recovery is to send the full handoff into that same session rather than spin up a new worker and re‑establish context. (I also record the extra/placeholder call in my report, as the rule requires.)
+
+## The skill rule that decides it
+
+**Handoffs** ([coordination.md](references/shared/coordination.md#handoffs)):
+
+> "If a dispatch or a resume goes out with an empty or placeholder prompt, **resume the same session with the full handoff; do not start a new session for it**, and name the extra call in your report."
+
+This is applied to the operation defined by **Submit and hand off** ([express-issue.md](references/tasks/express-issue.md#submit-and-hand-off)): *"When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under `submit-pr`. Pass the review outcome, the reviewed head, and authorization."* — the condition (review complete, no actionable findings at `42e9a74`) is met, so the ready‑submission resume is the next authorized operation, re‑issued in full into the same session.
+Scenario: shared-references-on-condition
+Session ID: ses_ecec4c315ffe4jD7oxiaN0RPDq
+
+## What I do next
+
+I drop the bulk‑read plan. My next action is to read the **Handoffs** section of `references/shared/coordination.md` — the one shared reference `express-issue` requires before the first dispatch — and then **establish the task** by reading issue #1054, the repository instructions, and any existing work for it. I do **not** read the other shared references up front, and I do **not** read `implement-issue`, `submit-pr`, or `review-changes`.
+
+(Within this turn's constraints — no network, commands, or dispatch — the concrete step I take now is that local Handoffs read; reading the issue is the first task‑establishing action that follows.)
+
+## Why
+
+The endpoint is already fixed — "through PR review follow‑up, without merge," which is exactly the default — and the one open design choice is settled in the request. So no material fact or choice is missing that would require pulling in `Authorization`, `Decisions`, `Interview`, etc. now, and nothing in the bulk set changes the decision to make the first dispatch. The only shared rule whose condition has actually arisen is **Handoffs**, because I am about to dispatch. Reading the rest first buys nothing. And the worker task references aren't mine to read — the handoff names them and the worker reads them.
+
+## The rule that decides it
+
+`express-issue.md` line 5: **"Read this reference and [Handoffs](../shared/coordination.md#handoffs) before the first dispatch … Reading all of them first delays the first dispatch and changes no decision."**
+
+Supported by:
+- `SKILL.md` line 21 — *"Open a shared reference when its condition applies … do not read every shared reference before the first action."*
+- `express-issue.md` line 13 — *"Do not read a worker's procedure: the handoff names it, and the worker reads it."*
