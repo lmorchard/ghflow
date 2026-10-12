@@ -43,7 +43,7 @@ Evaluate existing review findings instead of accepting them. Distinguish a demon
 
 ## Return findings
 
-For each finding, give the file and lines, the triggering condition, the observed or reasoned result, and its practical impact. Explain how it conflicts with the intended behavior. Suggest a correction without implementing it.
+Separate findings from notes. A finding is a demonstrated or reasoned defect, a deviation from the agreed scope, or missing evidence; it has a file and lines, a triggering condition, an observed or reasoned result, and a practical impact. Explain how it conflicts with the intended behavior and suggest a correction without implementing it. A style preference, a naming or wording choice, a documentation or session-file convention, or the phrasing of the PR description is a note: list notes separately under that label, with the suggestion, and do not call a note disputed. The coordinator settles notes as routine choices; a note does not go to the user.
 
 If you found no actionable defects, say so. Do not invent a finding to justify the review. Either way, state which callers and paths you traced and which behavior you did not test. A favorable review covers only what it traced.
 
