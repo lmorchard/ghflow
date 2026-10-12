@@ -26,3 +26,7 @@ Do not label an issue blocked when only part of it waits. If an independent part
 ## Parked issues
 
 Park an issue only on the user's decision or when it is a parent whose open children carry all of its work. State the reason in a comment. A parked issue is not closed: it records an idea or a parent's scope.
+
+## Parked deliveries
+
+An unattended delivery that cannot settle a question, or that hits a blocker it cannot clear, replaces `triage:ready` with `triage:needs-input`, posts the question or blocker as a comment on the issue, and leaves its draft PR and the In progress board status in place. The label puts the issue in the same view as other issues that need the user. [sweep-needs-input](../tasks/sweep-needs-input.md) resolves it, and the delivery resumes from the PR. This use of `triage:needs-input` is distinct from `triage:parked`, which marks an issue nobody intends to work on.

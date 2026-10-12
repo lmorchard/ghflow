@@ -1,6 +1,6 @@
 # Burndown the ready queue
 
-Coordinate the sequential delivery of issues in the project board's `Ready` column when the task starts. Process each selected issue one at a time up to the agreed endpoint using [express-issue](express-issue.md). The selection stays fixed during this task. Add a later arrival only after the user explicitly expands the scope. Stop immediately if an issue hits an unexpected blocker, check failure, or review objection. The queue selection contains Ready issues only; it does not draw from Backlog.
+Coordinate the sequential delivery of issues in the project board's `Ready` column when the task starts. Process each selected issue one at a time up to the agreed endpoint using [express-issue](express-issue.md). The selection stays fixed during this task. Add a later arrival only after the user explicitly expands the scope. In an interactive run, stop immediately if an issue hits an unexpected blocker, check failure, or review objection; in an unattended run, park that issue and continue, as the disruption step states. The queue selection contains Ready issues only; it does not draw from Backlog.
 
 Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), [Board status](../shared/board-status.md), and [Agent identity](../shared/identity.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
@@ -79,12 +79,10 @@ Process one issue at a time:
 3. On its ready-for-review submission handoff, apply [PR follow-up ownership](../shared/coordination.md#pr-follow-up-ownership). The conversation parent directly dispatches follow-up and receives the final report. If you are a delegated queue coordinator, relay the handoff, remaining selected issue IDs, endpoint, and authorization limits to that parent, then stop. Resume from the parent's endpoint result before selecting another issue. After the chosen endpoint finishes, verify the result:
    - Did the task reach the expected endpoint?
    - Is the project board status updated to `In review` or `Done`?
-4. **Hard stop on disruption**:
-   - If the task encounters a persistent test failure, review defect that cannot be resolved within the cycle, or an unexpected merge conflict:
-     - **Halt the burndown immediately.**
-     - Do not advance to the next issue in the queue.
-     - Preserve the worktree and branch.
-     - Return the blocker, error logs, and proposed remediation to the user.
+4. **Disruption**: a persistent test failure, a review defect that the correction cycle does not resolve, an unexpected merge conflict, or a decision that [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks.
+   - In an interactive run, **halt the burndown immediately.** Do not advance to the next issue. Preserve the worktree and branch. Return the blocker, error logs, and proposed remediation to the user.
+   - In an unattended run, which the user's request states, park the issue under [Park an issue in an unattended flow](express-issue.md#park-an-issue-in-an-unattended-flow), record it for the summary, and continue with the next selected issue. Halt even when unattended if the failure would affect every later issue: the identity check or token fails, the base branch's CI is red, or the same environment failure parks two issues in a row. A merge endpoint never runs unattended.
+   - When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded.
 5. For a merge endpoint, obtain CI on the base branch's merge commit through the responsible worker before you start the next issue. If it fails, treat it as a disruption and halt.
 6. If the issue successfully completes to the authorized endpoint, proceed to the next selected issue that has not reached that endpoint.
 
@@ -96,5 +94,6 @@ When all selected issues have reached the agreed endpoint:
    - Issue number and title.
    - Pull request URL and head commit SHA.
    - Review evidence (local reviewer model or Copilot).
-   - Final status on the project board (`In review` or `Done`).
+   - Final status on the project board (`In review` or `Done`), or `parked` with the question or blocker and the label applied.
+   - For an unattended run, each decision taken under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow), with the PR that records it.
 2. If current authorization includes curation, continue under [curate-ready-queue](curate-ready-queue.md) within those limits without asking for the same authorization again. Otherwise, suggest curation as a possible next task and stop. Do not select or move backlog issues, or dispatch curation, without authorization.

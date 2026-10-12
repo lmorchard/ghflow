@@ -128,6 +128,18 @@ This permits source access and blocks file-tool edits to it. Other tool permissi
 The installer does not change agent permissions or write this configuration.
 See [OpenCode permissions](https://opencode.ai/docs/permissions/#external-directories) for directory and tool rules.
 
+## Run a queue unattended
+
+`scripts/unattended-burndown.sh` composes the request for an unattended Ready-queue burndown and launches one agent session with it. Run it from the target project checkout:
+
+```sh
+/PATH/TO/ghflow/scripts/unattended-burndown.sh --owner OWNER --project NUMBER --hours 8 --agent opencode --model llama.cpp/llama --same-model-exception
+```
+
+The request names the board, the review-follow-up endpoint without merge, the unattended rule from [Decisions](../references/shared/decisions.md#decide-in-an-unattended-flow), the deadline from `--hours`, and, with `--same-model-exception`, the user's approved same-model review exception. `--agent` selects `opencode`, `claude`, or `codex`; the script inlines the entry skill for `opencode run`, as the [#1012 trial](research/trials/2026-10-12-issue-1012-qwen-delivery.md) did. On macOS it runs under `caffeinate` so the machine does not sleep. Output goes to the file named by `--log`, default `unattended-burndown-TIMESTAMP.log` in the current directory. `--dry-run` prints the request and the command without launching.
+
+In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
+
 ## Machine account access
 
 The repository owner grants access before an agent works in the repository or project board:
