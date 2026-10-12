@@ -8,7 +8,7 @@ Read this reference and [Handoffs](../shared/coordination.md#handoffs) before th
 
 Read the selected issue, repository instructions, existing work, and user decisions. Identify the repository, the issue, and the **endpoint**: where this invocation stops.
 
-Use the endpoint agreed in the conversation. If none was given, state the default: through PR review follow-up, without merge. A narrower request takes precedence. A request through merge authorizes that step, subject to the merge rules in [merge-pr](merge-pr.md).
+Use the endpoint agreed in the conversation. If none was given, state the default: through PR review follow-up, without merge. A narrower request takes precedence. A request through merge authorizes that step, subject to the merge rules in [merge-pr](merge-pr.md). When the request says the run is unattended, apply [Decide in an unattended flow](../shared/decisions.md#decide-in-an-unattended-flow): take a supported recommendation and record it, park the issue when no answer is supported, and do not call an interactive question tool. A merge endpoint does not run unattended.
 
 Confirm the paths of the linked task references before dispatch. Do not read a worker's procedure: the handoff names it, and the worker reads it. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure.
 
@@ -39,6 +39,17 @@ If dispatching the reviewer fails because of a capacity limit, that is a dispatc
 Resume the implementation worker with the text of each actionable finding. It corrects them on the same branch, runs the affected checks, commits, and publishes the commits to the same draft under [submit-pr](submit-pr.md). Settle the reviewer's notes yourself as routine choices under [Decisions](../shared/decisions.md): accept or decline each in the correction handoff, with the reason. Return to the parent interview only a disputed finding that current evidence cannot settle, a scope change, or a choice about intended behavior; do not ask the user about style, naming, wording, or documentation conventions. After corrections, resume the reviewer for the changed code and the unresolved findings. Do not repeat completed checks without a new reason. If the same blocker persists without progress, report it instead of cycling.
 
 When resuming with an existing PR, use current independent review evidence if it satisfies the review plan. Do not repeat completed review just to replay the sequence. Report any unmet review requirement and resolve it explicitly.
+
+## Park an issue in an unattended flow
+
+When [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks the task, or a blocker persists without progress in an unattended run, leave the issue in a state the user can pick up from GitHub:
+
+1. Have the implementation worker publish the committed work to the draft PR, if any is committed, and record the open question or blocker, its evidence, and the recommended answer when one exists, in the PR description under "Parked" and in the task notes.
+2. Post the same question or blocker as a comment on the issue, and replace `triage:ready` with `triage:needs-input`, following [Triage labels](../shared/triage-labels.md#parked-deliveries), so that the user's needs-input view shows it.
+3. Leave the PR a draft and the board In progress. Preserve the worktree and branch.
+4. Return the issue as parked, with the question, the PR URL, and the head, to the queue coordinator or the user. Do not mark the PR ready, request review, or select the next issue yourself.
+
+[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence).
 
 ## Submit and hand off
 

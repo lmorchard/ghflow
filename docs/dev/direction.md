@@ -77,3 +77,4 @@ A later proposal for these mechanisms needs evidence that ordinary tools, tests,
 Next-task advice remains a proposal in [Direction history](../research/direction-history.md#possible-next-task-guidance).
 Automatic task selection needs evidence of a need and an explicit project decision.
 Agent application permissions and user authorization remain the execution boundaries. A skill does not enforce stronger restrictions for unattended use.
+An unattended request lets a coordinator take a supported recommendation, record it in the PR, and park an issue it cannot settle under `triage:needs-input`. [Decisions](../../references/shared/decisions.md#decide-in-an-unattended-flow) owns that rule; the request, not the skill, turns it on.

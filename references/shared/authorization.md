@@ -14,7 +14,7 @@ An interview settles decisions. It does not grant or renew permission.
 
 ## Limits
 
-An explicit narrower limit takes precedence. Examples are draft-only work, read-only assessment, a selected subset, or a time or cost budget. Do not invent a budget that the user did not give.
+An explicit narrower limit takes precedence. Examples are draft-only work, read-only assessment, a selected subset, or a time or cost budget. Do not invent a budget that the user did not give. An unattended request, which the user states, lets the coordinator take a supported recommendation and park the rest, as [Decisions](decisions.md#decide-in-an-unattended-flow) states; it does not widen the endpoint, and it never authorizes merge.
 
 Permission for one action does not imply the next:
 

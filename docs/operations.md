@@ -36,7 +36,7 @@ Each operation links to its task procedure.
 
 - [express-issue](../references/tasks/express-issue.md) coordinates one selected issue through delivery to an agreed endpoint.
 - [deliver-parent-issue](../references/tasks/deliver-parent-issue.md) coordinates a bounded parent through child delivery and completion checks.
-- [burndown-ready-queue](../references/tasks/burndown-ready-queue.md) coordinates the sequential delivery of issues staged in the project board's `Ready` column.
+- [burndown-ready-queue](../references/tasks/burndown-ready-queue.md) coordinates the sequential delivery of issues staged in the project board's `Ready` column. An unattended request parks an issue it cannot settle under `triage:needs-input` and continues; `scripts/unattended-burndown.sh` composes and launches such a run.
 
 Each operation accepts an ordinary issue or PR. References share [authorization](../references/shared/authorization.md), [coordination](../references/shared/coordination.md), [decisions](../references/shared/decisions.md), and [evidence](../references/shared/evidence.md).
 Delivery through review follow-up leaves the PR open. Merge requires explicit authorization and the existing review policy.
