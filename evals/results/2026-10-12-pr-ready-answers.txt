@@ -1,0 +1,127 @@
+Scenario: submit-pr-resume-ready-readback
+Session ID: 9f40ae7b-6546-418e-99a9-aeade4ce1ebe
+
+**What I do next:** I don't run the chained command. I first read the PR's current state with `pr-state`. I haven't read it in this session, so I can't yet say the head is still `c392966`. The `pr` subcommand help lists only `ready`, so `pr-state` is a separate command that I'll check in the installed CLI help.
+
+1. Run `pr-state` on the PR URL. Confirm the PR is still a draft and the head is `c392966`, the head the handoff names.
+2. Run `verify-commit c392966 --pr-head PR_URL`, following the CLI verification reference.
+3. Inspect the diff at that head. My new body file has to describe the current head, not an earlier read.
+4. Check the identity. `identity` must report the configured login as ready. `gh api user` under that identity must return the same login before my first GitHub write.
+5. Update the description alone with `gh pr edit PR_URL --body-file BODY`, preserving any intervening edits to the description. Read the body back.
+6. Run `gh pr ready PR_URL` as its own command. Read back the ready state and head.
+7. Run `board set-status` for In review. Its output reports the earlier status, so I don't query the board first.
+8. Check that the independent review covers the published head. A review of an earlier commit doesn't qualify.
+
+**Rules that decide it:**
+- The resumption rule in "Prepare the branch and description" requires reading the PR with `pr-state`, confirming the head matches the handoff, and running `verify-commit --pr-head`. A handoff that says review and checks cover `c392966` is a claim until I confirm the live head matches it. If the head has moved, the review and local checks no longer cover the PR. In that case I stop and report, and I don't mark it ready.
+- The rule in "Publish and confirm" is: "Do not chain the description update and the readiness change in one command; each write needs its own read-back." My plan to join `gh pr edit … && gh pr ready …` violates it directly, so I split it into two commands with a read-back after each.
+Scenario: submit-pr-resume-ready-readback
+Session ID: 13dd8ba5-0971-4eeb-982f-ec94ae818e3b
+
+**Next step: don't run the chained command. Read the PR's current state first.**
+
+The deciding rule is the resumption rule in submit-pr.md, "Prepare the branch and description" (line 19). To mark an existing PR ready, you read its state with `pr-state`. You confirm the current head is the one the handoff names, `c392966`. You run `verify-commit` with `--pr-head PR_URL` for that head. You inspect the diff at that head before you rewrite the description, because an earlier read doesn't describe later commits.
+
+I haven't read the PR yet in this session. The handoff says review and checks cover `c392966`, but a later push could have moved the head. If it did, the review and checks no longer cover the head I'd be marking ready, and the body file I wrote may describe the wrong diff.
+
+The plan also breaks a second rule, in "Publish and confirm" (line 43). It says not to chain `gh pr edit` and `gh pr ready` yourself. `pr ready` is the single command that does the whole job. It takes the body file, the reviewed head in `--expect-head`, and the issue's board target. It updates the description, marks the draft ready, and moves the issue to In review. It reads each result back. If the current head isn't the reviewed commit, it refuses. A hand-chained `gh` command has no head guard, so it would mark whatever head is there. It also skips the per-write read-back that GitHub writes requires.
+
+**Sequence:**
+1. Confirm `identity` reports the configured login as ready. Confirm `gh api user` under that identity returns the same login before the first write.
+2. Run `pr-state PR_URL`, confirm the head is `c392966`, and note the checks and reviews tied to that commit.
+3. Run `verify-commit c392966… --repo OWNER/NAME --pr-head PR_URL`.
+4. Inspect the diff from the merge base at that head, and check that the body file matches it. Rewrite the body if it doesn't.
+5. Run `pr ready` with the body file, `--expect-head c392966…`, and `--issue`, `--owner` and `--project`. That command already does the In review transition, so a separate `board set-status` isn't needed. It is only for a PR that became ready without those options.
+6. If `pr ready` refuses because the head moved, stop and report the current head. Don't mark the new head ready.
+7. Finish with a `pr-state` read of CI and review for the published head, then the handoff.
+
+Scenario: submit-pr-resume-ready-readback
+Session ID: e44ff6d7-d1ae-4f90-ba34-99152496fe1b
+
+I wouldn't run the chained command. Next I'd read the PR's current state, then use `pr ready`.
+
+**Rule that decides it:** the resumption rule in "Prepare the branch and description" (submit-pr.md:19) and the readiness rule in "Publish and confirm" (submit-pr.md:43).
+
+1. **Read the state first.** I haven't read the PR in this session, and the handoff's claim that `c392966` is reviewed isn't something I've confirmed. The resumption rule says to:
+   - read the PR with `pr-state`;
+   - confirm the current head is the one the handoff names, `c392966`;
+   - run `verify-commit c392966 --repo OWNER/NAME --pr-head PR_URL`;
+   - inspect the diff at that head before rewriting the description.
+
+   The body file I already wrote may describe an earlier head, so I'd check it against that diff. If the head has moved, I stop and report the current head. I don't mark it ready.
+
+2. **Use `pr ready`, not the chain.** Line 43 says not to chain `gh pr edit` and `gh pr ready` yourself. The command to run is `pr ready` with:
+   - `--body-file`;
+   - `--expect-head c392966`;
+   - the issue, owner and project for the board target.
+
+   It updates the body, marks the draft ready and moves the issue to In review. It also reads each result back. `--expect-head` makes it refuse if the head is no longer the reviewed commit. The plain `gh` chain has no such guard, and it would skip the separate read-back each write needs under github-writes.
+
+3. **Drop the separate `board set-status`.** Line 47 says `pr ready` does the transition when given `--issue`, `--owner` and `--project`. I'd use `board set-status` only if the PR became ready without those flags.
+
+4. **Before the first write**, I'd confirm `identity` reports the configured login as ready. I'd also confirm `gh api user` under that identity returns the same login.
+
+5. **Afterwards**, I'd read CI and review state with `pr-state` and return the handoff. I'd check that the local review covers `c392966`. I wouldn't change code or merge.
+
+I haven't read `cli.md`, so I'm taking the `pr ready` flag names from the skill text.
+Scenario: draft-pr-ready-transition
+Session ID: e7a45810-9ff2-4c6e-9b26-579145c3a69c
+
+**Next step:** resume the implementation worker, which is the same one that carries submit-pr. It should submit the existing draft PR as ready for review. I shouldn't dispatch another review, request Copilot, or leave the PR as a draft.
+
+**Why**
+- **Review and submission (express-issue, "Submit and hand off"):** "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under submit-pr." Both conditions are met here. The different-model local review covers the final committed head, and all actionable findings are resolved. I pass the worker the review outcome, the reviewed head, and the authorization.
+- **No draft-only limit:** submit-pr says to "Leave an explicit draft-only request in draft status." The user set no such limit, and publication is authorized, so nothing keeps the PR in draft.
+- **The stale description decides the order of writes (submit-pr, "Publish and confirm"):** the draft body still lists earlier incomplete work, so it can't go out as it is. The worker follows this sequence:
+  1. Confirm the PR's current head is the reviewed head, using `pr-state` and `verify-commit --pr-head`.
+  2. Inspect the diff at that head, because an earlier read doesn't describe later commits.
+  3. Rewrite the description with the problem, the resulting behavior, the test evidence (naming who ran each check), and the material limits. It uses `Closes #944` only if the PR completes the issue. The worker then reads the body back.
+  4. Run `gh pr ready PR_URL` as a separate command, then read back the ready state and head. The description update and the readiness change must not be chained.
+  5. Move issue #944 to In review, following Board status.
+- **No Copilot request (submit-pr, "Request a review"):** "Do not request Copilot by default." It's requested "only when the user asked for it," and they didn't. The completed different-model local review of the published head is the review source, so the PR can proceed on it. The report records that review's head, findings, and model identities.
+
+**After submission**
+- The worker reports the PR URL and head, the `verify-commit` results, CI and review state tied to the commits, and the board result.
+- If I'm a delegated coordinator, I stop at that handoff and pass the evidence to the parent.
+- In a direct session, I apply PR follow-up ownership. If every hosted check passed for the head, no review is pending or requested, and no finding is unresolved, that report is the final evidence and I stop. Otherwise I dispatch address-pr-review directly.
+- I don't merge unless merge was in the agreed endpoint.
+Scenario: draft-pr-ready-transition
+Session ID: 10c274c6-49a0-4372-abd7-209d2a2bc92c
+
+**Next step:** resume the existing implementation worker to mark the same PR ready under `submit-pr`. I wouldn't create a new PR, request Copilot, or stop at draft.
+
+**Why:** The "Submit and hand off" section of express-issue decides this. It says: "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under submit-pr." Review is done and the findings are resolved. The user set no draft-only limit and authorized publication. The reviewed head is the final committed head.
+
+The handoff to the worker should include:
+- The review outcome.
+- The reviewed head SHA.
+- The authorization.
+
+**What the worker does, per submit-pr:**
+1. **Check the PR state.** Read the PR with `pr-state`. Confirm the current head is the reviewed head, and run `verify-commit --pr-head PR_URL`.
+2. **Check the diff.** Inspect the diff at that head. "Publish and confirm" and "Prepare the branch" require this before rewriting the description, because an earlier read doesn't cover later commits.
+3. **Rewrite the description.** The draft body still lists earlier incomplete work, so the worker rewrites it. The new body states the problem, the resulting behavior, and who ran each check. It also states the review evidence and the limits, and it uses `Closes #944` only if the PR completes the issue. The body goes in a file passed with `--body-file`.
+4. **Publish any remaining reviewed commits.** Push them explicitly, then verify the pushed commit.
+5. **Run `pr ready`.** Pass the body file, `--expect-head <reviewed head>`, and the board target. That one command updates the description, marks the PR ready, moves the issue to In review, and reads each result back. The worker must not chain `gh pr edit` and `gh pr ready` itself. If the head has moved past the reviewed commit, the command refuses. The worker then stops and reports instead of marking the new head ready.
+
+**Review request:** The different-model local review of the published head already satisfies the primary review source. The user didn't ask for Copilot, so none is requested ("Do not request Copilot by default").
+
+**After ready:** In a direct session, I continue as owner under PR follow-up ownership. If the read-back shows all hosted checks passed on the current head, no pending review, and no unresolved findings, I report and stop. Otherwise I dispatch `address-pr-review` directly. The endpoint is review follow-up, with no merge.
+
+Scenario: draft-pr-ready-transition
+Session ID: 05464da8-0121-417b-a734-d930a958034a
+
+**Next step:** resume the existing implementation worker, which is the one carrying the draft PR for #944. It runs ready submission under `submit-pr`. I don't open a new PR or branch, and I don't request Copilot.
+
+**What the worker does, in order:**
+1. Read the PR with `pr-state`. Confirm the current head is the reviewed final committed head, and run `verify-commit --pr-head PR_URL` on it.
+2. Inspect the diff at that head. Rewrite the stale description so it matches the final state. It should drop the earlier incomplete work, state the problem and resulting behavior, and say who ran each check. It should also record the local different-model review and its head, and use `Closes #944` only if the PR completes the issue. The body goes in a file outside the diff and is passed with `--body-file`.
+3. Run `pr ready` with that body file, `--expect-head` set to the reviewed head, and the issue's board target. One command updates the description, marks the PR ready, moves the issue to In review, and reads each result back. If the command refuses because the head moved, the worker stops and reports the current head.
+4. Report CI and review state for the head.
+
+**Why:**
+- **Deciding rule, express-issue "Submit and hand off":** "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready under submit-pr. Pass the review outcome, the reviewed head, and authorization." Review and findings are both settled, and publication is authorized with no draft-only limit. So the draft stage is over.
+- **Rewriting the description:** `submit-pr` says to inspect the diff at the current head before rewriting it, because "an earlier read does not describe later commits." It also says to state only facts that were read or run. `pr ready` takes the final description for this reason.
+- **No Copilot request:** `submit-pr` says to request Copilot "only when the user asked for it." The completed different-model local review of the published head is the review source.
+
+**After the worker returns:** the parent applies PR follow-up ownership. If every hosted check passed for the current head, no review is pending, and no findings are unresolved, that report is the final evidence and I stop. Otherwise the parent dispatches `address-pr-review`. I don't merge, because the default endpoint is through PR review follow-up without merge.

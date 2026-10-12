@@ -19,7 +19,7 @@ The agent interprets requests, defines scope, changes code, and assesses finding
 The command-line interface (CLI) accepts explicit inputs and performs a specified operation. It returns facts and results.
 Use existing Git and `gh` commands when they are sufficient. Add a tool for repeated work or a known cause of errors.
 
-The CLI uses Python and the standard library. Its operations include `pr-state`, `verify-commit`, `board set-status`, `identity`, and `exec`.
+The CLI uses Python and the standard library. Its operations include `pr-state`, `verify-commit`, `board set-status`, `pr ready`, `identity`, and `exec`.
 The [CLI reference](../../references/cli.md) explains PR and commit results. Installed command help supplies other command details.
 The CLI does not call models, select tasks, schedule work, or infer approval.
 

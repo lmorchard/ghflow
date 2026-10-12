@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ghflow import GhError, board_set_status, identity_env, main, pr_state, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, IdentityError, board_set_status, identity_env, main, pr_ready, pr_state, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1939,3 +1939,257 @@ class BoardSetStatusSubprocessTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakePr:
+    """A PR with a body and draft flag; writes are recorded and read-backs see them."""
+
+    def __init__(self, is_draft=True, head=HEAD, state="OPEN", body="old body\n", fail=(), sticky=True, move_head_after=None):
+        self.is_draft = is_draft
+        self.head = head
+        self.state = state
+        self.body = body
+        self.fail = set(fail)
+        self.sticky = sticky
+        self.move_head_after = move_head_after
+        self.writes = []
+        self.reads = 0
+
+    def gh(self, args):
+        if args[:2] == ["pr", "view"]:
+            self.reads += 1
+            if "view" in self.fail:
+                raise GhError("HTTP 502")
+            return {"number": 7, "url": "https://github.com/o/r/pull/7", "state": self.state, "isDraft": self.is_draft,
+                    "headRefOid": self.head, "headRefName": "task", "baseRefName": "main", "body": self.body}
+        raise AssertionError(f"Unexpected gh call: {args}")
+
+    def gh_text(self, args):
+        self.writes.append(args)
+        if args[:2] == ["pr", "edit"]:
+            if "edit" in self.fail:
+                raise GhError("HTTP 500")
+            if self.sticky:
+                with open(args[args.index("--body-file") + 1], encoding="utf-8") as body:
+                    self.body = body.read()
+            if self.move_head_after == "edit":
+                self.head = OLD
+            return "https://github.com/o/r/pull/7\n"
+        if args[:2] == ["pr", "ready"]:
+            if "ready" in self.fail:
+                raise GhError("HTTP 500")
+            if self.sticky:
+                self.is_draft = False
+            if self.move_head_after == "ready":
+                self.head = OLD
+            return ""
+        raise AssertionError(f"Unexpected gh write: {args}")
+
+
+def ready(fake, body=None, expect_head=None, board=None, confirm=lambda: None, board_write=None, state=None, tmp=None):
+    body_file = None
+    if body is not None:
+        body_file = os.path.join(tmp, "body.md")
+        with open(body_file, "w", encoding="utf-8") as out:
+            out.write(body)
+    board_calls = []
+
+    def default_board_write(repo, number, owner, project, status):
+        board_calls.append((repo, number, owner, project, status))
+        return {"before": "In progress", "after": status, "readback_matches": True}, 0
+
+    def default_state(repo, number):
+        return {"head": fake.head, "ci": "green", "pending_review_requests": [], "reviews": [], "comments": []}, 0
+
+    result, status = pr_ready("o/r", 7, body_file, expect_head, board, gh=fake.gh, gh_text=fake.gh_text, confirm=confirm,
+                              board_write=board_write or default_board_write, state=state or default_state)
+    result["_board_calls"] = board_calls
+    return result, status
+
+
+class PrReadyTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+
+    def test_description_ready_board_and_final_state_in_order(self):
+        fake = FakePr()
+        result, status = ready(fake, body="new body\n", expect_head=HEAD, board=("o/r", 5, "o", 6, "In review"), tmp=self.tmp)
+        self.assertEqual(status, 0, result)
+        self.assertEqual([w[:2] for w in fake.writes], [["pr", "edit"], ["pr", "ready"]])
+        self.assertTrue(result["description_matches"])
+        self.assertEqual(result["action"], "ready")
+        self.assertEqual(result["after"], {"state": "OPEN", "is_draft": False, "head": HEAD})
+        self.assertEqual(result["_board_calls"], [("o/r", 5, "o", 6, "In review")])
+        self.assertEqual(result["board"]["after"], "In review")
+        self.assertEqual(result["pr_state"]["ci"], "green")
+        self.assertEqual([f["step"] for f in result["facts"]], ["description", "ready"])
+
+    def test_body_compared_without_trailing_newline_differences(self):
+        fake = FakePr()
+        fake_write = fake.gh_text
+
+        def gh_text(args):
+            out = fake_write(args)
+            if args[:2] == ["pr", "edit"]:
+                fake.body = fake.body.rstrip("\n") + "\n\n"
+            return out
+
+        fake.gh_text = gh_text
+        result, status = ready(fake, body="line one\r\nline two", tmp=self.tmp)
+        self.assertEqual(status, 0, result)
+        self.assertTrue(result["description_matches"])
+
+    def test_expected_head_mismatch_refuses_without_writes(self):
+        fake = FakePr()
+        result, status = ready(fake, body="new\n", expect_head=OLD, tmp=self.tmp)
+        self.assertEqual(status, 3)
+        self.assertEqual(fake.writes, [])
+        self.assertEqual(result["errors"][0]["part"], "head")
+        self.assertEqual(result["facts"], [{"step": "write", "state": "refused"}])
+
+    def test_short_expected_head_is_refused(self):
+        fake = FakePr()
+        result, status = ready(fake, expect_head=HEAD[:6], tmp=self.tmp)
+        self.assertEqual(status, 3)
+        self.assertEqual(fake.writes, [])
+
+    def test_prefix_expected_head_matches(self):
+        fake = FakePr()
+        result, status = ready(fake, expect_head=HEAD[:12], tmp=self.tmp)
+        self.assertEqual(status, 0, result)
+        self.assertTrue(result["expected_head_matches"])
+
+    def test_closed_pr_refused_without_writes(self):
+        fake = FakePr(state="MERGED")
+        result, status = ready(fake, body="new\n", tmp=self.tmp)
+        self.assertEqual(status, 3)
+        self.assertEqual(fake.writes, [])
+        self.assertEqual(result["errors"][0]["part"], "state")
+
+    def test_identity_failure_refuses_without_writes(self):
+        fake = FakePr()
+
+        def confirm():
+            raise IdentityError("The authenticated login does not match the selected GitHub login.")
+
+        result, status = ready(fake, body="new\n", confirm=confirm, tmp=self.tmp)
+        self.assertEqual(status, 1)
+        self.assertEqual(fake.writes, [])
+        self.assertEqual(result["errors"][0]["part"], "identity")
+
+    def test_missing_body_file_refuses_before_identity_and_writes(self):
+        fake = FakePr()
+        result, status = pr_ready("o/r", 7, os.path.join(self.tmp, "absent.md"), None, None, gh=fake.gh, gh_text=fake.gh_text,
+                                  confirm=lambda: (_ for _ in ()).throw(AssertionError("confirm should not run")))
+        self.assertEqual(status, 1)
+        self.assertEqual(result["errors"][0]["part"], "body_file")
+        self.assertEqual(fake.writes, [])
+
+    def test_description_mismatch_stops_before_ready(self):
+        fake = FakePr(sticky=False)
+        result, status = ready(fake, body="new\n", tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["description_matches"])
+        self.assertEqual([w[:2] for w in fake.writes], [["pr", "edit"]])
+        self.assertTrue(fake.is_draft)
+        self.assertNotIn("action", result)
+
+    def test_failed_description_write_that_took_hold_is_reconciled_by_readback(self):
+        fake = FakePr()
+        fake_write = fake.gh_text
+
+        def gh_text(args):
+            if args[:2] == ["pr", "edit"]:
+                fake.body = "new\n"
+                raise GhError("HTTP 502 after write")
+            return fake_write(args)
+
+        fake.gh_text = gh_text
+        result, status = ready(fake, body="new\n", tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertTrue(result["description_matches"])
+        self.assertEqual(result["action"], "ready")
+        self.assertEqual(result["errors"][0]["part"], "description")
+
+    def test_head_moved_during_description_update_stops_before_ready(self):
+        fake = FakePr(move_head_after="edit")
+        result, status = ready(fake, body="new\n", tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertEqual([w[:2] for w in fake.writes], [["pr", "edit"]])
+        self.assertEqual(result["errors"][-1]["part"], "head")
+        self.assertTrue(fake.is_draft)
+
+    def test_head_moved_after_ready_is_reported(self):
+        fake = FakePr(move_head_after="ready")
+        result, status = ready(fake, tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["action"], "ready")
+        self.assertEqual(result["after"]["head"], OLD)
+        self.assertEqual(result["errors"][-1]["part"], "head")
+        self.assertEqual(result["_board_calls"], [])
+
+    def test_ready_that_does_not_stick_exits_2_without_board(self):
+        fake = FakePr(sticky=False)
+        result, status = ready(fake, board=("o/r", 5, "o", 6, "In review"), tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["facts"][-1], {"step": "ready", "state": "mismatch"})
+        self.assertEqual(result["_board_calls"], [])
+        self.assertNotIn("pr_state", result)
+
+    def test_already_ready_is_unchanged_and_still_moves_board(self):
+        fake = FakePr(is_draft=False)
+        result, status = ready(fake, board=("o/r", 5, "o", 6, "In review"), tmp=self.tmp)
+        self.assertEqual(status, 0, result)
+        self.assertEqual(fake.writes, [])
+        self.assertEqual(result["action"], "unchanged")
+        self.assertEqual(len(result["_board_calls"]), 1)
+
+    def test_board_failure_is_reported_after_ready(self):
+        fake = FakePr()
+
+        def board_write(repo, number, owner, project, status):
+            return {"before": "Done", "after": "Done", "readback_matches": False, "errors": [{"part": "write", "error": "backward"}]}, 3
+
+        result, status = ready(fake, board=("o/r", 5, "o", 6, "In review"), board_write=board_write, tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["action"], "ready")
+        self.assertEqual(result["errors"][0], {"part": "board", "error": "board set-status exited 3."})
+        self.assertIn("pr_state", result)
+
+    def test_unreadable_pr_exits_1_without_writes(self):
+        fake = FakePr(fail={"view"})
+        result, status = ready(fake, body="new\n", tmp=self.tmp)
+        self.assertEqual(status, 1)
+        self.assertEqual(fake.writes, [])
+        self.assertEqual(result["errors"][0]["part"], "pr")
+
+    def test_partial_final_state_read_exits_2(self):
+        fake = FakePr()
+
+        def state(repo, number):
+            return {"head": fake.head, "ci": None, "errors": [{"part": "rules", "error": "HTTP 403"}]}, 2
+
+        result, status = ready(fake, state=state, tmp=self.tmp)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["action"], "ready")
+        self.assertEqual(result["errors"][0]["part"], "pr_state")
+
+    def test_main_requires_board_arguments_together(self):
+        with self.assertRaises(SystemExit) as raised, patch("sys.stderr", new=io.StringIO()):
+            main(["pr", "ready", "https://github.com/o/r/pull/7", "--issue", "https://github.com/o/r/issues/5"])
+        self.assertEqual(raised.exception.code, 2)
+
+    def test_main_passes_board_tuple_and_prints_result(self):
+        captured = {}
+
+        def fake_pr_ready(repo, number, body_file, expect_head, board):
+            captured.update(repo=repo, number=number, body_file=body_file, expect_head=expect_head, board=board)
+            return {"action": "ready"}, 0
+
+        with patch("ghflow.pr_ready", fake_pr_ready), patch("sys.stdout", new=io.StringIO()) as out:
+            status = main(["pr", "ready", "https://github.com/o/r/pull/7", "--body-file", "b.md", "--expect-head", HEAD,
+                           "--issue", "https://github.com/o/r/issues/5", "--owner", "o", "--project", "6"])
+        self.assertEqual(status, 0)
+        self.assertEqual(captured, {"repo": "o/r", "number": 7, "body_file": "b.md", "expect_head": HEAD,
+                                    "board": ("o/r", 5, "o", 6, "In review")})
+        self.assertEqual(json.loads(out.getvalue())["action"], "ready")
