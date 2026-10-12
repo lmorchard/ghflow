@@ -44,6 +44,8 @@ Task notes and Evidence now say that a result is recorded only after the command
 
 The remaining observation that is not yet a change is reviewer access to top-level PR comments.
 
+After the scenario runner gained `--output-tokens`, the nine scenarios from these changes ran on the local Qwen model against old and new text. The old text failed both test-assertion scenarios, as the trial worker did, and the new text passed one and gave a partial answer on the other. On the other seven, both texts reached the decision, but the new text did so in about half the time and output tokens, and on the empirical implementer scenario in about one eighth. The [Qwen comparison](../../../evals/results/2026-10-12-qwen-rule-comparison.md) records each run.
+
 ## Evidence limits
 
 The analysis of the worker transcripts came from three subagents; the author read the parent transcript directly and verified the quoted skill text, CLI commands, and subject repository rules. Wall-clock figures come from the turn durations in the transcripts. The run used one model on one issue, so it does not measure the effect of the changes. [Ceremony reduction samples](../../../evals/results/2026-10-11-ceremony-reduction.md) record the decision scenario runs on the revised text. They establish decisions, not fewer dispatches on a real issue.
