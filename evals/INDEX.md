@@ -98,6 +98,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [parent-external-head-update](scenarios/parent-external-head-update.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [placeholder-dispatch-recovery](scenarios/placeholder-dispatch-recovery.md) | 2026-10-12 | 224e7ef | claude | claude-sonnet-5-5 | Pass (2/2) | Sonnet, new text | [2026-10-12-coordinator-ceremony-2.md](results/2026-10-12-coordinator-ceremony-2.md) |
 | [placeholder-dispatch-recovery](scenarios/placeholder-dispatch-recovery.md) | 2026-10-12 | 224e7ef | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | Qwen, new text | [2026-10-12-coordinator-ceremony-2.md](results/2026-10-12-coordinator-ceremony-2.md): Runtime model not reported by OpenCode. |
+| [placeholder-dispatch-recovery](scenarios/placeholder-dispatch-recovery.md) | 2026-10-12 | ceb0134 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-worker-placeholder.md](results/2026-10-12-worker-placeholder.md) |
 | [project-facts-live-state](scenarios/project-facts-live-state.md) | 2026-10-12 | 9a42fa0 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-project-facts.md](results/2026-10-12-project-facts.md): No baseline: the task file does not exist at the baseline commit. |
 | [project-facts-stale-source](scenarios/project-facts-stale-source.md) | 2026-10-12 | 9a42fa0 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-project-facts.md](results/2026-10-12-project-facts.md): No baseline: the task file does not exist at the baseline commit. |
 | [protection-requires-approval](scenarios/protection-requires-approval.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
@@ -170,6 +171,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [unpublished-local-commit-missing](scenarios/unpublished-local-commit-missing.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
 | [unpublished-local-review](scenarios/unpublished-local-review.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [verify-cited-commit](scenarios/verify-cited-commit.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after change not stated. |
+| [worker-placeholder-prompt](scenarios/worker-placeholder-prompt.md) | 2026-10-12 | ceb0134 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-worker-placeholder.md](results/2026-10-12-worker-placeholder.md) |
 
 ## No recorded run
 
@@ -178,4 +180,3 @@ These scenarios have no structured run record in the reports. This does not prov
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
-- [worker-placeholder-prompt](scenarios/worker-placeholder-prompt.md)
