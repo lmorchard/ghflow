@@ -1,0 +1,177 @@
+Scenario: coordinator-notes-outside-checkout
+Session ID: 959e1e0b-cfb1-4191-9499-946fc47e6e05
+
+**Next step:** I create the queue notes file in a worktree, not in the main checkout. I'd make a coordinator worktree under `.claude/worktrees/` and put `docs/dev-sessions/{YYYY-MM-DD-HHMM}-{slug}/notes.md` inside it. I haven't done this, because you asked me not to run commands or make edits. Before creating it, I'd check project instructions for a notes convention or a session-directory override, since that overrides the default path.
+
+**Deciding rule:** `references/shared/task-notes.md`, under "Locate or create the notes". It says to create the notes directory "inside the active worktree, because untracked files in the main checkout are not available in another worktree." The workers each make their own worktrees, so a notes file I left untracked in the main checkout would be invisible to them. It could also be lost on resume.
+
+The `burndown-ready-queue.md` skill adds two constraints:
+- I coordinate only and don't edit code, so I wouldn't use a worker's worktree for the notes. I'd use a separate coordinator worktree dedicated to the notes.
+- The queue selection must stay fixed.
+
+**What the notes hold:** The same file stays in use across the nine hours, compaction, and any resume.
+- **`Resume here` summary at the top:**
+  - The fixed selected issue IDs, in priority order.
+  - The endpoint: through review follow-up, without merge.
+  - Authorization limits.
+  - The current issue.
+  - Worktree and branch.
+  - Latest checks with their revisions.
+  - Blockers.
+  - The next action.
+- **Per-issue results underneath:** PR URL and head SHA, review evidence, board status, and any parked issue with its blocker.
+- **Handoffs:** I'd put the notes' absolute path in every worker handoff.
+
+**Commit rule:** The project commits notes, so I'd commit them once at the end of an operation, or with the code they describe. I wouldn't add a notes-only commit after independent review or after a PR is marked ready. That would move the head and restart CI.
+
+**Order of work:** I'd write the notes only after the full Ready-queue traversal succeeds and the selection is recorded. I'd record results only after the commands have actually run.
+
+Scenario: coordinator-notes-outside-checkout
+Session ID: b8836980-915c-491f-b7f0-9612178c45e0
+
+**Next step:** I create the coordinator's notes file outside the repo, at `~/.local/state/ghflow/notes/{YYYY-MM-DD-HHMM}-burndown-ready-queue/notes.md`. I don't write to `docs/dev-sessions/` in the main checkout. I put the path in every worker handoff and in my final summary.
+
+**Rule that decides it:** `references/shared/task-notes.md`, under "Locate or create the notes". The default `docs/dev-sessions/{timestamp}-{slug}/notes.md` location is created inside the active worktree. The same section says "A coordinator that owns no worktree, such as a queue or delivery coordinator, does not write in the subject checkout." The coordinator keeps its notes at the `~/.local/state/ghflow/notes/...` path and reports that path in its summary.
+
+**Why it applies here:**
+- I own no worktree, and I'm not editing code.
+- Each implementation worker creates its own worktree under `.claude/worktrees/`. Notes in the main checkout on `main` would be untracked there, and a worker's worktree wouldn't see them.
+- The project does commit session notes, but that rule is for notes inside a worktree, alongside the code they describe. It doesn't make the main checkout the right place for my queue notes. Each worker keeps its own per-issue notes in its worktree.
+- Writing in the main checkout would also dirty the subject checkout that workers branch from.
+
+**What the notes hold:**
+- A `Resume here` summary at the top.
+  - The fixed selection of Ready issue IDs, taken from the full board traversal.
+  - The agreed endpoint: review follow-up without merge, by default, unless the user chose otherwise.
+  - The authorization limits.
+  - The current issue and the next action.
+- Per-issue results below it: PR URL and head SHA, review evidence, board status, and any parked items.
+- Facts-refresh status.
+
+I update the notes after results actually happen, not before.
+
+**Order of work:**
+1. Run the board traversal and record the selection.
+2. Run `facts`, and dispatch `prepare-project-facts` first if it reports stale sources.
+3. Deliver the issues one at a time through `express-issue`.
+
+If the run is interrupted, the same notes file carries the resume state, as the "Resume an interrupted queue" section requires. I'd also re-read the live board and issue state before continuing.
+
+Scenario: coordinator-notes-outside-checkout
+Session ID: 33c811f7-059b-4184-97d1-be6c3a9546ed
+
+**What I do next:** I keep the queue notes outside the checkout, at `~/.local/state/ghflow/notes/{timestamp}-{slug}/notes.md`. The timestamp is `YYYY-MM-DD-HHMM`, and the slug is something like `burndown-ready-queue`. I don't write anything under `docs/dev-sessions/` in the main checkout. I report the absolute path in my summary and put it in every worker handoff.
+
+**Why:** The deciding rule is in `references/shared/task-notes.md`, under "Locate or create the notes". It says: "A coordinator that owns no worktree, such as a queue or delivery coordinator, does not write in the subject checkout: it keeps its notes at `~/.local/state/ghflow/notes/{timestamp}-{slug}/notes.md` and reports that path in its summary."
+
+- **Why the default doesn't apply:** The default `docs/dev-sessions/…` location is created inside the active worktree. I have no worktree, because each implementation worker creates its own under `.claude/worktrees/`, and I won't edit code. So the project's commit convention governs the workers' per-issue notes, not mine.
+- **Why not the main checkout:** Untracked files there aren't available in the workers' worktrees. Writing there would also put edits in the subject checkout.
+
+**What goes in the notes:**
+- **Top summary:** A short `Resume here` summary at the top, as `task-notes.md` requires. It holds the selected issue IDs, the endpoint (review follow-up, no merge), authorization limits, the current issue, and the next action.
+- **Per-issue results:** PR URL, head SHA, review evidence, board status, and any parked state.
+- **Updates:** I update them after events actually happen, not before.
+
+This also supports the resume rule in `burndown-ready-queue.md`. After an interruption, the recorded selection is used, and the current Ready queue isn't treated as a new selection.
+
+**Order of work:** The notes file doesn't come first.
+1. I audit the Ready queue with the full paginated GraphQL traversal and validation. The initial Ready items become the fixed selection, sorted by priority.
+2. I confirm the endpoint, which is already review follow-up.
+3. I run `facts` from the subject checkout.
+4. I prepare the required review.
+5. I dispatch workers one at a time.
+
+I record the selection in the notes as soon as I have it.
+
+Scenario: resume-time-parked-issue
+Session ID: 79733cf8-0535-42d6-b89c-30d0dfd0b1aa
+
+**What I do next:** I resume the delivery from the existing draft PR #1067. I don't create a new branch or PR, and I don't treat the issue as waiting on the user. The remaining steps are:
+
+1. **Re-review.** I dispatch `review-changes` in a fresh context for the exact base and the published green head. The first review was clean and the accepted corrections were committed after it. So the earlier review doesn't cover the current head, and the review plan still requires a current one. I give the reviewer the issue and the facts, not the author's conversation or a desired conclusion.
+2. **Corrections.** If the re-review returns actionable findings, I resume the same implementation worker with each finding's text. I accept or decline each one with a reason. The worker corrects, runs the affected checks, and publishes to the same draft. Then the reviewer is resumed for the changed code.
+3. **Ready submission.** Once review is complete and findings are resolved, I resume the implementation worker under `submit-pr`. I pass it the review outcome, the reviewed head, and the authorization. It runs `pr ready` and returns the read-backs for the description, ready state, head, board, and current-head checks and reviews.
+4. **PR review follow-up.** Because I'm the parent session, I apply PR follow-up ownership to that report. If every hosted check passed on the current head, no review is pending, and nothing is unresolved, I report from that read-back and stop. Otherwise I dispatch `address-pr-review` for its one cycle. I do not merge.
+
+**Why this is the right move:**
+- **Endpoint.** The user's request matches the default endpoint, "through PR review follow-up, without merge", and the issue is not unattended now.
+- **Resume rule.** "Resume from evidence" and the existing-PR rule say to reuse completed work that still applies, and to reuse a draft PR instead of starting another.
+- **Why the park no longer applies.** The "Park an issue in an unattended flow" section and "Parked deliveries" in `triage-labels.md` use `triage:needs-input` for an unresolved question or blocker. Here the run stopped only because its time budget ended. The comment asks no question, and nothing is unresolved. So the label is stale and not a real hold. `triage:needs-input` is meant to show only issues where someone must act now.
+- **Resolution path.** `sweep-needs-input` is for resolving a question with the user, and there is none to resolve. The delivery resumes from the PR.
+
+**Housekeeping:** The `triage:needs-input` label no longer reflects the issue's state, because the interrupted run left it behind. The label write is a GitHub change, which this coordinator rarely makes itself. So I would have the worker do it, or do it under the GitHub-writes rules, with a short comment saying the delivery has resumed. The board stays In progress until `pr ready` moves it to its ready target.
+
+I'd also note in the final report that the earlier run stopped on its time budget and that this run completed the remaining steps.
+
+**Deciding rule:** "Resume from evidence" in `express-issue.md`. The deciding text is "Reuse completed work when it still applies to the current revision. Do not create another branch or PR because this invocation is new." It's backed by "When resuming with an existing PR, use current independent review evidence if it satisfies the review plan", and by the "Review the draft changes" requirement of a fresh review before marking ready.
+
+Scenario: resume-time-parked-issue
+Session ID: 88dfd28e-655f-4c87-a3a2-ea6394472f4d
+
+**Next step: restore the issue's label first.** I replace `triage:needs-input` with `triage:ready` on #1006. I do that before I dispatch any worker.
+
+**Rule that decides it:** "Resume from evidence" in `express-issue.md` says: "If the issue was parked by an unattended delivery and no question remains open, restore its label under Parked deliveries before the next dispatch." `shared/triage-labels.md#parked-deliveries` adds the detail. A park for time has nothing to resolve. A delivery that resumes from the PR with no open question replaces `triage:needs-input` with `triage:ready` before it continues.
+
+**Why it applies here:**
+- The unattended run stopped because its time budget ended, not because of a question or blocker. The comment lists remaining steps and asks nothing.
+- Nothing on the issue or PR is unresolved, so `sweep-needs-input` has nothing to settle.
+- The user's request resumes the delivery directly. Leaving `triage:needs-input` in place would keep the issue in the user's needs-input view for no reason.
+
+**After the label is restored:**
+1. **Reuse the existing work.** I keep draft PR #1067, its branch and its green head. I don't create a new branch or PR. The first review was clean and the accepted corrections are committed, so I reuse that evidence only where it still applies to the current head.
+2. **Dispatch a fresh-context `review-changes`.** It covers the exact base and the published head of #1067. The parked comment lists a fresh re-review as a remaining step, and the review plan requires it before the PR is marked ready. I give the reviewer the issue and the facts, not the author's conclusions. If it returns actionable findings, I resume the implementation worker with each one, with an accept or decline decision and the reason. The worker corrects them and publishes to the same draft. Then I resume the reviewer on the changes.
+3. **Resume the implementation worker for ready submission** under `submit-pr`. I pass it the review outcome and the reviewed head. Its `pr ready` read-backs are the ready submission evidence. I keep the board at In progress until `pr ready` moves it to its target.
+4. **Continue as the parent to the endpoint.** This is a direct session, so I own PR review follow-up. If the ready report shows every check passed on the current head, no pending review and no unresolved findings, I report from it and stop. Otherwise I dispatch `address-pr-review`. I do not merge, because the endpoint is the default of review follow-up without merge.
+
+I don't review the diff myself. I read the worker and reviewer reports, and I don't pick the next issue.
+
+Scenario: resume-time-parked-issue
+Session ID: f0f5bb7e-e7c4-4086-982b-b754720866c8
+
+**Next step:** I'd restore the issue's label first. I'd replace `triage:needs-input` with `triage:ready` on #1006. I wouldn't ask anything or dispatch yet.
+
+**Rule that decides it:** "Resume from evidence" in `express-issue.md` says: "If the issue was parked by an unattended delivery and no question remains open, restore its label under Parked deliveries before the next dispatch." The "Parked deliveries" section of `shared/triage-labels.md` adds that a park for time has nothing to resolve. When delivery resumes from the PR with no open question, it replaces `triage:needs-input` with `triage:ready` before it continues.
+
+This case fits the rule. The unattended run parked on its time budget, not on a question. The comment lists only remaining steps, and nothing on the issue or PR is unresolved. The label is a leftover, so `sweep-needs-input` has nothing to settle, and I don't need the user.
+
+**After the label:**
+- **Reuse existing work.** I'd read the task notes and check the PR. The draft PR #1067 at its green head and the accepted corrections still apply, so I'd create no new branch or PR. The endpoint is the default: through PR review follow-up, without merge.
+- **Re-review.** I'd dispatch `review-changes` in a fresh context for the exact base and published head. The earlier clean review doesn't replace the fresh re-review the comment lists, because corrections were committed after it.
+- **Corrections.** If the reviewer reports actionable findings, I'd resume the implementation worker to correct them. I'd decide the routine ones myself.
+- **Ready submission.** Once review is complete and findings are resolved, I'd resume the worker for `submit-pr` to run `pr ready`. I'd pass it the review outcome and the reviewed head.
+- **Follow-up.** As the direct-session owner, I'd apply PR follow-up ownership. If the ready read-back shows every check passed on the current head, no pending review and no unresolved findings, I'd report that and stop. Otherwise I'd dispatch `address-pr-review`.
+- **Merge.** I would not merge.
+
+Scenario: unattended-parks-on-uncertainty
+Session ID: 2b04d8e8-24bd-422f-8973-2c4ed0d52535
+
+**Next step: park the issue. Don't pick a behavior, don't ask the user, and don't mark the PR ready.**
+
+**Why this is a park.** The rule is "Decide in an unattended flow" in `shared/decisions.md`. The express-issue endpoint section applies it. That rule says to take a recommended answer only when the evidence supports one. It says to park when "viable answers differ in user-visible behavior and the evidence does not separate them." This case meets both conditions. Clearing the status line at once and clearing it after the new schedule loads look different to the user. The issue text doesn't choose between them. The worker found no evidence either way and has no recommendation. This is a product decision about intended behavior, so I shouldn't settle it as a routine choice. The run is unattended, so I also can't call an interactive question tool.
+
+**What I do, following "Park an issue in an unattended flow" in `express-issue.md`:**
+1. **Publish and record in the PR.** I resume the same implementation worker, not a new one. It publishes any committed work that isn't yet on draft PR #1070. It records the open question under "Parked" in the PR description and in the task notes. The record includes both alternatives, the fact that there is no evidence or recommendation, and the effect on the user of each.
+2. **Update the issue.** I post the same question as a comment on #904. Following "Parked deliveries" in `shared/triage-labels.md`, I replace `triage:ready` with `triage:needs-input`. Each change follows the GitHub-writes rules.
+3. **Leave the state in place.** The PR stays a draft and the board stays In progress. The worktree and branch are preserved.
+4. **Return the parked result.** I give the question, the PR URL and the published head to the user or queue coordinator. I don't request review, mark the PR ready, or select another issue.
+
+The guards and tests that are already committed stay on the draft. Later, `sweep-needs-input` settles the question with the user. Delivery then resumes from the PR under "Resume from evidence", and `triage:needs-input` goes back to `triage:ready` first.
+
+Scenario: notes-commit-after-review
+Session ID: 4926ec6f-1461-4302-b110-b5f925099364
+
+**Next step:** drop the two notes-only commits. Mark the reviewed head `0088866` ready directly.
+
+**Rule that decides it:** the "Publish and confirm" section of `submit-pr.md` says: "Mark the reviewed head ready, and do not push a notes-only commit before or after it, as Task notes states; the description carries the ready result." It adds that if the head moved after review, you name that delta and the review's covered commit in the report.
+
+**Why:** The review and green CI cover `0088866`. Pushing a notes commit first would move the head to a commit the review never covered. `pr ready --expect-head` would then refuse, or the PR would become ready on an unreviewed head. A second notes commit after `pr ready` would also move the head off the reviewed commit. It would restart CI for no gain. The ready result belongs in the PR description and the report, not in a pushed commit.
+
+**What I do instead:**
+1. The `pr-state` read and head confirmation are already done. Next I run `verify-commit` with `--pr-head PR_URL` for `0088866`. The resumption rule requires this. Then I inspect the diff at that head before rewriting the description.
+2. Write the PR body to a file outside the task diff. It names who ran each check:
+   - The independent different-model review of `0088866` found no defects.
+   - Hosted CI is green on `0088866`.
+   - Any tests I ran myself are listed separately.
+   The body states only facts I read or ran.
+3. Run `pr ready` with `--body-file`, `--expect-head 0088866`, and the issue's board target (`--issue`, `--owner`, `--project`). One command updates the description, marks the PR ready, moves the issue to In review, and reads each result back. I don't chain `gh pr edit` and `gh pr ready`. If it refuses because the head differs, I stop and report the current head.
+4. Read `pr-state` for CI on the published head and report. The report covers the verify-commit results, the review source and its head, the board transition, and the body file path. I don't push any notes commit. Any local notes I keep stay uncommitted or go in the report.
