@@ -1,0 +1,122 @@
+Scenario: curate-for-unattended-run
+Session ID: 0d2e1fed-000a-4e46-aee9-560c04939900
+
+**What I do next:** I make no board changes yet. I prepare a candidate table for you to review in conversation, then wait for your approval before any move. I don't ask you questions now, and I don't dispatch a subagent.
+
+**The rule that decides it:** "Review selection with the user" in `curate-ready-queue.md`. It says to present the candidate queue as a table (Issue, Title, Priority, Size, Why Next) and confirm the batch with the user before any board transition. "Advance status on the board" begins "Once approved". The same file's "Select candidates from Backlog" section limits candidates to `P0`/`P1` items. Its "Audit current board WIP" section sets the WIP target and the Ready capacity check.
+
+**Why, step by step:**
+
+1. **Audit WIP.** Ready has 3 items, which is within the default 3–5 limit, so there are at most 2 free slots. The Ready column is not full, so the stop condition doesn't apply. None of the three current items fit tonight's unattended run:
+   - The survey task isn't a small Python change verifiable by `make check` and `make test`.
+   - The web feature needs a web UI or manual checks.
+   - The dev-server change needs `make dev` running.
+
+   The skill's "swapping a blocked or deprioritized item back to `Backlog`" option applies to these. I'd propose it, not do it.
+
+2. **Select candidates.** The skill's pool is `P0`/`P1` in Backlog, sorted by priority, then small self-contained `XS`/`S` tasks, then satisfied prerequisites. Most of that pool is large design work, so little or nothing qualifies. The small-looking `P2`–`P4` items are outside the skill's pool. I won't promote them on my own or quietly widen the pool.
+
+3. **Don't trust the labels.** `triage:ready` is on items of every size, and only two Backlog items have Size set. The evidence rule says a board status or label records an earlier decision and doesn't prove readiness. I'd read each candidate's issue text and the current code to judge size and verifiability. Issue text counts as a claim until I check it against the code. I'd mark any size I infer as my estimate, not a board value.
+
+4. **Present, don't write.** The table would contain:
+   - any real `P0`/`P1` small Python candidates, with the two sized items checked first;
+   - separately flagged `P2`–`P4` small items, as an exception that needs your explicit decision, since the skill only covers `P0`/`P1`;
+   - the proposal to move the three unsuitable Ready items back to `Backlog`, with a note that any move of an existing Ready item also needs your approval.
+
+   If the `P0`/`P1` pool has nothing suitable, the skill points to `sweep-prioritize` to re-evaluate priorities. That is the right route to get small items onto the board properly.
+
+5. **Only after approval.** A subagent moves the approved issues with `board set-status … --status "Ready"` under the machine identity. The move follows the GitHub-writes rules and the board-status procedure, including readback. I then report the final Ready queue against the WIP limit.
+
+Scenario: curate-for-unattended-run
+Session ID: 8962e7af-8006-4939-b5aa-c1291ca6baff
+
+**Next step:** I'd start the "Audit current board WIP" step of `curate-ready-queue.md`. I'd read every board item, all 129 of them (3 in Ready and 126 in Backlog, plus any others), using the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. That means `gh project view` to get the node ID, then `gh api graphql --paginate --slurp` reading Status and Priority. I'd check every page: valid JSON, no `errors`, the right project ID, valid `pageInfo`, a final page with `hasNextPage` false, and the `status` and `priority` keys on every item. If any check fails, I'd discard the output and report incomplete discovery. I would not use partial output.
+
+I haven't run anything here. I also wouldn't move any items yet.
+
+**Rules that decide it:**
+- **Audit rule:** "Read every board item with the validated traversal… use partial output for nothing." The Ready and Backlog counts, and the later selection, have to come from that complete inventory.
+- **Selection rule:** "Use the selection criterion that the user states… It replaces the priority default." The user's criterion is small Python issues that `make check` and `make test` can verify, with no web UI or manual checks, for an unattended run. So the default P0/P1 filter doesn't apply, and P2–P4 Backlog items are eligible.
+- **Labels and fields:** "`triage:ready` and an unset Size or Priority field do not show that an issue is small or settled." I wouldn't trust the many `triage:ready` labels, and I wouldn't use Size to filter, since only two Backlog items have it set. I'd read the body and comments of each plausible small candidate, mainly the P2–P4 ones that look small, and check that its acceptance is only `make check` and `make test`.
+
+**Recommendations for the current Ready items.** I'd judge them against the same criteria as the candidates, after reading their bodies:
+- **Survey task:** probably move back to Backlog, since it isn't a small Python change verified by `make check` and `make test`.
+- **Web feature:** move back to Backlog, since it involves a web UI.
+- **Dev-server change:** move back to Backlog, since its acceptance check needs `make dev` running.
+
+Moving any of them back is a backward move. It needs `--allow-backward` and the user's decision as the reason.
+
+**After the audit.** I'd present the table (Issue / Title / Priority / Size / Why Next) with 2–3 verified candidates and the keep-or-demote recommendations. I'd ask the user to confirm that batch. Only after approval would a subagent make the board moves under the machine identity, confirming each read-back. I'd then show the final Ready queue and hand off to implement-issue or express-issue.
+
+Scenario: curate-for-unattended-run
+Session ID: 36e6ed02-2002-4f05-b729-52d429d78fa7
+
+**Next step:** I'd start with the first rule in `curate-ready-queue.md`, "Audit current board WIP". I'd read the whole board before recommending anything. I can't run it here, so this is the plan.
+
+**Audit rule:** "Read every board item with the validated traversal in Audit the Ready queue, and use partial output for nothing." That traversal is `gh project view` to get the node ID. Then `gh api graphql --paginate --slurp`, which reads every item with its Status and Priority.
+
+Here that means all 129 items (3 Ready plus 126 Backlog, with the rest in other columns). From the inventory I'd:
+- count Ready, In progress and In review;
+- work out the open slots against the WIP limit of 3 to 5.
+
+**Ready items:** The same audit rule requires a stay or move-back recommendation for each Ready item, with a one-line reason. I'd judge them against the user's stated criteria: small Python, verifiable by `make check` and `make test`, no web UI or manual checks.
+- The P1 survey task would probably move back to Backlog, but I'd read its body first to confirm.
+- The P1 web feature would move back, because it needs a web UI.
+- The P1 dev-server change would move back, because its acceptance check needs `make dev` running.
+
+All three appear to fail the unattended-run criteria. Each swap is a backward move. It needs `--allow-backward` and the user's decision as the reason, so I'd propose the moves and wait for approval.
+
+**Candidate selection:** The "Select candidates from Backlog" rule decides how I pick. The user's stated criterion (small, Python, `make check`/`make test`-verifiable, fit for an unattended run) replaces the default P0/P1 priority filter. So the many large P0/P1 design items are not the pool. Items of any priority are eligible, including the small-looking P2 to P4 ones.
+
+The same rule says to read each plausible candidate's body and comments before ranking. It also says `triage:ready` labels and an unset Size or Priority "do not show that an issue is small or settled." So I would:
+- not trust the `triage:ready` label;
+- not trust Size, since only two items have it set;
+- read the bodies and comments of the plausible small items, and check that their acceptance criteria are really `make check` and `make test` only.
+
+I'd pick two or three that pass.
+
+**Then:** I'd present the Issue / Title / Priority / Size / Why Next table, with sequencing notes, and ask the user to confirm the batch. Only after approval would a subagent run `board set-status` under the machine identity, with read-back. The Ready queue would then be shown against the WIP limit.
+
+**Why this order:** I'd read the full board first, because partial output can't support a keep-or-swap decision. The user's criterion overrides the priority default. Labels and Size aren't evidence, so I'd read the issue bodies. The board changes wait for the user's approval.
+
+Scenario: board-transition-cli
+Session ID: 95d4a194-6db4-4889-8340-1bef950df1d3
+
+**Next step:** move issue #920 to **In review** on project 3 (owner `acme`). Don't query the board first. Then arrange the review and report.
+
+**Why:** The deciding rule is submit-pr's "Mark the issue in review" section, backed by `shared/board-status.md`. Once the PR exists and is ready for review, the issue it implements moves to In review. The board comes from the project instructions: project 3, owner `acme`.
+
+**How:**
+- **If the PR was created as a draft:** I'd run `pr ready` with the body file, `--expect-head` set to the reviewed head, `--issue` for #920, `--owner acme` and `--project 3`. That command updates the description, marks the PR ready and moves the issue in one step, reading back each result. I wouldn't chain `gh pr edit` and `gh pr ready` myself. If the head no longer matches the reviewed commit, I'd stop and report the current head.
+- **If the PR is already ready without the board move:** I'd run `board set-status ISSUE_URL --owner acme --project 3 --status "In review"`.
+- **The earlier In progress state:** I don't need the handoff's "In progress" note to decide anything. The tool reports the issue's earlier status as `before`, and I'd report `before`, `after`, `added` and `readback_matches`. If the issue is already In review, the tool leaves it unchanged. In-progress to In review is a forward move, so `--allow-backward` isn't needed.
+- **If the board update fails:** I'd report the failure and continue with the review request.
+- **Scope:** I'd move only #920, not any parent issue.
+
+**After that:**
+- **Review:** I'd request or confirm a different-model local review of the published head. I wouldn't request Copilot unless the user asked for it.
+- **Report:** I'd read the CI and review state with `pr-state`. The report would cover the URLs, the head, the `verify-commit` results, the review source, the board result and anything I couldn't read.
+- **What I won't do:** change code for findings, merge, or enable auto-merge.
+- **Follow-up:** if checks or reviews are pending, I'd hand off the PR follow-up to the parent. For a submission-only request I'd stop there.
+
+Scenario: board-status-no-pre-read
+Session ID: 80a20047-84dd-4861-bc25-b2af717f9743
+
+I would not write the GraphQL query. I would run the transition command, which reports the earlier status, and take the "before" value from its output.
+
+**Rule that decides it:** the "Mark the issue in review" section of `submit-pr.md` says: "The transition command reports the earlier status; do not query the board separately first."
+
+**What I'd do next:**
+1. **Check how PR #1060 became ready.**
+   - If it is still a draft, I would run `pr ready` with the body file, `--expect-head` set to the reviewed head, `--issue 997`, `--owner lmorchard` and `--project 6`. That one command updates the description, marks the PR ready and moves the issue to In review. It reads each result back.
+   - If the PR was already marked ready without `--issue`, I would run `board set-status` for issue 997 on project 6 owned by `lmorchard`. That is the only case the skill gives for using it.
+2. **Take both statuses from the command's output.** The earlier status it reports is the "before" value. Its read-back is the "after" value. Neither needs a separate query.
+3. **Handle failures.** If the board update fails, I would report the failure and still go on to the review request.
+4. **Keep the other rules.**
+   - I would not chain `gh pr edit` and `gh pr ready` myself.
+   - If the command refuses because the head moved past the reviewed commit, I would stop and report the current head. I would not mark the new head ready.
+   - The write identity and the other write-safety rules still apply.
+
+**Why:** the transition command already returns the "before" status and a read-back, so a hand-written GraphQL read would only duplicate it. The skill forbids that pre-query. The `--help` listing showing only `set-status` doesn't change this. `pr ready` is the primary path, and `set-status` is the fallback.
+
+I haven't opened `board-status.md`, `cli.md` or the other linked references. If the exact flags or output format matter, I'd read them before running anything.

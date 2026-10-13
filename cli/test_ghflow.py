@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from unittest.mock import patch
 
-from ghflow import GhError, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_field, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -429,10 +429,104 @@ def set_status(board, status, **kwargs):
     return board_set_status("o/r", 5, "o", 6, status, gh=board, sleep=board.sleeps.append, **kwargs)
 
 
+PRIORITIES = ["P0", "P1", "P2", "P3", "P4"]
+
+
+class FakeFieldBoard:
+    """A board with Status and Priority fields; the issue's Priority is read through a paginated projectItems query."""
+
+    def __init__(self, priority="P2", on_board=True, sticky=True, fail=(), pages=1):
+        self.priority, self.on_board, self.sticky, self.fail, self.pages = priority, on_board, sticky, set(fail), pages
+        self.writes, self.reads, self.queried_fields = [], 0, []
+
+    def __call__(self, args):
+        if args[:2] == ["project", "view"]:
+            return {"id": "P1"}
+        if args[:2] == ["project", "field-list"]:
+            return {"fields": [
+                {"id": "F1", "name": "Status", "options": [{"id": "s0", "name": "Backlog"}]},
+                {"id": "F2", "name": "Priority", "options": [{"id": f"p{i}", "name": n} for i, n in enumerate(PRIORITIES)]},
+                {"id": "F3", "name": "Title"}]}
+        if args[:2] == ["project", "item-edit"]:
+            if "write" in self.fail:
+                raise GhError("HTTP 403")
+            option = args[args.index("--single-select-option-id") + 1]
+            self.writes.append((args[args.index("--field-id") + 1], option))
+            if self.sticky:
+                self.priority = PRIORITIES[int(option[1:])]
+            return {}
+        if "readback" in self.fail and self.writes:
+            raise GhError("HTTP 502")
+        self.queried_fields.append(next(a.split("=", 1)[1] for a in args if a.startswith("field=")))
+        self.reads += 1
+        last = "page=CURSOR" in args or self.pages == 1
+        nodes = [{"id": "OTHER", "project": {"id": "P9"}, "fieldValueByName": {"name": "P0"}}]
+        if last and self.on_board:
+            nodes.append({"id": "ITEM", "project": {"id": "P1"},
+                          "fieldValueByName": {"name": self.priority} if self.priority else None})
+        info = {"hasNextPage": False, "endCursor": None} if last else {"hasNextPage": True, "endCursor": "CURSOR"}
+        return {"data": {"repository": {"issue": {"projectItems": {"pageInfo": info, "nodes": nodes}}}}}
+
+
+def set_field(board, field, value):
+    return board_set_field("o/r", 5, "me", 6, field, value, gh=board, sleep=lambda s: None)
+
+
+class BoardSetFieldTests(unittest.TestCase):
+    def test_sets_priority_and_reads_back(self):
+        board = FakeFieldBoard("P2")
+        result, status = set_field(board, "Priority", "p1")
+        self.assertEqual((result["before"], result["target"], result["after"], status), ("P2", "P1", "P1", 0))
+        self.assertEqual(result["item_id"], "ITEM")
+        self.assertEqual(board.writes, [("F2", "p1")])
+        self.assertEqual(set(board.queried_fields), {"Priority"})
+
+    def test_reads_every_membership_page(self):
+        result, status = set_field(FakeFieldBoard("P4", pages=2), "Priority", "P1")
+        self.assertEqual((result["before"], status), ("P4", 0))
+
+    def test_unchanged_value_writes_nothing(self):
+        board = FakeFieldBoard("P1")
+        result, status = set_field(board, "Priority", "P1")
+        self.assertEqual((result["action"], board.writes, status), ("unchanged", [], 0))
+
+    def test_unknown_field_or_value_exits_1_without_write(self):
+        board = FakeFieldBoard()
+        self.assertEqual(set_field(board, "Size", "S")[1], 1)
+        self.assertEqual(set_field(board, "Title", "x")[1], 1)
+        result, status = set_field(board, "Priority", "P9")
+        self.assertEqual((status, result["options"]), (1, PRIORITIES))
+        self.assertEqual(board.writes, [])
+
+    def test_status_field_is_refused(self):
+        board = FakeFieldBoard()
+        result, status = set_field(board, "Status", "Backlog")
+        self.assertEqual((status, board.writes), (1, []))
+        self.assertIn("set-status", result["errors"][0]["error"])
+
+    def test_issue_not_on_board_is_not_added(self):
+        board = FakeFieldBoard(on_board=False)
+        result, status = set_field(board, "Priority", "P1")
+        self.assertEqual((status, board.writes, result["errors"][0]["part"]), (1, [], "membership"))
+
+    def test_write_that_does_not_stick_exits_2(self):
+        result, status = set_field(FakeFieldBoard("P2", sticky=False), "Priority", "P1")
+        self.assertEqual((result["after"], result["readback_matches"], result["readback_attempts"], status), ("P2", False, 4, 2))
+
+    def test_failed_write_that_did_not_land_exits_1(self):
+        result, status = set_field(FakeFieldBoard("P2", fail={"write"}), "Priority", "P1")
+        self.assertEqual((result["action"], status), ("uncertain", 1))
+
+    def test_failed_readback_exits_2(self):
+        result, status = set_field(FakeFieldBoard("P2", fail={"readback"}), "Priority", "P1")
+        self.assertEqual((result["after"], status), (None, 2))
+
+
 class BoardSetStatusTests(unittest.TestCase):
     def test_forward_move_sets_and_reads_back(self):
         board = FakeBoard("In progress")
         result, status = set_status(board, "In review")
+        self.assertEqual(result["item_id"], "ITEM")
         self.assertEqual((result["before"], result["action"], result["after"]), ("In progress", "set", "In review"))
         self.assertTrue(result["readback_matches"])
         self.assertEqual(board.writes, ["opt-3"])
