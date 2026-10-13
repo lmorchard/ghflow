@@ -6,9 +6,11 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
-from ghflow import GhError, board_set_field, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+import ghflow
+from ghflow import GhError, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2292,6 +2294,75 @@ def git(args, cwd):
     subprocess.run(["git", *args], cwd=cwd, check=True, capture_output=True)
 
 
+class RuntimeFactsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.root = self.tmp / "project"
+        self.home = self.tmp / "home"
+        (self.home / ".config" / "opencode").mkdir(parents=True)
+        self.root.mkdir()
+
+    def test_no_runtime_variable(self):
+        self.assertEqual(read_runtime(self.root, {}, self.home)["agent"], None)
+
+    def test_claude_reports_unknown_limits_without_reading_models(self):
+        info = read_runtime(self.root, {"CLAUDECODE": "1"}, self.home)
+        self.assertEqual((info["agent"], info["nested_dispatch"]), ("claude", None))
+        self.assertNotIn("config_default_model", info)
+
+    def test_opencode_merges_global_and_project_config(self):
+        (self.home / ".config" / "opencode" / "opencode.jsonc").write_text(
+            '{\n  // comment with "quotes"\n  "model": "a/global",\n  "agent": {"review": {"model": "b/reviewer"},},\n}\n')
+        (self.root / "opencode.json").write_text('{"model": "c/project", "permission": {"edit": "deny"}}')
+        info = read_runtime(self.root, {"OPENCODE": "1"}, self.home)
+        self.assertEqual((info["agent"], info["detected_by"], info["nested_dispatch"]), ("opencode", "OPENCODE", False))
+        self.assertEqual(info["config_default_model"], "c/project")
+        self.assertEqual(info["agent_models"], {"review": "b/reviewer"})
+        self.assertEqual([f["scope"] for f in info["config_files"]], ["global", "project"])
+        self.assertIn("--model", info["subagent_model_rule"])
+
+    def test_opencode_config_variable_is_read_first(self):
+        custom = self.tmp / "custom.json"
+        custom.write_text('{"model": "d/custom"}')
+        info = read_runtime(self.root, {"OPENCODE_PID": "7", "OPENCODE_CONFIG": str(custom)}, self.home)
+        self.assertEqual((info["detected_by"], info["config_default_model"]), ("OPENCODE_PID", "d/custom"))
+
+    def test_strip_jsonc_keeps_slashes_inside_strings(self):
+        text = '{"url": "http://x/y", /* block */ "a": [1, 2,],}'
+        self.assertEqual(json.loads(strip_jsonc(text)), {"url": "http://x/y", "a": [1, 2]})
+
+
+class SkillSourceTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.origin = os.path.join(self.tmp, "skill.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", self.origin], check=True)
+        self.skill = os.path.join(self.tmp, "skill")
+        subprocess.run(["git", "clone", "-q", self.origin, self.skill], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"], ["checkout", "-q", "-b", "main"],
+                     ["commit", "-q", "--allow-empty", "-m", "one"], ["push", "-q", "-u", "origin", "main"]):
+            git(args, self.skill)
+
+    def test_up_to_date_with_remote(self):
+        info = read_skill_source(Path(self.skill), ghflow.run_git)
+        self.assertEqual((info["upstream"], info["up_to_date"], info["dirty"]), ("origin/main", True, False))
+
+    def test_behind_remote_is_reported(self):
+        other = os.path.join(self.tmp, "other")
+        subprocess.run(["git", "clone", "-q", self.origin, other], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"],
+                     ["commit", "-q", "--allow-empty", "-m", "two"], ["push", "-q", "origin", "main"]):
+            git(args, other)
+        info = read_skill_source(Path(self.skill), ghflow.run_git)
+        self.assertFalse(info["up_to_date"])
+        self.assertNotEqual(info["remote_head"], info["head"])
+
+    def test_no_upstream(self):
+        git(["checkout", "-q", "-b", "local-only"], self.skill)
+        info = read_skill_source(Path(self.skill), ghflow.run_git)
+        self.assertEqual((info["branch"], info["upstream"], info["up_to_date"]), ("local-only", None, None))
+
+
 class ProjectFactsTests(unittest.TestCase):
     """A clone of a local bare origin with the files a project facts read inspects."""
 
@@ -2317,6 +2388,8 @@ class ProjectFactsTests(unittest.TestCase):
         git(["remote", "set-head", "origin", "main"], self.clone)
         git(["remote", "set-url", "--push", "origin", self.origin], self.clone)
         git(["remote", "set-url", "origin", "git@github.com:o/r.git"], self.clone)
+        self.skill = os.path.join(self.tmp, "skill")
+        subprocess.run(["git", "clone", "-q", self.origin, self.skill], check=True, capture_output=True)
 
     def write(self, rel, text):
         path = os.path.join(self.clone, rel)
@@ -2338,13 +2411,50 @@ class ProjectFactsTests(unittest.TestCase):
                          "headRefName": "issue-5-fix", "headRefOid": HEAD, "title": "Fix #5"}]
             if args[:2] == ["api", "repos/o/r"]:
                 return {"default_branch": "main"}
+            if args[0] == "api" and args[1].endswith("/check-runs?per_page=100"):
+                return {"check_runs": [{"name": "lint", "status": "completed", "conclusion": "success"},
+                                       {"name": "test", "status": "completed", "conclusion": "success"}]}
+            if args[0] == "api" and args[1].endswith("/status"):
+                return {"statuses": []}
             raise AssertionError(f"Unexpected gh call: {args}")
 
         def default_paginated(path):
             return rules("lint", "test")
 
         return project_facts(cwd=cwd or self.clone, issue=issue, gh=gh or default_gh,
-                             gh_paginated=gh_paginated or default_paginated, identity={"login": "bot", "configured": True, "ready": True, "source": "env"})
+                             gh_paginated=gh_paginated or default_paginated, identity={"login": "bot", "configured": True, "ready": True, "source": "env"},
+                             env={}, home=self.tmp, skill_root=self.skill)
+
+    def test_base_ci_runtime_and_skill_source(self):
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        head = result["repository"]["origin_default_head"]
+        self.assertEqual(result["base_ci"], {"commit": head, "summary": "green",
+                                             "checks": [{"name": "lint", "state": "passed"}, {"name": "test", "state": "passed"}]})
+        self.assertEqual(result["runtime"]["agent"], None)
+        source = result["skill_source"]
+        self.assertEqual((source["head"], source["branch"], source["upstream"], source["up_to_date"]), (head, "main", "origin/main", True))
+
+    def test_base_ci_reports_a_missing_required_check_and_a_failure(self):
+        def gh(args):
+            if args[1].endswith("/check-runs?per_page=100"):
+                return {"check_runs": [{"name": "lint", "status": "completed", "conclusion": "failure"}]}
+            if args[1].endswith("/status"):
+                return {"statuses": [{"context": "ext", "state": "pending"}]}
+            raise AssertionError(args)
+        result, status = self.facts(gh=gh)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["base_ci"]["summary"], "failing")
+        self.assertIn({"name": "test", "state": "missing"}, result["base_ci"]["checks"])
+        self.assertIn({"name": "ext", "state": "pending"}, result["base_ci"]["checks"])
+
+    def test_unreadable_base_ci_is_a_part_error(self):
+        def gh(args):
+            raise GhError("HTTP 502")
+        result, status = self.facts(gh=gh)
+        self.assertEqual(status, 2)
+        self.assertIsNone(result["base_ci"])
+        self.assertIn("base_ci", [e["part"] for e in result["errors"]])
 
     def test_checkout_repository_and_project_files(self):
         result, status = self.facts()

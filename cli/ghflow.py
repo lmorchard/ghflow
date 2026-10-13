@@ -1082,7 +1082,121 @@ def parse_facts_sources(text):
     return written, sources
 
 
-def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run_gh_paginated, identity=None):
+SKILL_ROOT = Path(__file__).resolve().parent.parent
+
+
+def strip_jsonc(text):
+    """Remove // and /* */ comments outside strings, and trailing commas, from JSONC text."""
+    out, i, in_string = [], 0, False
+    while i < len(text):
+        char = text[i]
+        if in_string:
+            out.append(char)
+            if char == "\\" and i + 1 < len(text):
+                out.append(text[i + 1])
+                i += 1
+            elif char == '"':
+                in_string = False
+        elif char == '"':
+            in_string = True
+            out.append(char)
+        elif text.startswith("//", i):
+            while i < len(text) and text[i] != "\n":
+                i += 1
+            continue
+        elif text.startswith("/*", i):
+            end = text.find("*/", i + 2)
+            i = len(text) if end < 0 else end + 2
+            continue
+        else:
+            out.append(char)
+        i += 1
+    return re.sub(r",(\s*[}\]])", r"\1", "".join(out))
+
+
+# Runtime limits verified by a live test; a runtime that is absent here has unknown limits.
+# OpenCode, 2026-10-13: a general subagent's tool list has no task tool (session ses_ec9b77f53ffeX1TqIr6FDOLQUI).
+RUNTIME_NESTED_DISPATCH = {"opencode": False}
+# OpenCode, 2026-10-12/13: every subagent ran the session's --model value, not the configured default.
+OPENCODE_SUBAGENT_MODEL_RULE = ("A subagent without its own agent model runs the model of the session that dispatched it. "
+                                "The session model can come from a --model flag, which no configuration file shows; "
+                                "each task result's metadata records the model a worker actually ran.")
+
+
+def read_runtime(root, env, home):
+    """Detect the agent runtime from its environment and report what its configuration files state."""
+    if env.get("OPENCODE") or env.get("OPENCODE_PID"):
+        agent, signal = "opencode", "OPENCODE" if env.get("OPENCODE") else "OPENCODE_PID"
+    elif env.get("CLAUDECODE"):
+        agent, signal = "claude", "CLAUDECODE"
+    else:
+        return {"agent": None, "detected_by": None, "nested_dispatch": None,
+                "note": "No known agent runtime variable is set."}
+    info = {"agent": agent, "detected_by": signal, "nested_dispatch": RUNTIME_NESTED_DISPATCH.get(agent)}
+    if agent != "opencode":
+        info["note"] = "This runtime's model configuration is not read; record models from dispatch results."
+        return info
+    candidates = []
+    if env.get("OPENCODE_CONFIG"):
+        candidates.append(("env", Path(env["OPENCODE_CONFIG"]).expanduser()))
+    candidates += [("global", home / ".config" / "opencode" / name) for name in ("opencode.json", "opencode.jsonc")]
+    candidates += [("project", root / name) for name in ("opencode.json", "opencode.jsonc")]
+    files, default_model, small_model, agent_models = [], None, None, {}
+    for scope, path in candidates:
+        if not path.is_file():
+            continue
+        config = json.loads(strip_jsonc(path.read_text(encoding="utf-8")))
+        response_type(config, dict, f"The OpenCode config {path}")
+        files.append({"scope": scope, "path": str(path)})
+        default_model = config.get("model", default_model)
+        small_model = config.get("small_model", small_model)
+        for name, settings in (config.get("agent") or {}).items():
+            if isinstance(settings, dict) and isinstance(settings.get("model"), str):
+                agent_models[name] = settings["model"]
+    info.update({"config_files": files, "config_default_model": default_model, "config_small_model": small_model,
+                 "agent_models": agent_models, "subagent_model_rule": OPENCODE_SUBAGENT_MODEL_RULE})
+    return info
+
+
+def read_skill_source(skill_root, git):
+    """Report the skill checkout's revision and whether it matches its upstream branch on the remote."""
+    head = git(["rev-parse", "HEAD"], skill_root).strip()
+    info = {"path": str(skill_root), "head": head, "branch": git(["rev-parse", "--abbrev-ref", "HEAD"], skill_root).strip(),
+            "dirty": bool(git(["status", "--porcelain"], skill_root).strip())}
+    try:
+        upstream = git(["rev-parse", "--abbrev-ref", "--symbolic-full-name", "@{u}"], skill_root).strip()
+    except GhError:
+        info.update(upstream=None, remote_head=None, up_to_date=None)
+        return info
+    remote, _, branch = upstream.partition("/")
+    listing = git(["ls-remote", remote, f"refs/heads/{branch}"], skill_root).split()
+    remote_head = listing[0] if listing else None
+    info.update(upstream=upstream, remote_head=remote_head, up_to_date=None if remote_head is None else remote_head == head)
+    return info
+
+
+def read_base_ci(remote, sha, required, gh):
+    """Summarize the check runs and commit statuses on one commit, marking absent required checks as missing."""
+    runs = response_type(gh(["api", f"repos/{remote}/commits/{sha}/check-runs?per_page=100"]), dict, "The check runs response")
+    status = response_type(gh(["api", f"repos/{remote}/commits/{sha}/status"]), dict, "The commit status response")
+    checks = []
+    for run in response_type(runs["check_runs"], list, "The check runs"):
+        name, state = check_state({"name": run.get("name"), "status": str(run.get("status", "")).upper(),
+                                   "conclusion": str(run.get("conclusion") or "").upper()})
+        checks.append({"name": name, "state": state})
+    for item in response_type(status.get("statuses") or [], list, "The commit statuses"):
+        name, state = check_state({"__typename": "StatusContext", "context": item.get("context"),
+                                   "state": str(item.get("state", "")).upper()})
+        checks.append({"name": name, "state": state})
+    seen = {c["name"] for c in checks}
+    for name in required or []:
+        if name not in seen:
+            checks.append({"name": name, "state": "missing"})
+    return {"commit": sha, "checks": checks, "summary": summarize_ci(checks, required)}
+
+
+def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run_gh_paginated, identity=None,
+                  env=None, home=None, skill_root=SKILL_ROOT):
     """Report the live, deterministic facts about a checkout that a task handoff would otherwise restate.
 
     Reads only. ``issue`` is ``(repo, number)`` or ``None``. Each part that could not be read
@@ -1221,6 +1335,12 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
             return sorted(contexts)
         required_checks = part("required_checks", read_required)
 
+    base_ci = None
+    if repository and repository.get("remote") and repository.get("origin_default_head"):
+        base_ci = part("base_ci", lambda: read_base_ci(repository["remote"], repository["origin_default_head"], required_checks, gh))
+    runtime = part("runtime", lambda: read_runtime(root, os.environ if env is None else env, Path.home() if home is None else Path(home)))
+    skill_source = part("skill_source", lambda: read_skill_source(Path(skill_root), git)) if skill_root else None
+
     issue_facts = None
     if issue is not None:
         issue_repo, number = issue
@@ -1260,7 +1380,8 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
         issue_facts["prs"] = part("issue_prs", read_prs)
 
     result = {"checkout": checkout, "repository": repository, "project_files": project_files, "project_facts": facts_file,
-              "identity": identity_facts, "required_checks": required_checks, "issue": issue_facts, "errors": errors}
+              "identity": identity_facts, "required_checks": required_checks, "base_ci": base_ci, "runtime": runtime,
+              "skill_source": skill_source, "issue": issue_facts, "errors": errors}
     return result, 2 if errors else 0
 
 
