@@ -140,6 +140,8 @@ The request names the board, the review-follow-up endpoint without merge, the un
 
 In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
 
+The log holds only the coordinator's event stream. To keep the transcripts, run `scripts/export-opencode-sessions.py "Unattended burndown"` from the project checkout after the session ends. It finds the coordinator session by that title, exports it with `opencode export`, follows each task call to its subagent session, and writes `session-ID.json` files with an `index.md` of titles, parents, times, and task calls into `opencode-sessions/` or the `--out` directory. Pass a session ID instead of a title when more than one session matches.
+
 ## Machine account access
 
 The repository owner grants access before an agent works in the repository or project board:
