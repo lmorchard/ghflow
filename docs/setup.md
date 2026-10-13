@@ -107,14 +107,15 @@ A link does not grant tool permissions.
 For Claude Code, `--add-dir SOURCE_CHECKOUT` includes that checkout in the session's allowed directories.
 Codex's read-only sandbox allowed these dependency reads in the setup trial.
 
-OpenCode prompts for external directory access by default.
-For unattended sessions, merge this narrowly scoped rule into the target project's `opencode.json` after you inspect its existing rules:
+OpenCode prompts for external directory access by default. An `opencode run --auto` session approves those prompts, but an interactive session stops at each one until you answer it. ghflow writes to two places outside the target project: coordinator task notes under `~/.local/state/ghflow/notes/`, and PR body files in a temporary directory, as [submit-pr](../references/tasks/submit-pr.md) allows. Merge these narrowly scoped rules into the target project's `opencode.json` after you inspect its existing rules:
 
 ```json
 {
   "permission": {
     "external_directory": {
-      "/ABSOLUTE/SOURCE_CHECKOUT/*": "allow"
+      "/ABSOLUTE/SOURCE_CHECKOUT/*": "allow",
+      "/ABSOLUTE/HOME/.local/state/ghflow/*": "allow",
+      "/tmp/*": "allow"
     },
     "edit": {
       "/ABSOLUTE/SOURCE_CHECKOUT/*": "deny"
@@ -123,8 +124,9 @@ For unattended sessions, merge this narrowly scoped rule into the target project
 }
 ```
 
-Replace both paths with the resolved source checkout.
-This permits source access and blocks file-tool edits to it. Other tool permissions still apply.
+Replace the source checkout paths with the resolved source checkout and `/ABSOLUTE/HOME` with your home directory.
+The first rule permits source access, and the `edit` rule blocks file-tool edits to it. The other two let workers write notes and body files without a prompt. Other tool permissions still apply.
+On 2026-10-13, an interactive delivery waited 40 minutes at a prompt for a write to `/tmp/pr1067-body.md` before anyone noticed.
 The installer does not change agent permissions or write this configuration.
 See [OpenCode permissions](https://opencode.ai/docs/permissions/#external-directories) for directory and tool rules.
 
