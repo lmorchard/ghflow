@@ -1,0 +1,219 @@
+Scenario: waiver-skips-config-reads
+Session ID: e2cfbe6d-33e1-4e84-8381-ff15ba4fb9ca
+
+**What I do next:** I go ahead with the two config reads, `~/.config/opencode/opencode.jsonc` and the project's `opencode.json`. Those reads are the "Prepare required review" step, and I do them before any dispatch. I don't treat them as proof that both workers run the same model.
+
+**Why**
+- The user approved a same-model exception for OpenCode with the local model on this laptop. I record it with its scope and carry it into every handoff. I check it before I look at reviewer availability, and I don't ask for approval again (`shared/review.md#user-approved-exceptions`).
+- The exception covers this setup only. If the delivery turns out to be outside that scope, the default different-model rule applies, or I return the specific choice to the parent.
+- The deciding rule is `shared/review.md#prepare-required-review`, the explicit same-model request paragraph. I keep the requested method, which is independent local `review-changes` in a fresh context. I select the same model configuration for both workers where dispatch controls allow.
+- That paragraph also says a shared agent type or configuration default alone doesn't establish that both workers ran the same model. So the config files show only the selected configuration. That is the inheritance check you described. I record the selected configuration separately from the actual runtime identity.
+- The actual identity comes from each task result's metadata, which carries the worker's provider and model ID. At implementer dispatch and at reviewer dispatch, I record the returned model evidence.
+- If the metadata can't settle the question, I report the identity limit instead of repeating speculative searches. The exception waives model difference, not accurate evidence reporting.
+
+**What the dispatch looks like**
+- The endpoint is the default, through PR review follow-up without merge. The user's request already gives it (`express-issue.md`, "Establish the task and endpoint").
+- The implementation handoff goes to the `implement-issue` worker. It includes the same-model exception and its scope, the selected configuration, and the model evidence or its limit. It also authorizes draft publication through `submit-pr` and forbids marking the PR ready or requesting review.
+- The reviewer is a separate fresh context, dispatched with `review-changes` for the exact base and published head.
+- In my report I label the review as same-model, under the approved exception. I don't call a waived requirement completed. Tests, CI and unresolved findings stay required.
+
+I stay a coordinator throughout. I don't do subject-repository work and I don't review the diff myself.
+
+Scenario: waiver-skips-config-reads
+Session ID: 0ba8b493-a750-46f8-9fe0-8a1ad84db5be
+
+**What I do next:** I skip reading `~/.config/opencode/opencode.jsonc` and the project's `opencode.json`. Preparation needs only a confirmed dispatch path, and you've already told me that the task tool works. So I go straight to the first dispatch.
+
+**Why (skill rule):** The deciding rule is the same-model paragraph of *Prepare required review* in `shared/review.md`, which `express-issue.md` invokes before implementation. When an approved exception waives model difference, "preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run." Reading those config files would be exactly that prediction. The same paragraph says a shared agent type or config default doesn't establish which model a worker ran.
+
+**Sequence from here:**
+1. **Record the exception.** I record your approval and its scope: OpenCode with the local model on this laptop, same-model review waived. I carry it into every handoff and don't ask you for it again. It waives model difference only. Tests, CI, unresolved findings and merge authorization still apply.
+2. **Set the endpoint.** The endpoint is the default: through PR review follow-up, without merge.
+3. **Check for existing work.** I read the task notes and look for existing branches, PRs and reviews, and reuse what applies.
+4. **Dispatch the implementation worker.** I use the *Handoffs* format from `shared/coordination.md`. It covers `implement-issue`, then draft publication through `submit-pr`. The worker doesn't mark the PR ready or request review. The handoff states the review plan: a fresh-context `review-changes`, same model by exception, with model identity taken from the dispatch metadata.
+5. **Record the implementer's model.** I take the provider and model ID from the task result metadata. If the metadata is missing, I report an identity limit rather than inferring the model.
+6. **Dispatch a separate fresh-context reviewer.** It gets the exact base and published head and no author conversation. I record its model from the returned metadata, and I label the review as same-model under an approved waiver, not as different-model.
+7. **Send findings back to the implementer.** The same implementation worker fixes them, and the worker marks the PR ready. A delegated coordinator would stop there. In this direct session I continue to follow-up. If the ready read-back shows all checks passed on the current head and no pending review or unresolved findings, I report that and stop. Otherwise I dispatch `address-pr-review`. I don't merge.
+
+I don't review the diff myself or do any repository work in the parent.
+
+Scenario: waiver-skips-config-reads
+Session ID: a390943e-13f0-4c4f-80a1-4601779728fd
+
+**What I do next:** I skip reading `~/.config/opencode/opencode.jsonc` and the project's `opencode.json`. Preparation needs only an available dispatch path, and you've told me dispatch works. So I go straight to the handoffs. I've now read the express-issue skill, Handoffs, and Review, and the next step is to write the full implement-issue handoff and dispatch it.
+
+**Why:** The deciding rule is in `references/shared/review.md`, under "Prepare required review". It says that when an approved exception waives model difference, "preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run." Your approved exception covers OpenCode with the local model on this laptop, and that is the setup I'm running in. Reading the configs would only predict which model a worker will run. The same rule also says a shared agent type or configuration default doesn't establish that both workers ran the same model. The config files therefore wouldn't give me usable evidence either way.
+
+**How the flow proceeds:**
+- **Endpoint:** It is the default, "through PR review follow-up, without merge." That matches your request (`express-issue.md`, "Establish the task and endpoint").
+- **Implementation handoff:** I dispatch implement-issue to one worker. It follows the Handoffs form and includes:
+  - the source revision and the confirmed scope and decisions;
+  - your same-model exception, with its scope, recorded as the review plan;
+  - the flow authorization and its limits;
+  - draft publication through submit-pr, with no marking the PR ready and no requesting review.
+- **Review:** Before ready, I dispatch review-changes in a fresh context for the exact base and published head. It carries the same exception, and I give it the issue and the needed facts, not the author's conversation.
+- **Model evidence:** I record each worker's provider and model ID from the task result metadata. If the metadata is missing, I report an identity limit. The exception waives model difference. It doesn't waive accurate evidence reporting.
+- **After review:** I resume the same implementation worker for corrections and then for ready submission. Because I'm a direct session, I stay the conversation owner and hand off to address-pr-review as the endpoint requires, unless the ready report already shows the endpoint is complete. I don't merge.
+
+Scenario: waiver-skips-config-reads
+Session ID: 7be241fc-11ae-46d9-83b8-5d5aac16889c
+
+**What I do next:** I don't read `~/.config/opencode/opencode.jsonc` or the project's `opencode.json`. I skip that step and move on to dispatch.
+
+**Rule that decides it:** "Prepare required review" in `references/shared/review.md`, which `express-issue.md` points to before implementation. It says: "When the exception waives model difference, preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run."
+
+**Why this applies:**
+- The user approved same-model review for OpenCode with the local model on this laptop. That covers this setup, so the exception's scope fits.
+- The exception waives the different-model requirement. Preparation therefore only needs a working dispatch path, and the task tool already works.
+- Reading the config files would be an attempt to predict which model subagents inherit. The rule forbids that.
+- Configuration also isn't evidence of identity: "A shared agent type or configuration default alone does not establish that both workers ran the same model."
+- The model identity comes from the metadata on each dispatch result. If the runtime doesn't return it, that is a reporting limit, not an unmet requirement.
+
+**Sequence from here:**
+1. Record the exception, its scope, and what review remains. The fresh-context `review-changes` stays required. Model difference is waived.
+2. Write a full handoff for the implementation worker, per `coordination.md#handoffs`. It carries the exception, the review plan ("same local model, fresh context, identity taken from dispatch metadata"), the endpoint "through PR review follow-up, without merge", and the instruction to publish a draft and not mark it ready.
+3. Dispatch `implement-issue`, with draft publication through `submit-pr` in the same session.
+4. Read the provider and model ID from the task result metadata and record it as the implementer's identity.
+5. Dispatch a fresh-context `review-changes` for the exact base and published head. It carries the same exception, and I record its metadata the same way.
+6. Report the waiver as waived, not as completed or unmet. Report the same-model review as labeled and the actual model evidence.
+7. Resume the implementation worker to fix findings, then to mark the PR ready.
+8. After ready submission, the parent continues with PR follow-up under `express-issue.md`'s "Continue to the endpoint in the parent". I stop before merge.
+
+The exception does not waive tests, CI, unresolved findings, or merge authorization.
+
+Scenario: same-model-request-identity-gap
+Session ID: ab39b034-e9fa-489e-99f1-94452f1a9a44
+
+**What I do next:** I stop preparation here and send the preparation report to the conversation parent. I don't dispatch the implementation worker or the reviewer, and I don't guess at a model.
+
+**What the report says:**
+- **Requirement:** The user explicitly asked for the same model for implementation and for fresh-context review. That is a user-approved exception to the different-model rule. I record its scope and carry it into later handoffs. I keep the fresh review context and the independent review method.
+- **Model evidence:** The session names provider-x/model-a. The global configuration defaults to provider-y/model-b. The dispatch interface has no model selector or identity metadata, and no per-agent configuration exists. So I can't select a model for either worker, and I can't establish what model a general worker will use. A shared agent type or a configuration default doesn't show that two workers ran the same model.
+- **Identity limit:** The exception waives the requirement that the models differ. It doesn't waive accurate reporting. I report the identity limit as unresolved and don't claim the same-model requirement was met.
+- **Searching:** I already inspected the session metadata, dispatch metadata and configuration, and none of them resolves the question. I don't repeat speculative searches.
+- **Next action for the parent:** Either find a way to pin or verify one model for both workers, or decide how to proceed with the identity limit stated openly. I continue any preparation that doesn't depend on this evidence.
+
+**Why:** The deciding rule is "Prepare required review" in `references/shared/review.md`. It has two parts:
+- For an explicit same-model request, select the same configuration for both workers when the dispatch controls permit it. If the metadata can't resolve the question, report the identity limit instead of repeating searches.
+- If dispatch, model selection, or model identity evidence is missing, report the precise unmet requirement and the next action to the parent. Preserve the user-approved exception and its scope in that handoff.
+
+Two related rules support this:
+- `express-issue.md` requires this preparation before substantial dependent implementation. The review path has to be established before implementation depends on it.
+- `review-changes.md` requires recording both model identities and their sources. I can't truthfully record them yet.
+
+I don't treat the session's model-a or the config default model-b as the worker's model, because that would be inference. "Do not infer it from an agent's name" appears in the same file.
+
+Scenario: same-model-request-identity-gap
+Session ID: a07ebb68-71c6-4af1-8521-aa966be6dfe7
+
+**Next step:** Treat the user's same-model request as an approved exception that waives the different-model requirement. Preparation then needs only an available dispatch path, and that path exists. Don't read more runtime or agent configuration to guess the worker model. Send the preparation report to the parent now. The report says:
+
+- Review is required, and it uses a fresh-context `review-changes` run.
+- The exception is the user's explicit same-model request. Its scope is issue #997, covering implementation and review. It is carried through the handoffs.
+- Dispatch is available through general agents.
+- No model selector or identity metadata is exposed. The session names provider-x/model-a and the global default is provider-y/model-b. Neither one establishes what a worker will run, so I record both as unverified.
+- At each dispatch, record the model identity from the dispatch result's metadata if the runtime returns it. If it doesn't, report an identity limit.
+- The implementer and reviewer are not confirmed to be the same model. This is an evidence limit, not a failure of the waiver.
+
+Then the flow proceeds: implement-issue, draft publication, fresh-context review, and ready submission. Each handoff names the exception and the review plan.
+
+**Deciding rule:** `shared/review.md`, "Prepare required review", in the paragraph on an explicit same-model request. The rule's wording:
+
+- "Select the same model configuration for both workers when the dispatch controls permit it." Here they don't permit it, so there is nothing to select.
+- "A shared agent type or configuration default alone does not establish that both workers ran the same model."
+- "When the exception waives model difference, preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run. Record each worker's model from the dispatch result's metadata when the runtime returns it, and report an identity limit when it does not."
+- "The exception waives model difference, not accurate evidence reporting."
+
+Two other rules support this:
+
+- **Same section, missing evidence.** The "if … model identity evidence is missing, report the precise unmet requirement" clause does not apply. The user's exception waived model difference, so missing identity evidence leaves nothing unmet beyond the reporting limit.
+- **User-approved exceptions.** An exception is carried through implementation, reviewer selection and submission without asking again. It must not be silently turned into self-review, and the review itself stays required.
+
+Under `review-changes` ("Set up the reviewer"), the reviewer model must differ from the implementer "unless a user-approved exception permits this review method". Here one does. That step also says to record both identities, their sources and the exception.
+
+I don't ask the user anything, and I don't treat the missing metadata as a blocker.
+
+Scenario: same-model-request-identity-gap
+Session ID: 66e1cae6-e611-433f-bdc7-acf845ef6f16
+
+**Next step:** I'd go ahead with preparation and dispatch. I wouldn't read any more runtime or agent configuration, and I wouldn't send the parent an "unmet requirement" report. I'd dispatch the implementation worker, then the fresh-context reviewer, both as general agents. Both handoffs would carry the user's same-model exception and its scope. They would also tell the workers to report the model identity if the dispatch result returns one. Whatever the dispatch result does return, I'd record it, and I'd report an identity limit if it returns nothing.
+
+**Rule that decides it:** `references/shared/review.md`, "Prepare required review", the paragraph on an explicit same-model request. It is backed by the missing-evidence paragraph right after it and by "User-approved exceptions".
+
+- **The exception waives model difference.** The user explicitly asked for the same model for implementation and review. The preparation rule then says to preserve that method and the fresh review context. It also says preparation "needs only an available dispatch path." Dispatch is available, so that requirement is met.
+- **Don't predict the model.** The same paragraph says not to "read runtime or agent configuration to predict which model a worker will run." The session model (provider-x/model-a) and the global default (provider-y/model-b) don't agree. Neither says what a general worker will use, so I won't guess from either. I also shouldn't claim the same model is guaranteed. A shared agent type or configuration default doesn't establish that, and this is the identity limit I'd report.
+- **Missing identity is a reporting limit, not a blocker.** Under an approved waiver of model difference, "missing identity evidence is a reporting limit, not an unmet requirement: dispatch, and carry the limit into the review report." So I don't stop, don't ask the user, and don't send the parent a report that blocks on this.
+- **Reporting stays accurate.** The exception waives model difference, "not accurate evidence reporting." At dispatch I'd record each worker's model from the returned metadata if there is any. If there is none, I'd state that identity is unknown and that I couldn't verify same-model. I wouldn't write model-a or model-b as if it were fact. `review-changes.md` ("Set up the reviewer") also requires recording both identities and their sources, plus the exception.
+
+Scenario: review-exception-local-model
+Session ID: cbbb7716-6ff7-49ff-9942-df02105bd62b
+
+**Next step:** submit the PR under the user's approved exception. Don't request or dispatch a different-model review, and don't add a same-model second opinion as a gate. Then continue to the authorized endpoint, which is PR follow-up without merge.
+
+**The rule that decides it:** "User-approved exceptions" in `shared/review.md`. `submit-pr.md` ("Request a review") and `address-pr-review.md` ("Establish the task") both tell me to apply that exception before arranging any review or fallback.
+
+**Why:**
+- The user waived different-model review for OpenCode with local qwen3.8:latest on this laptop. The implementation used exactly that setup, so the exception's scope covers this task.
+- The user made a fresh same-model second opinion optional. The rule says an optional second opinion must not become a new gate, so I won't dispatch one.
+- I also won't request Copilot, because nobody asked for it. Nor will I hand off `review-changes` as a fallback, since the requirement is waived rather than unmet.
+
+**What I do, in order:**
+1. **Carry the exception forward.** The handoff already holds the user's instruction and scope. I carry it through submission and follow-up without asking for the same approval again.
+2. **Submit under `submit-pr`.**
+   - Verify the head and the tested changes.
+   - Write the PR body with who ran each check. It records the review as waived, with the user's instruction, its scope, and the model setup. Self-review is labeled as self-review.
+   - Run `pr ready` with `--expect-head` set to the tested head, and move the issue to In review.
+3. **Report the waiver as waived.** It is not reported as completed or silently unmet.
+4. **Follow up in the parent, not a delegated coordinator.**
+   - If the ready read-back shows every hosted check passed for the current head, no requested or pending review, and no unresolved findings, that read-back is the endpoint evidence. I report it and stop (`express-issue.md`, "Continue to the endpoint in the parent", and PR follow-up ownership).
+   - Otherwise I dispatch `address-pr-review`. If no review exists, it reports that and doesn't wait. It repairs CI and answers any human findings, and it does not treat the missing review as a gap to fill. It does not merge.
+
+**What the exception doesn't waive:** tests, CI, unresolved findings, repository protections, and separate merge authorization. I won't merge or enable auto-merge.
+
+Scenario: reviewer-recorded-models
+Session ID: de583a87-d082-4705-9503-fdd4fc626bd4
+
+**Next action:** I dispatch the implementation worker for #909 now. I don't run any further review preparation first, and I don't start implementing myself.
+
+**Rule that decides it:** the "Deliver each child" section of `deliver-parent-issue.md` says to apply "Prepare required review" in `shared/review.md` before substantial dependent implementation. It then says to run `express-issue` for the child. The "Implement and publish draft progress" section of `express-issue.md` says to dispatch `implement-issue` once review is prepared.
+
+**Why preparation is already satisfied:** the dispatch metadata shows everything that rule asks for.
+- Dispatch is available and the reviewer gets a fresh context.
+- Model selection is supported through the `model` parameter.
+- The implementer ran as `model-a` and the selected reviewer is `model-b`, which differs and was accepted.
+- No user-approved exception applies, and none is needed.
+
+The required independent, different-model review path is therefore established before implementation depends on it. Preparation doesn't require running the review first. I record the actual selection and returned model evidence when I dispatch the reviewer.
+
+**What I do:**
+1. State the endpoint at the start: PR review follow-up, with no merge. This matches the request and the `express-issue` default. "Keep the PR open" also rules out merging. The parent stays open, because processing one child doesn't authorize closing it.
+2. Dispatch `implement-issue` for #909 through the delegated coordinator flow of `express-issue`.
+   - The handoff names the task reference and supplies the source revision, the agreed scope and decisions, the existing research and baseline results, and the authorization and its limits.
+   - It carries the review path: `model-a` as implementer and `model-b` as reviewer in a fresh context.
+   - It lets the same worker continue into `submit-pr` for draft publication, with no ready marking and no review request.
+   - It does not restate the procedure.
+3. Later steps, in order:
+   - Publish the draft, then dispatch `review-changes` on the exact base and head with `model-b`.
+   - Resume the worker on any findings.
+   - Have the worker mark the PR ready.
+4. A delegated coordinator stops at that ready-submission handoff. The conversation parent then dispatches `address-pr-review` directly and stops without merging.
+
+I don't ask the user anything, because the scope is agreed and there are no blockers.
+
+Scenario: review-exception-outside-scope
+Session ID: 178d2995-972f-4059-a0b9-316da7c349b7
+
+**What I do next:** I don't apply the waiver. The default different-model review requirement stays in force for this delivery. I prepare and dispatch an independent local review with the available Sol reviewer, using [review-changes](../tasks/review-changes.md) in a fresh context. It runs on the exact base and published head before the PR is marked ready. The Luna implementer and the Sol reviewer are different models, according to the dispatch metadata. That meets the default requirement. I also record both model identities from that metadata. I carry the endpoint through PR review follow-up without merge. I don't ask the user anything.
+
+**Rule that decides it:** `shared/review.md`, "User-approved exceptions". It says to apply an exception "only within its approved scope". It also says "approval for one local-model setup does not apply to an unrelated cloud-model workflow."
+
+- The recorded approval covers one setup: OpenCode with local qwen3.8:latest on the user's laptop.
+- This delivery uses a cloud Luna implementer. That is a different model setup, so the exception doesn't cover it.
+- Under the same rule, an exception whose scope doesn't cover the task means "apply the default requirement". The default is in "Review sources": the local review "must use a different model from the implementer."
+
+**Why not the alternatives:**
+- The user gave no other review exception. The PR follow-up authorization covers the endpoint only. It isn't a review waiver.
+- I can't silently skip review or fall back to same-model review or self-review. `express-issue.md` says "Do not skip the review silently."
+- I don't need to ask the user. A usable different-model reviewer is available, so there is no unresolved choice to return to the parent.
+
+I still keep the approval recorded for its own scope, and I report that this delivery used the default requirement. Tests, CI and findings are handled as usual.
