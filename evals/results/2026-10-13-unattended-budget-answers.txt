@@ -1,0 +1,157 @@
+Scenario: deadline-declines-optional-notes
+Session ID: 93af7264-27a7-437c-8cd2-4b8ea7903cd1
+
+**Next action:** Resume the implementation worker now to mark the same PR ready under `submit-pr`. I would decline both optional notes in that same handoff. The handoff would pass the reviewed head, the review outcome (approved, no actionable findings), the authorization and the board target. I would not dispatch a correction cycle or a re-review.
+
+**Deciding rules:**
+- **express-issue.md, "Review the draft changes":** "Settle the reviewer's notes yourself as routine choices under Decisions: accept or decline each in the correction handoff, with the reason." The notes are a documentation line and an extra regression test. Neither is a disputed finding, a scope change or a behavior choice, so I don't ask the user. I also don't treat them as findings that must be fixed.
+- **express-issue.md, "Submit and hand off":** "When review is complete and actionable findings are resolved, resume the implementation worker to mark the same PR ready." The reviewer reported no actionable findings and CI is green on the head, so this condition is met.
+- **burndown-ready-queue.md, step 4, time budget:** "do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded." This is the time constraint on the decision.
+
+**Why decline instead of accept:**
+- **Time left:** It is 01:30 and the deadline is 02:04, so 34 minutes remain.
+- **Cost of accepting:** Accepting either note means a correction worker, then a re-review, then ready submission. Tonight's figures were 34 minutes for an eight-line wording change, 16 for the re-review and 20 to 27 for ready submission. That is far more than 34 minutes, and it adds the 8 to 11 minutes of my own turns between dispatches.
+- **Cost of declining:** The remaining path is one of my turns (8 to 11 minutes) plus ready submission (20 to 27 minutes). Hosted CI takes about 2 minutes and is already green. Even the worst case is tight against the deadline, so I should dispatch immediately and not spend an extra turn.
+
+**Reasons to record in the handoff:**
+- The optional documentation line and the extra regression test are not required for correctness.
+- The reviewer approved without them.
+- Adding them would risk the PR missing the deadline.
+
+I'd list both notes in the final report as declined and available as follow-up.
+
+**If I'm a delegated coordinator:** After ready submission I relay the result and the remaining endpoint to the parent. I'd include the head SHA, the checks and review evidence, and the original request times, then stop. I would not run follow-up myself. If the parent's read-back shows every check passed on the current head, no review pending and no unresolved findings, that is the final endpoint evidence and I stop there.
+
+**If ready submission isn't done by 02:04:** I park the issue with its state recorded. The PR stays a draft, the worktree and branch are preserved, and I record it for the delivery summary. I would not start another issue.
+
+Scenario: deadline-declines-optional-notes
+Session ID: eea619fa-9c70-4921-a88d-6f9407c7515b
+
+**Next step:** Decline both optional notes. Record them in the PR description with the reason, then resume the implementation worker to mark the PR ready on the approved head. After that, report the PR as having reached the review follow-up endpoint.
+
+**Rule that decides it:** Disruption, step 4 of "Deliver issues sequentially" in `burndown-ready-queue.md`. Under a time budget, "Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint." Estimates must come from durations measured in this run, and CI time alone doesn't count.
+
+**Why the notes don't fit:**
+- **Correction:** A small wording change took a worker 34 minutes earlier tonight. A doc line plus an extra regression test is comparable or larger.
+- **Re-review:** The last one took 16 minutes.
+- **Ready step:** Ready submissions took 20 to 27 minutes each.
+- **My own turns:** Each turn between dispatches takes 8 to 11 minutes, and a correction, re-review and ready dispatch would need at least three of them.
+- **Total:** That adds up to roughly 34 + 16 + 20 to 27 minutes of worker time, plus my turns. Even without my turns it is about 70 to 77 minutes, and 34 minutes remain before 02:04. Two-minute CI doesn't change this.
+
+**What I will and won't do:**
+- **Routine decision:** `express-issue.md` says reviewer notes are routine choices I settle myself under Decisions. I won't ask the user about them, and I won't call them findings, because the reviewer found no actionable ones.
+- **Single dispatch:** The ready submission itself is already tight at 20 to 27 minutes plus my turn. So I resume the existing worker once, with the review outcome, the reviewed head, the authorization, and the declined notes with their reasons to put in the PR description. The worker marks the PR ready on the reviewed head.
+- **Not done:** No correction worker, no re-review, and no start on another issue. A new issue would begin past the point where it could finish before the deadline.
+- **After the handoff:** Once the ready read-back shows green current-head checks, no pending review and no unresolved findings, I report from it and stop, without merging. If the ready step is still running at 02:04, I park the issue with its state recorded, as the deadline rule requires.
+
+Scenario: deadline-declines-optional-notes
+Session ID: c8e6ae92-7359-419b-9d13-c22157cf9fba
+
+**Next step:** Decline both optional notes. Don't dispatch a correction. Record each note in the PR description with the reason: it was optional and the time budget doesn't allow it. Then resume the implementation worker to mark the approved head ready, which is the ready submission step. After that, hand off to PR follow-up.
+
+**Why (time estimate):** It's 01:30 and the deadline is 02:04, so 34 minutes remain. The rule is in `burndown-ready-queue.md`, Deliver issues sequentially, step 4, the time-budget bullets. It says to estimate from durations measured in this run. Those are the worker's last comparable task, a review, and my own turns between dispatches. CI time alone is not an estimate. It also says to dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step all fit before the deadline.
+
+Here is the estimate from tonight's numbers:
+- **Correction:** the last correction took 34 minutes, and that was for an eight-line wording change. A doc line plus a new regression test is at least comparable.
+- **Re-review:** 16 minutes.
+- **Ready submission:** 20 to 27 minutes.
+- **My own turns between dispatches:** 8 to 11 minutes each, and several dispatches are needed.
+- **Hosted CI:** about 2 minutes, which is only a small part of the total.
+
+The correction and re-review alone come to about 50 minutes. Adding the ready step brings it to 70 minutes or more, against 34 available. It doesn't fit.
+
+**Why (how the notes get settled):** `express-issue.md`, "Review the draft changes", says I settle reviewer notes myself as routine choices. I accept or decline each one with a reason, and I don't ask the user.
+
+**What happens after that:**
+- **Ready step:** the ready submission alone is 20 to 27 minutes, so it fits, but only just. Starting it now lets the approved, green head reach the endpoint.
+- **Follow-up:** if the ready report shows every hosted check passed for the current head, no pending review and no unresolved findings, that report is the final follow-up evidence, and I stop there. No merge happens, because the endpoint is review follow-up.
+- **Next issue:** I don't start another one unless it can finish before 02:04. Anything in progress at the deadline is parked with its state recorded.
+
+Scenario: deadline-declines-optional-notes
+Session ID: ses_ec9b156a7ffe7JISfPuDuygOqX
+
+**What I do next:** Settle the two optional notes myself as routine choices — decline both, with reasons — and immediately resume the existing implementation worker to mark the same draft PR ready (its `pr ready` read-backs become the ready-submission evidence), passing the approved review outcome and the reviewed head. No correction worker, no re-review, no question to the user, no merge.
+
+**Why:**
+
+1. **The review gate is already passed.** The fresh-context reviewer approved the exact published head with zero actionable findings; the head is green. Per express-issue's *Submit and hand off*, once "review is complete and actionable findings are resolved," the path is to mark the PR ready — nothing else gates it.
+2. **Notes are mine to settle, not blockers.** The reviewer labeled both items optional. The correction path is only for *actionable findings*; notes are routine choices the coordinator accepts or declines.
+3. **The budget makes acceptance infeasible.** 02:04 deadline, 01:30 now = 34 minutes. A correction cycle costs 34 min (correction) + 16 min (re-review) = 50 min before even the 20–27 min ready submission — so accepting either note guarantees the issue is still in progress at the deadline and gets **parked** with an approved, green PR. Declining both lets the ready submission (20–27 min plus one 8–11 min coordinator turn) reach the endpoint within the budget. The tradeoff is recorded so the user can add the doc line and regression test when they review the PR — the endpoint leaves it open for them.
+4. **Unattended flow discipline:** I record the declined notes in the task notes and the PR description under "Decisions taken unattended" (question, answer, evidence, tradeoff) so the user can reverse them at review, and I do not call an interactive question tool.
+
+**The deciding rule:** express-issue, *Review the draft changes* — "Settle the reviewer's notes yourself as routine choices under Decisions: accept or decline each in the correction handoff, with the reason," executed under *Decide in an unattended flow* (take the supported recommendation and record it) and bounded by burndown-ready-queue's time-budget rule (an issue in progress at the deadline is parked with its state recorded). That combination forces declining the optional notes and dispatching the ready submission now.
+
+After the ready-submission report, I apply PR follow-up ownership: since the report would show green hosted checks on the current head, an affirmative fresh-context review, and no unresolved findings, it is the final follow-up evidence for this review endpoint — I report it, verify the board status, and move to the next selected issue only if the budget still permits starting it.
+
+Scenario: deadline-declines-optional-notes
+Session ID: ses_ec9ac8c12ffeuhUY9Ktw2K60jK
+
+**Next action:** Decline both optional reviewer notes (the documentation line and the extra regression test), record them in the PR description with the reason, and dispatch the ready submission — resume the implementation worker to mark the same PR ready under `submit-pr`, carrying the review outcome (approved, no actionable findings), the reviewed head, and the authorization. No correction worker. Do not start the next selected issue until this one reaches its endpoint.
+
+**Why — the estimate the rule requires:** The time budget leaves 01:30 → 02:04 = **34 minutes**. Estimating only from durations measured in this run, as the rule mandates:
+
+- Correction for the notes: the last comparable task was **34 minutes** (eight-line wording change) — that alone consumes the entire remaining budget;
+- Re-review: **16 minutes**;
+- Ready submission: **20–27 minutes**;
+- My own turns between dispatches: at least three dispatches × **8–11 minutes** = 24–33 minutes.
+
+Total ≈ **94–110 minutes** versus 34 available. Hosted CI (~2 min) is not a substitute for this estimate. The correction + re-review + ready sequence plainly does not fit before the deadline.
+
+**The deciding rule:** `burndown-ready-queue.md`, *Deliver issues sequentially*, step 4 (Disruption), time-budget bullet (line 94):
+
+> "Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint."
+
+Supporting rules applied in the same action: `express-issue.md`, *Review the draft changes* — the coordinator settles the reviewer's notes itself as routine choices ("accept or decline each … with the reason"), with no user question in an unattended run; and `express-issue.md`, *Submit and hand off* — with review complete and no unresolved actionable findings, the worker is resumed to mark the PR ready. If the ready step is not finished by 02:04, the same section's budget rule ("Park an issue that is in progress at the deadline with its state recorded") governs, and no new issue starts after the deadline.
+
+Scenario: coordinator-settles-review-notes
+Session ID: 2e33958b-17a8-4605-96d1-8c4195a78ff9
+
+**Next step: don't ask the user about any of the three. Resume the same implementation worker with one correction handoff.**
+
+The deciding rule is in "Review the draft changes" in `express-issue.md`. It says to resume the implementation worker with the text of each actionable finding. It says to settle the reviewer's notes yourself as routine choices under Decisions, accepting or declining each in the correction handoff with the reason. It also says to return to the parent interview only a disputed finding that current evidence can't settle, a scope change, or a choice about intended behavior. It adds: "do not ask the user about style, naming, wording, or documentation conventions."
+
+**How each item is handled**
+
+1. **Finding: `success: bool` should be `bool | None`.**
+   - It is actionable, and the tests pass `None`, so it isn't disputed.
+   - It has no scope or intended-behavior question attached.
+   - I pass the finding text, with file and line, to the worker. The worker corrects it on the same branch, runs the affected checks, commits, and publishes to the same draft under `submit-pr`.
+
+2. **Note: the PR description should use a plain `Closes #1053` line.**
+   - This is a wording and documentation convention, so it falls under the "don't ask the user" rule.
+   - I accept it in the handoff, because the closing reference is a standard convention and costs nothing.
+   - The worker fixes it when it updates the description.
+
+3. **Note: the session directory holds only `notes.md`, but the convention names three files.**
+   - This is also a documentation convention, so I settle it myself.
+   - I accept it and have the worker bring the session directory into line with the project's convention, giving the reason.
+   - If the worker finds the convention doesn't apply, it reports that and doesn't invent files.
+   - I don't inspect the repository myself unless a fact the next dispatch depends on is disputed.
+
+**After that**
+
+- The reviewer recommended approve, so once the worker publishes the corrections I resume the reviewer on the changed code and the resolved finding. I don't repeat completed checks without a new reason.
+- When review is complete and nothing actionable is left, I resume the worker to mark the PR ready under `submit-pr`.
+- I then continue to the default endpoint, PR review follow-up without merge. I do not merge.
+
+Scenario: burndown-refreshes-stale-facts
+Session ID: d1f839f1-f95b-4b94-8716-24ce62a2cf37
+
+**Next step: dispatch the prepare-project-facts refresh worker before the first implementation worker.** The rule is "Check the project facts" in `burndown-ready-queue.md`. It says: "If `stale_sources` is not empty, dispatch prepare-project-facts to refresh the file before the first issue."
+
+**Why this decides it**
+- `facts` reports `present: true` and `stale_sources: [Makefile]`, so the "continue" branch doesn't apply. Only the stale-sources branch does.
+- The Gates section names `make check` and `make test`. Those come from the Makefile, which has changed. Every worker reads the facts file, so each would risk running the wrong gate.
+- The user not mentioning the facts file doesn't matter. The skill says the queue request already authorizes the refresh and its PR. It counts as part of the delivery flow, not as a change outside an issue under the Decisions rules. An unattended run therefore does it without asking. I also can't ask the user in this situation.
+
+**How the refresh runs**
+- The worker works in its own worktree and refreshes only the sections drawn from the Makefile. It updates the hashes, or updates the hash alone if the change alters no fact.
+- It publishes the file as a ready PR under `submit-pr` and does not merge it. It returns the worktree path of the refreshed file.
+- Workers branch from `origin/main`, where the refresh isn't merged. So I set the project facts path in every implementation handoff to the refreshed file in the refresh worktree.
+- I record the refresh PR in the delivery summary.
+
+**Fallback**
+- If the refresh fails or returns no file, I don't halt. I continue the queue, name `Makefile` as a stale source in each handoff, and record the failure in the summary.
+
+**What stays the same**
+- The three-issue selection, the review-follow-up endpoint with no merge, and the eight-hour budget are unchanged. The refresh time counts toward the budget, so I measure it as I go.
