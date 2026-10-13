@@ -14,7 +14,7 @@ Confirm the paths of the linked task references before dispatch. Do not read a w
 
 ## Resume from evidence
 
-Read existing [Task notes](../shared/task-notes.md), then inspect existing branches, worktrees, PRs, review records, and check results for the issue. Reuse completed work when it still applies to the current revision. Do not create another branch or PR because this invocation is new. Keep evidence of implementation, tests, independent review, publication, and merge distinct.
+Read existing [Task notes](../shared/task-notes.md), then inspect existing branches, worktrees, PRs, review records, and check results for the issue. If the issue was parked by an unattended delivery and no question remains open, restore its label under [Parked deliveries](../shared/triage-labels.md#parked-deliveries) before the next dispatch. Reuse completed work when it still applies to the current revision. Do not create another branch or PR because this invocation is new. Keep evidence of implementation, tests, independent review, publication, and merge distinct.
 
 If the issue is stale or contradicts current code, use [reconsider-issue](reconsider-issue.md). If its scope is unclear, use [define-issue](define-issue.md). Settle material decisions in the parent with [interview-issue](interview-issue.md). A clear issue needs none of these.
 
@@ -49,7 +49,7 @@ When [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks the 
 3. Leave the PR a draft and the board In progress. Preserve the worktree and branch.
 4. Return the issue as parked, with the question, the PR URL, and the head, to the queue coordinator or the user. Do not mark the PR ready, request review, or select the next issue yourself.
 
-[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence).
+[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence). A park for the time budget records the remaining steps instead of a question, and a later request resumes it directly.
 
 ## Submit and hand off
 
