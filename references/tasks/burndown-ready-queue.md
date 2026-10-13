@@ -70,6 +70,14 @@ Use the delivery endpoint the user already selected. If none is set, confirm it 
 - **Through review follow-up (default)**: Implements, verifies with independent review, submits PR, and addresses feedback, leaving the PR open for user review.
 - **Through merge**: Merges the PR upon green CI and affirmative review, following the merge policy in [merge-pr](merge-pr.md).
 
+## Check the project facts
+
+After the traversal and before the first dispatch, run `python3 "$GHFLOW_CLI" facts` from the subject checkout. If `project_facts.present` is true and `stale_sources` is empty, continue. If `stale_sources` is not empty, dispatch [prepare-project-facts](prepare-project-facts.md) to refresh the file before the first issue. Every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
+
+The queue request authorizes the refresh and its PR. It is part of the delivery flow, not a change outside an issue under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow), so an unattended run performs it. The refresh worker commits in its own worktree and publishes the file as a ready PR for the user's review; it does not merge. Workers branch from `origin/main`, where the refresh is not yet merged, so set the project facts path in every handoff to the refreshed file in the refresh worktree, as [Handoffs](../shared/coordination.md#handoffs) states. Record the refresh PR in the delivery summary. If the refresh fails or returns no refreshed file, continue the queue: name the stale sources in each handoff, as [Handoffs](../shared/coordination.md#handoffs) states, and record the failure in the summary.
+
+If `project_facts.present` is false, continue without a facts file and say so in the summary; writing the first facts file is a separate task the user requests.
+
 ## Deliver issues sequentially
 
 Process one issue at a time:
@@ -83,7 +91,7 @@ Process one issue at a time:
    - In an interactive run, **halt the burndown immediately.** Do not advance to the next issue. Preserve the worktree and branch. Return the blocker, error logs, and proposed remediation to the user.
    - In an unattended run, which the user's request states, park the issue under [Park an issue in an unattended flow](express-issue.md#park-an-issue-in-an-unattended-flow), record it for the summary, and continue with the next selected issue. Halt even when unattended if the failure would affect every later issue: the identity check or token fails, the base branch's CI is red, or the same environment failure parks two issues in a row. A merge endpoint never runs unattended.
    - When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded.
-5. For a merge endpoint, obtain CI on the base branch's merge commit through the responsible worker before you start the next issue. If it fails, treat it as a disruption and halt.
+5. For a merge endpoint, obtain CI on the base branch's merge commit through the responsible worker before you start the next issue. If it fails, treat it as a disruption and halt. After each merge, run `facts` again; if a source became stale, apply [Check the project facts](#check-the-project-facts) before the next issue.
 6. If the issue successfully completes to the authorized endpoint, proceed to the next selected issue that has not reached that endpoint.
 
 ## Conclude and hand off
@@ -96,4 +104,5 @@ When all selected issues have reached the agreed endpoint:
    - Review evidence (local reviewer model or Copilot).
    - Final status on the project board (`In review` or `Done`), or `parked` with the question or blocker and the label applied.
    - For an unattended run, each decision taken under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow), with the PR that records it.
+   - The project facts refresh PR, when the queue dispatched one, or the stale sources it found when no facts file exists.
 2. If current authorization includes curation, continue under [curate-ready-queue](curate-ready-queue.md) within those limits without asking for the same authorization again. Otherwise, suggest curation as a possible next task and stop. Do not select or move backlog issues, or dispatch curation, without authorization.
