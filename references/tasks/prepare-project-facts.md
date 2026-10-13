@@ -6,7 +6,9 @@ Apply [Authorization](../shared/authorization.md) before you write to the subjec
 
 ## Decide whether the file needs work
 
-Run `python3 "$GHFLOW_CLI" facts` from the subject checkout, as [CLI results](../cli.md#reading-project-facts) describes. If `project_facts.present` is false, write the file. If `stale_sources` is not empty, refresh the sections drawn from those sources and update their hashes. If the file is present and no source is stale, report that and stop; a new session alone is no reason to rewrite it.
+Run `python3 "$GHFLOW_CLI" facts` from the subject checkout, as [CLI results](../cli.md#reading-project-facts) describes. If `project_facts.present` is false, write the file. If `stale_sources` is not empty, refresh the sections drawn from those sources and update their hashes. When a changed source alters no fact, update its hash alone and say so. If the file is present and no source is stale, report that and stop; a new session alone is no reason to rewrite it.
+
+A queue coordinator dispatches this task under [Check the project facts](burndown-ready-queue.md#check-the-project-facts) when `facts` reports stale sources before a burndown. That handoff authorizes the refresh and a ready PR for it. Publish the PR under [submit-pr](submit-pr.md), do not merge it, and return the worktree path of the refreshed file so the coordinator can point every worker at it.
 
 ## Read the sources
 
@@ -47,4 +49,4 @@ Make sure that each fact comes from a source you read or a command you ran, and 
 
 ## Return
 
-Return the file path and line count, the sources recorded, the facts you could not establish and why, whether the commit is published, and the next action. If the project has an instructions file, propose one line in it that points to the facts file, and leave that edit to the user unless the flow authorizes it.
+Return the file path in the worktree and its line count, the sources recorded, the sections changed or the hashes updated alone, the facts you could not establish and why, the PR URL when published, and the next action. If the project has an instructions file, propose one line in it that points to the facts file, and leave that edit to the user unless the flow authorizes it.
