@@ -6,15 +6,16 @@ Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence
 
 ## Audit current board WIP
 
-Query the project board for items in active columns:
+Read every board item with the validated traversal in [Audit the Ready queue](burndown-ready-queue.md#audit-the-ready-queue), and use partial output for nothing. From that inventory:
 
 - Count items currently in `Ready`, `In progress`, and `In review`.
+- For each item already in `Ready`, recommend that it stay or move back to `Backlog`, with a one-line reason, against the same criteria you use for candidates.
 - If the `Ready` column is already at capacity (e.g. 5 items), report the current queue and stop, or propose swapping a blocked or deprioritized item back to `Backlog`.
 - Calculate available slots in `Ready` based on the target WIP limit (default 3 to 5 items).
 
 ## Select candidates from Backlog
 
-Query the board for items with status `Backlog` and priority `P0` or `P1`:
+Use the selection criterion that the user states, such as size, language, verification method, or fitness for an unattended run. It replaces the priority default below. Without one, select items with status `Backlog` and priority `P0` or `P1`. Read each plausible candidate's body and comments before you rank it. Labels such as `triage:ready` and an unset Size or Priority field do not show that an issue is small or settled.
 
 1. Sort candidates:
    - `P0` items before `P1`.
@@ -33,13 +34,13 @@ Highlight sequencing logic (e.g., test guards before new feature tests). Confirm
 
 ## Advance status on the board
 
-Once approved, dispatch a subagent to move the selected issues from `Backlog` to `Ready` under the machine identity:
+Once approved, dispatch a subagent to make the board changes under the machine identity. Move each selected issue from `Backlog` to `Ready`:
 
 ```bash
 python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"
 ```
 
-The tool verifies the transition and guards against accidental backward moves. Confirm that the readback shows status `Ready`.
+A swap of a `Ready` item back to `Backlog` is a backward move. Pass `--allow-backward` with the user's decision as the reason, as [Board status](../shared/board-status.md#limits) requires. When the user also decides a Priority or Size, set it with `board set-field` under [Other single-select fields](../shared/board-status.md#other-single-select-fields). Confirm each read-back.
 
 ## Return and hand off
 

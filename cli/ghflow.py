@@ -10,6 +10,8 @@ list means GitHub returned nothing. Exit status: 0 when every part was read,
 verify-commit exits 3 when the commit was read and an expectation is false.
 board set-status exits 3 when it refuses a backward move or a detected stale
 transition, and exits 1 when a membership read could not be read in full.
+board set-field exits 1 when the field, value, or board item is missing, and 2
+when the write's read-back does not match.
 pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
 """
@@ -720,6 +722,7 @@ def board_set_status(repo, number, owner, project, status, allow_backward=False,
         else:
             item_id = live[0]
             fact("membership", "reused")
+        result["item_id"] = item_id
     except IdentityError as error:
         result.update(action="refused", after=live_status)
         result["errors"].append({"part": "identity", "error": str(error)})
@@ -784,6 +787,125 @@ def board_set_status(repo, number, owner, project, status, allow_backward=False,
     fact("readback", "mismatch")
     result["action"] = "mismatch"
     return result, 2
+
+
+ISSUE_FIELD_QUERY = """
+query($owner: String!, $name: String!, $number: Int!, $field: String!, $page: String) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      projectItems(first: 50, after: $page) {
+        pageInfo { hasNextPage endCursor }
+        nodes {
+          id
+          project { id }
+          fieldValueByName(name: $field) { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+        }
+      }
+    }
+  }
+}
+"""
+
+
+def board_set_field(repo, number, owner, project, field_name, value, gh=run_gh, sleep=time.sleep):
+    """Set one single-select field, such as Priority or Size, on an issue already on the board, and read it back.
+
+    Status has its own command, set-status, which guards the column order. This command
+    does not add items to the board.
+    """
+    result = {"issue": f"{repo}#{number}", "project": f"{owner}/{project}", "field": field_name,
+              "requested": value, "errors": []}
+
+    def fail(part, error, code=1):
+        result["errors"].append({"part": part, "error": str(error)})
+        return result, code
+
+    if field_name.lower() == "status":
+        return fail("field", "Use board set-status for the Status field.")
+    errors = (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError)
+    try:
+        board = response_type(gh(["project", "view", str(project), "--owner", owner, "--format", "json"]), dict, "The project response")
+        project_id = response_string(board["id"], "The project id")
+        fields = response_type(response_type(gh(["project", "field-list", str(project), "--owner", owner, "--format", "json"]),
+                                             dict, "The project field response")["fields"], list, "The project fields")
+    except errors as error:
+        return fail("board", error)
+    named = [f for f in fields if isinstance(f, dict) and isinstance(f.get("name"), str) and f["name"].lower() == field_name.lower()]
+    if len(named) != 1 or not isinstance(named[0].get("options"), list):
+        return fail("field", f"The board has no single single-select field named {field_name!r}.")
+    field = named[0]
+    result["field"] = field["name"]
+    options = [o for o in field["options"] if isinstance(o, dict) and isinstance(o.get("name"), str) and isinstance(o.get("id"), str)]
+    result["options"] = [o["name"] for o in options]
+    matches = [o for o in options if o["name"] == value] or [o for o in options if o["name"].lower() == value.lower()]
+    if len(matches) != 1:
+        return fail("value", f"No single {field['name']} option matches {value!r}.")
+    target = matches[0]
+    result["target"] = target["name"]
+
+    def read_item():
+        repo_owner, name = repo.split("/")
+        cursor, node = None, None
+        while True:
+            args = ["api", "graphql", "-f", f"query={ISSUE_FIELD_QUERY}", "-f", f"owner={repo_owner}", "-f", f"name={name}",
+                    "-F", f"number={number}", "-f", f"field={field['name']}"]
+            if cursor:
+                args += ["--raw-field", f"page={cursor}"]
+            data = response_type(gh(args), dict, "The issue response")
+            items = response_type(data["data"]["repository"]["issue"]["projectItems"], dict, "The issue project items")
+            for item in response_type(items["nodes"], list, "The project item nodes"):
+                if response_string(item["project"]["id"], "A project item project id") == project_id:
+                    current = item.get("fieldValueByName")
+                    node = (response_string(item["id"], "A project item id"),
+                            current.get("name") if isinstance(current, dict) else None)
+            info = items.get("pageInfo")
+            if not isinstance(info, dict) or not isinstance(info.get("hasNextPage"), bool):
+                raise ValueError("The project item page has no valid pageInfo.")
+            if not info["hasNextPage"]:
+                return node
+            cursor = info.get("endCursor")
+            if not isinstance(cursor, str) or not cursor:
+                raise ValueError("A project item page claims a next page without a cursor.")
+
+    try:
+        item = read_item()
+    except errors as error:
+        return fail("issue", error)
+    if item is None:
+        return fail("membership", "The issue is not on the board. Add it with board set-status first.")
+    result["item_id"], result["before"] = item
+    if item[1] == target["name"]:
+        result.update(action="unchanged", after=item[1], readback_matches=True)
+        return result, 0
+    try:
+        gh(["project", "item-edit", "--id", item[0], "--project-id", project_id, "--field-id", field["id"],
+            "--single-select-option-id", target["id"], "--format", "json"])
+        result["action"] = "set"
+    except IdentityError as error:
+        result["action"] = "refused"
+        return fail("identity", error)
+    except errors as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+        result["action"] = "uncertain"
+    for attempt in range(1, READBACK_ATTEMPTS + 1):
+        if attempt > 1:
+            sleep(READBACK_DELAY_SECONDS)
+        result["readback_attempts"] = attempt
+        try:
+            after = read_item()
+        except errors as error:
+            result["errors"].append({"part": "readback", "error": str(error)})
+            result["after"], result["readback_matches"] = None, False
+            return result, 2
+        result["after"] = after[1] if after else None
+        if result["after"] == target["name"]:
+            break
+    result["readback_matches"] = result["after"] == target["name"]
+    if result["readback_matches"]:
+        if result["action"] == "uncertain":
+            result["action"] = "reconciled"
+        return result, 0
+    return result, 1 if result["action"] == "uncertain" else 2
 
 
 def normalize_body(text):
@@ -1305,6 +1427,13 @@ def main(argv=None):
     set_status.add_argument("--project", required=True, type=int, help="project board number")
     set_status.add_argument("--status", required=True, help="target Status option name")
     set_status.add_argument("--allow-backward", action="store_true", help="permit a backward move; use only with a reason and authorization")
+    set_field = board_commands.add_parser("set-field", help="Set a single-select field such as Priority or Size on an issue already on the board, and read it back.")
+    set_field.add_argument("issue", help="issue URL, or issue number with --repo")
+    set_field.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    set_field.add_argument("--owner", required=True, help="login that owns the project board")
+    set_field.add_argument("--project", required=True, type=int, help="project board number")
+    set_field.add_argument("--field", required=True, help="single-select field name, such as Priority or Size")
+    set_field.add_argument("--value", required=True, help="target option name")
     pr_group = commands.add_parser("pr", help="PR write operations with read-backs.")
     pr_commands = pr_group.add_subparsers(dest="pr_command", required=True)
     ready = pr_commands.add_parser("ready", help="Refresh the description, mark a draft ready, move its issue In review, and read each back.")
@@ -1334,7 +1463,10 @@ def main(argv=None):
         result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head)
     elif args.command == "board":
         repo, number = parse_issue(args.issue, args.repo)
-        result, status = board_set_status(repo, number, args.owner, args.project, args.status, args.allow_backward)
+        if args.board_command == "set-field":
+            result, status = board_set_field(repo, number, args.owner, args.project, args.field, args.value)
+        else:
+            result, status = board_set_status(repo, number, args.owner, args.project, args.status, args.allow_backward)
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
         board = None
