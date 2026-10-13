@@ -27,6 +27,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [burndown-no-code-research](scenarios/burndown-no-code-research.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-no-code-research](scenarios/burndown-no-code-research.md) | 2026-10-13 | 836c20e | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-refreshes-stale-facts](scenarios/burndown-refreshes-stale-facts.md) | 2026-10-13 | e882a6e | claude | claude-sonnet-5-5 | Pass | final text | [2026-10-13-facts-refresh.md](results/2026-10-13-facts-refresh.md): Adds the refresh-failure sentence. |
+| [burndown-refreshes-stale-facts](scenarios/burndown-refreshes-stale-facts.md) | 2026-10-13 | ca2ea3e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-session-facts.md](results/2026-10-13-session-facts.md) |
 | [burndown-refreshes-stale-facts](scenarios/burndown-refreshes-stale-facts.md) | 2026-10-13 | 8e97ff9 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-unattended-budget.md](results/2026-10-13-unattended-budget.md) |
 | [capacity-limit](scenarios/capacity-limit.md) | 2026-10-11 | 1058e20 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-ceremony-reduction.md](results/2026-10-11-ceremony-reduction.md) |
 | [capacity-limit](scenarios/capacity-limit.md) | 2026-10-11 | 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | changed skill | [2026-10-11-coordinator-preparation-followup.md](results/2026-10-11-coordinator-preparation-followup.md): Regression check for the deliver-parent-issue change. Selected and runtime-reported model match. |
@@ -46,6 +47,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [coordinator-notes-outside-checkout](scenarios/coordinator-notes-outside-checkout.md) | 2026-10-13 | f5f565b | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-notes-and-time-park.md](results/2026-10-13-notes-and-time-park.md) |
 | [coordinator-ready-to-dispatch](scenarios/coordinator-ready-to-dispatch.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [coordinator-settles-review-notes](scenarios/coordinator-settles-review-notes.md) | 2026-10-13 | 8e97ff9 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-unattended-budget.md](results/2026-10-13-unattended-budget.md) |
+| [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md) | 2026-10-13 | ca2ea3e | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-session-facts.md](results/2026-10-13-session-facts.md) |
 | [copilot-automatic-request](scenarios/copilot-automatic-request.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [copilot-needs-closer-look](scenarios/copilot-needs-closer-look.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-cleanup-and-review-substitute.md](results/2026-10-03-cleanup-and-review-substitute.md): Evaluated commit after change not stated. |
 | [copilot-request-silent-local-covers](scenarios/copilot-request-silent-local-covers.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated. |
@@ -76,6 +78,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [followup-already-green](scenarios/followup-already-green.md) | 2026-10-12 | 224e7ef | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-coordinator-ceremony-2.md](results/2026-10-12-coordinator-ceremony-2.md) |
 | [followup-current-head-pending](scenarios/followup-current-head-pending.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [handoff-points-to-project-facts](scenarios/handoff-points-to-project-facts.md) | 2026-10-13 | 15d84e0 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-facts-refresh.md](results/2026-10-13-facts-refresh.md) |
+| [handoff-points-to-project-facts](scenarios/handoff-points-to-project-facts.md) | 2026-10-13 | ca2ea3e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-session-facts.md](results/2026-10-13-session-facts.md) |
 | [head-changed-before-merge](scenarios/head-changed-before-merge.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | regression | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after verify-commit change not stated. |
 | [head-changed-before-merge](scenarios/head-changed-before-merge.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [implement-does-not-merge](scenarios/implement-does-not-merge.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
@@ -189,7 +192,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)

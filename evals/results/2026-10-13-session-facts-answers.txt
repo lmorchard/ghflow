@@ -1,0 +1,106 @@
+Scenario: coordinator-uses-session-facts
+Session ID: 33a2022c-a24e-4906-85fa-f6f60c93d65b
+
+**Next step:** Skip the three planned checks. Don't run `gh run list`, don't read the two OpenCode config files, and don't run `git log` in the skill checkout. Treat the facts check as passed and move on to the pre-dispatch preparation.
+
+**Why the three checks are redundant**
+- **`gh run list` on the default branch:** `facts` already returned `base_ci` with `summary: green` on the default branch head. The Disruption step only halts for a red base CI, and the facts say it isn't red.
+- **`git log` in the skill checkout:** `skill_source` already shows `head: 1dca824` and `up_to_date: true`.
+- **Reading `opencode.jsonc` and `opencode.json`:** `runtime` already reports `agent: opencode`, `nested_dispatch: false`, `config_default_model: ollama/qwen3-coder:30b`, and an empty `agent_models`. The config files can't settle anything more. The empty `agent_models` means no per-agent model overrides are recorded. Reading the files again would be the "speculative searches" that Prepare required review says to avoid.
+
+**Rules that decide it**
+1. **Check the project facts** (burndown-ready-queue): `project_facts` is present and `stale_sources` is empty, so "continue". There is no prepare-project-facts refresh and no refresh PR. Every handoff points at the existing facts file.
+2. **Deliver issues sequentially, step 2** (burndown-ready-queue): `nested_dispatch` is false, as in OpenCode. So I coordinate each issue myself under express-issue. I dispatch the implementation, review, and ready workers directly. I don't read the subject code to scope handoffs. Handoffs name the issue, the confirmed decisions, and the facts file.
+3. **Prepare required review** (shared/review.md), which applies before substantial implementation. I apply the user-approved same-model exception first. It is a same-model request, so I keep a fresh-context `review-changes` review. I select the same model configuration for implementer and reviewer, `ollama/qwen3-coder:30b`, if the dispatch controls allow it. I record that configuration separately from the actual runtime identity. The config default alone doesn't prove which model ran. At dispatch I record the model identity the runtime returns. If it can't be resolved, I report that identity limit and don't keep searching. The exception waives only the model-difference requirement. It doesn't waive tests, CI, or accurate evidence reporting. The review is reported as same-model, with the waiver stated. The exception stays explicit in every handoff.
+
+**Also before the first dispatch**
+- I confirm the paths of the worker references (implement-issue, review-changes, submit-pr) without reading their procedures.
+- I read express-issue and the Handoffs section of coordination.md.
+- Under the Agent identity rule, I run the identity check (`python3 "$GHFLOW_CLI" identity`) before the first issue. A failed identity check is one of the halt conditions.
+
+Then I dispatch the top-priority unblocked issue from the recorded selection. The endpoint is review follow-up, with no merge. Unattended, a disrupted issue is parked and the queue continues.
+
+Scenario: coordinator-uses-session-facts
+Session ID: 9a87b7dc-221d-4ff9-8b0c-daded3cb11c7
+
+**Next step:** I skip the three planned commands (`gh run list`, reading the two OpenCode config files, `git log` in the skill checkout). I go on to the pre-dispatch preparation.
+
+**Why:** the rule is in "Check the project facts" in `burndown-ready-queue.md`. It says "The same output answers three other preparation questions without separate commands." Each planned command repeats something `facts` already returned:
+
+- **`gh run list`:** `base_ci.summary: green` on the default branch head already answers the red-base halt check. A green base means no halt.
+- **Config files:** `runtime` already answers the dispatch-mode question. `nested_dispatch: false` means step 2 applies, so I coordinate each issue myself. I dispatch express-issue's implementation, review, and ready workers directly. I don't dispatch a per-issue express-issue subagent. The empty `agent_models` and the `ollama/qwen3-coder:30b` default are model evidence for the review plan. The user has approved the same-model exception, so I record that exception instead of looking for a different reviewer model.
+- **`git log` in the skill checkout:** `skill_source` already gives `head: 1dca824`, which goes on each handoff's source line. `up_to_date: true` means there is nothing to report.
+
+Project facts are present and `stale_sources` is empty, so I don't dispatch prepare-project-facts. I continue.
+
+**What I do before the first dispatch:**
+1. Read the shared references whose conditions now apply:
+   - Agent identity, for the identity check.
+   - express-issue.
+   - Handoffs.
+   - Review, for "Prepare required review", where I record the same-model exception.
+2. Confirm the paths of implement-issue, review-changes, and submit-pr without reading their procedures.
+3. Take the top unblocked selected issue by priority, P0 first. It must be able to branch cleanly from `origin/main`.
+4. Dispatch its implementation worker. The handoff names the issue, the recorded decisions, the facts file path, skill head `1dca824`, the endpoint (through review follow-up, no merge), and the exception.
+5. Do not read the subject code to scope the handoff. The worker does the research.
+6. Run unattended. If an issue hits a disruption, I park it and continue. I halt only for failures that would hit every later issue, such as an identity or token failure, a red base, or the same environment failure parking two issues in a row.
+
+Scenario: coordinator-uses-session-facts
+Session ID: 192beea9-416c-4eea-9fcf-965a531e0cc0
+
+**Next step:** I skip the three planned commands. I don't run `gh run list`, I don't read `~/.config/opencode/opencode.jsonc` or the project's `opencode.json`, and I don't run `git log` in the skill checkout. I go straight to the pre-dispatch steps that remain, then dispatch the first issue.
+
+**Rule that decides it** (Check the project facts, last paragraph in `burndown-ready-queue.md`): "The same output answers three other preparation questions without separate commands." The `facts` output already covers each of the three commands:
+- **`base_ci.summary`:** it is `green` on the default branch head, so it answers the red-base halt question that `gh run list` would. No halt applies.
+- **`runtime.nested_dispatch`:** it is `false`, and `config_default_model` and `agent_models` are already reported. That answers what reading the two OpenCode config files would. Since nested dispatch is false, I coordinate each issue myself under express-issue (step 2). I dispatch its implementation, review, and ready workers directly. I don't read the subject code to scope a handoff.
+- **`skill_source`:** `head` is `1dca824` and `up_to_date` is true, so that is the revision for each handoff's source line. `git log` adds nothing, and nothing needs reporting as out of date.
+
+**What I do instead, in order:**
+1. **Project facts:** `project_facts` is present and `stale_sources` is empty, so I continue. I don't dispatch prepare-project-facts, and each handoff points to the existing facts file.
+2. **Remaining references:** before the first dispatch, I read the references the skill says apply. They are the identity check in `shared/identity.md`, Handoffs in `shared/coordination.md`, and `express-issue.md`. I also read `shared/review.md` to prepare the review plan. I only confirm the paths of implement-issue, review-changes, and submit-pr, because the workers read those.
+3. **Review plan:** the user approved the same-model exception and `agent_models` is empty. So I record that explicit exception in the handoff as the review path under Prepare required review. I don't go looking for a different reviewer model.
+4. **Dispatch:** I take the top-priority unblocked issue from the recorded Ready selection (P0 before P1). The handoff names the issue, the decisions and where they're recorded, the facts file, the endpoint (through review follow-up, no merge), the exception, and source `1dca824`.
+5. **Unattended run:** I park any disrupted issue and continue. I halt only if the failure would hit every later issue.
+
+Scenario: burndown-refreshes-stale-facts
+Session ID: 2ce0afdb-dbe4-4861-b9b4-10fd08c8cb4e
+
+**Next step: don't dispatch the first implementation worker yet. Dispatch the prepare-project-facts worker first.**
+
+**Rule that decides it:** "Check the project facts" in `burndown-ready-queue.md`. It says: "After the traversal and before the first dispatch, run `facts`... If `stale_sources` is not empty, dispatch prepare-project-facts to refresh the file before the first issue."
+
+**Why:**
+- The facts file is present, but `Makefile` changed after it was written. That makes the Gates section (`make check`, `make test`) suspect. Every worker reads that file, so a stale gate could send all three issues to the wrong command.
+- Nobody mentioned the facts file, but that doesn't matter. The skill says the queue request itself authorizes the refresh and its PR. It counts as part of the delivery flow, not as a change outside an issue under Decisions. So the unattended run performs it without asking.
+- The "present, so continue" branch only applies when `stale_sources` is empty. The "absent, so continue without it" branch doesn't apply either, because the file exists.
+
+**How I'd run it:**
+- The refresh worker updates the sections drawn from `Makefile` (Gates, and anything else the Makefile supplies) and updates the hash. If the Makefile change altered no fact, it updates the hash alone. It commits in its own worktree and publishes a ready PR for the user's review. It does not merge.
+- The refresh isn't merged, and workers branch from `origin/main`. So in every implementation handoff I set the project facts path to the refreshed file in the refresh worktree.
+- If the refresh fails or returns no file, I continue the queue anyway. Each handoff then names the stale sources, and I record the failure in the summary.
+- I record the refresh PR in the delivery summary.
+
+**What stays the same:**
+- The three Ready issues stay fixed as the selection, sorted by priority.
+- The endpoint is review follow-up, with no merge.
+- The identity check and base CI are already green, so nothing halts the run.
+- I also don't spend the eight-hour budget on reading the subject code. I only hand the worker the facts path.
+
+Scenario: handoff-points-to-project-facts
+Session ID: c3cff570-43bc-4647-aa6c-7241bf117175
+
+**What I do next:** I don't paste the fifteen-line "Project conventions" block. In the handoff's "Project facts:" field I point the worker to `.ghflow/project.md`, using its path in the target checkout. I also point it to `facts --issue ISSUE_URL`, which gives live checkout, branch, PR, board and identity state.
+
+I add only facts that differ for this task, such as an issue-specific gate or an exception to a convention. Everything else in the file stays out of the handoff. That covers the worktree setup commands, the format, check and test gates, the websocket docs and manifest, the notes convention, the forbidden commands and the commit style.
+
+**Why:** The deciding rule is in Handoffs in `references/shared/coordination.md`, line 19: "When the subject has a project facts file, point to it and to `facts --issue ISSUE_URL` instead of restating the project's setup, gates, and conventions; name only the facts that differ for this task." Line 23 backs it up: link to project instructions instead of copying them. `express-issue.md` line 13 adds that the handoff supplies only what the worker can't read itself.
+
+The file qualifies for this. `facts` reports it present, written last week, with no stale sources. So the worker can read it directly, and a copy would add nothing. The copy could also go stale or drift from the file, and it would add to the handoff's length.
+
+The previous coordinator's copied block was the wrong pattern, so I don't repeat it.
+
+Two cases would change what I put in the handoff:
+- **Stale sources:** if `facts` had reported any, I would name those sources so the worker reads them directly.
+- **Refreshed file:** if the flow had refreshed the file in another worktree, I would point to that refreshed copy, because the worker's branch still holds the old file.
+
+Neither case applies here.
