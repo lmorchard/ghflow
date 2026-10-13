@@ -192,3 +192,4 @@ These scenarios have no structured run record in the reports. This does not prov
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
+- [waiver-skips-config-reads](scenarios/waiver-skips-config-reads.md)
