@@ -1,0 +1,326 @@
+Scenario: burndown-conditional-reads
+Session ID: 2d94d21a-da08-4173-91b0-484925467725
+
+**Next step: I don't read all the references up front. I begin the board traversal and read each reference only when its condition applies.**
+
+**The rule that decides this** is in `SKILL.md`, under "Locate the source and tools": "Open a shared reference when its condition applies, and read the section that owns the decision; do not read every shared reference before the first action." The same section lists the conditions:
+- Authorization: when a permission or scope question arises.
+- Evidence: before I report a result or pass on an identifier.
+- Decisions: when a fact or choice is missing.
+- Agent identity: before a subagent runs Git or GitHub commands.
+- GitHub writes: before I change GitHub records.
+
+`SKILL.md` also says to "Load only the task and shared rules needed now," and that the context reference governs reference loading. Reading the six shared references plus the seven task references and the CLI reference in advance would break both rules. It would also fill my context, and this run is eight hours and unattended.
+
+**What I do instead**
+1. Resolve `GHFLOW_SKILL_DIR` and `GHFLOW_CLI` from the `SKILL.md` path. The CLI is at `source/cli/ghflow.py`. I stay in the subject project checkout.
+2. Confirm the subject repository and project board. If either is missing, I return that need before any GitHub search or dispatch.
+3. Start the "Audit the Ready queue" procedure from `burndown-ready-queue.md`:
+   - Run `gh project view` to get the node ID.
+   - Run the paginated `gh api graphql --paginate --slurp` query.
+   - Validate every page. If any validation fails, I treat discovery as incomplete and discard the output.
+4. Record the Ready issue IDs as the fixed selection, sorted P0 before P1.
+5. Set the endpoint. The user asked for review follow-up without merge, which is the default endpoint, so I don't need to ask.
+6. Before the first dispatch, run `facts`. If `stale_sources` is not empty, dispatch prepare-project-facts first.
+
+**When I'll read the other references**
+- **Authorization:** the burndown reference says to apply it throughout. I'll read it when a scope question comes up, such as anything touching merge.
+- **Review:** I read it before step 2 of "Deliver issues sequentially," where I apply "Prepare required review" before the first dispatch.
+- **Board status:** I read it when I verify the `In review` status after an issue finishes.
+- **Agent identity:** I read it before any subagent runs Git or GitHub commands, so before the first dispatch.
+- **GitHub writes:** I read it before the first record change.
+- **Coordination:** I read the handoffs section when I build the first handoff.
+- **Decisions:** I read the unattended-flow section when a decision is missing. The run is unattended, so I park such issues rather than ask.
+- **Task references:** I leave express-issue, implement-issue, review-changes, submit-pr, pr-lifecycle and address-pr-review to the dispatched workers. The burndown reference tells me to dispatch a subagent to run express-issue. I read the express-issue parking section only when I need to park an issue.
+- **CLI reference:** I read it when I need a command whose syntax I don't know.
+
+Scenario: burndown-conditional-reads
+Session ID: 08ef016f-6588-4592-b179-a3dbf4b1aef9
+
+**Next action: drop the plan to read all the references up front. Start the board traversal instead.** I haven't run it yet, because this turn is limited to reading and explaining.
+
+**The rule that decides it** is in `burndown-ready-queue.md`, the opening paragraph:
+
+> "Confirm the paths of worker task references, such as implement-issue, review-changes, and submit-pr, without reading their procedures; the workers read them. Reading every reference before the first dispatch delays it and changes no decision."
+
+`SKILL.md` says the same: "do not read every shared reference before the first action." Shared references are opened "when their condition applies."
+
+**What this means for the plan:**
+- **Skip entirely:** implement-issue, review-changes, submit-pr, pr-lifecycle, address-pr-review and the CLI reference. Workers read those. I only confirm the files exist at their paths.
+- **Read later, when the condition applies:**
+  - **Agent identity** (`../shared/identity.md`): before the first issue's identity check.
+  - **express-issue** and **Coordination → Handoffs**: before the first dispatch.
+  - **Review → Prepare required review**: before substantial dependent implementation, and when I prepare the review plan.
+  - **Evidence**: when I read a worker's report.
+  - **Board status** and **GitHub writes**: before I change a GitHub record myself.
+  - **Authorization**: only if the endpoint or a limit is in question.
+  - **Decisions → unattended flow**: when an issue needs parking.
+
+**Sequence from here:**
+1. **Resolve the subject repository and project.** If either is missing, return that need before any GitHub search or dispatch.
+2. **Run the Ready-queue audit.** Resolve the project node ID with `gh project view`. Then run the paginated GraphQL traversal and validate every page. If validation fails, discard the output and treat discovery as incomplete. On success, record the Ready issue IDs as the fixed selection, sorted by priority. Note that the traversal isn't an atomic snapshot.
+3. **Settle the endpoint.** The request already states one: review follow-up with no merge. That is the default, so there's nothing to ask.
+4. **Check the project facts.** Run `facts`. If any `stale_sources` appear, dispatch prepare-project-facts first.
+5. **Deliver sequentially.** For each issue, read the express-issue and Handoffs references, then dispatch. In this unattended run, park any disrupted issue and continue. Halt only for failures that would hit every later issue. Don't start a new issue after the eight-hour deadline.
+
+Scenario: burndown-conditional-reads
+Session ID: 7db35ac7-acc0-4d7a-8b09-f87c60c9d92b
+
+**Next step: don't read the whole reference set. Start the board traversal and identity check, and read each reference only when its condition applies.**
+
+The rule that decides this is in `burndown-ready-queue.md`, in the paragraph after the intro. It says to open the shared references "when their conditions apply," and to confirm the paths of the worker task references (implement-issue, review-changes, submit-pr) without reading their procedures, because the workers read them. It ends: "Reading every reference before the first dispatch delays it and changes no decision." `SKILL.md` says the same thing: "do not read every shared reference before the first action." So my plan to read all six shared references, then express-issue, implement-issue, review-changes, submit-pr, pr-lifecycle, address-pr-review and the CLI reference, is wrong. It also breaks the rule in `references/shared/context.md` about loading only what's needed now, but I haven't opened that file.
+
+**What I do instead, in order:**
+1. **Identity.** Read [Agent identity](references/shared/identity.md) and run the identity check before the first issue. The task names this condition explicitly.
+2. **Subject repository.** Identify the repository and project from the request or the checkout. If either is missing, return the missing input before any GitHub search or dispatch.
+3. **Endpoint.** The user asked for review follow-up with no merge. That is the default endpoint, and no merge authorization is involved.
+4. **Traversal.** Run `gh project view`, then the paginated GraphQL read with `--slurp`. Validate every page as the task describes: no errors, the project ID matches, `pageInfo` is consistent, and each item has `status` and `priority` keys.
+   - If the read fails or is malformed, treat discovery as incomplete. Don't dispatch from partial output.
+   - Record the initial Ready issue IDs as the fixed selection, sorted P0 before P1.
+5. **Project facts.** Run `python3 "$GHFLOW_CLI" facts`. If `stale_sources` is non-empty, dispatch prepare-project-facts first. Otherwise continue.
+6. **First dispatch.** Before it, read [express-issue](references/tasks/express-issue.md) and [Handoffs](references/shared/coordination.md#handoffs), because the task names both for that point. Read [Review](references/shared/review.md) when I prepare the review plan, so that the required review path is established before substantial implementation. Read [Evidence](references/shared/evidence.md) when I read a worker's report. Read [Board status](references/shared/board-status.md) and [GitHub writes](references/shared/github-writes.md) only before I change a GitHub record myself.
+7. **Unattended run.** If an issue hits a disruption, park it and continue. Halt only for failures that would hit every later issue: the identity check or token fails, base-branch CI is red, or the same environment failure parks two issues in a row. Don't start a new issue after the eight-hour deadline.
+
+I would read pr-lifecycle, address-pr-review, implement-issue, review-changes, submit-pr and the CLI reference only if a decision I own needs them. Otherwise the workers read them.
+
+Scenario: burndown-conditional-reads
+Session ID: dcfe00dc-f56b-4457-805e-d12416524ed3
+
+**Next step: drop the plan to read all the references up front. Start the queue's real first actions instead.**
+
+The deciding rule is in `burndown-ready-queue.md`, in the opening paragraph: "Reading every reference before the first dispatch delays it and changes no decision." The same paragraph says to confirm the paths of the worker task references (implement-issue, review-changes, submit-pr) "without reading their procedures; the workers read them." `SKILL.md` backs this up: "do not read every shared reference before the first action." It also says to open shared references only when their condition applies.
+
+So I would not read implement-issue, review-changes, submit-pr, address-pr-review, or the CLI reference now. Those are worker procedures, and the coordinator doesn't need them. I would read the remaining shared references only when their condition comes up.
+
+**What I do instead, in order:**
+
+1. **Identity check.** Read [Agent identity](references/shared/identity.md) now, because the queue reference requires the identity check before the first issue. If the check fails, I halt, since that failure would affect every later issue.
+2. **Confirm the endpoint.** The user asked for "through PR review follow-up, without merge". That matches the default endpoint, so there's nothing to ask.
+3. **Board audit.**
+   - Resolve the project node ID with `gh project view`.
+   - Run the paginated GraphQL traversal and validate every page.
+   - Record the initial Ready issue IDs as the fixed selection, sorted P0 before P1.
+   - Treat any failed or malformed page as incomplete discovery, and don't dispatch from partial output.
+4. **Project facts check.** Run `facts` from the subject checkout. If `stale_sources` is non-empty, dispatch prepare-project-facts first. The unattended run is allowed to do this.
+5. **Before the first dispatch**, read [express-issue](references/tasks/express-issue.md) and [Coordination handoffs](references/shared/coordination.md#handoffs). Also read [Review](references/shared/review.md) to prepare the required review path, and [Task notes](references/shared/task-notes.md) for the long run. I read the others only when their conditions apply:
+   - [Authorization](references/shared/authorization.md)
+   - [Evidence](references/shared/evidence.md)
+   - [Board status](references/shared/board-status.md)
+   - [GitHub writes](references/shared/github-writes.md)
+6. **Sequential delivery.** Dispatch one express-issue subagent per issue, checking the eight-hour deadline before starting each one. In this unattended run I park issues that hit a disruption and continue. I halt only on failures that would hit every later issue.
+
+Scenario: burndown-conditional-reads
+Session ID: ses_ec9a877a6ffeQtIKhM5CWTMckq
+
+**Next action: start the burndown's first step — *Audit the Ready queue* — and do not pre‑read the references.**
+
+Concretely, the first thing I do is the board traversal: resolve the project to its node ID (`gh project view … --format json`), run the paginated GraphQL read of every item, validate every page against the checks the burndown reference already embeds (valid JSON, no `errors`, matching project ID, per‑item `id`/`status`/`priority`, `pageInfo`/`endCursor` rules, discard‑on‑failure), then record the items whose `Status` is `Ready` as the fixed selection, sorted `P0` before `P1`.
+
+**Why not read the six shared refs + `express-issue`/`implement-issue`/`review-changes`/`submit-pr`/`pr-lifecycle`/`address-pr-review` + the CLI ref first:**
+
+- The traversal is a **read‑only** board read. Its validation rules live in the burndown reference itself, so no external reference is needed to perform it.
+- The conditions for the six linked shared refs have **not yet arisen**: it's not a permission/scope question (Authorization), not a result report (Evidence), not a review gate (Review), not a board‑status write (Board status / GitHub writes), and no subagent has run Git/GitHub yet (Agent identity). I open each only when its condition triggers — e.g., Evidence before I report the selection/summary, GitHub writes before the first board‑status change, identity before the first subagent, Review before "Prepare required review."
+- The per‑issue task refs are needed only **at dispatch time** (step 2 of *Deliver issues sequentially*, when a subagent executes `express-issue`), and the CLI ref is needed when I actually run command examples — neither is "needed now."
+- Nothing is blocking: the endpoint (review follow‑up, no merge) and the 8‑hour budget are already set by the user, so no confirmation is required before the traversal.
+
+**The rule that decides it** — the conditional/lazy reference‑loading rule in `SKILL.md`: *"Load only the task and shared rules needed now"* (line 8) and *"Open a shared reference when its condition applies, and read the section that owns the decision; **do not read every shared reference before the first action**"* (line 21). My stated plan to bulk‑read everything before the traversal is exactly the anti‑pattern that rule forbids; the correct move is to take the first action and pull in each reference at the moment its condition applies.
+
+Scenario: burndown-conditional-reads
+Session ID: ses_ec9a3840fffekjKjwp4ivFYNgI
+
+## Decision — what I do next
+
+I do **not** run the planned bulk read. I go straight to the **board traversal** (the *Audit the Ready queue* step): resolve the project to its node ID, read every project item with the paginated GraphQL query, validate the pages, and record the `Ready` items — sorted `P0` before `P1` — as the fixed selection. The project‑facts check and the first dispatch come *after* the traversal.
+
+## Why
+
+- **No linked shared reference has its condition met yet.** The endpoint is already fixed (review follow‑up, no merge), so *Authorization* is not "in question"; no worker report exists, so *Evidence* doesn't apply; the traversal is a read, so *GitHub writes* / *Board status* don't apply; *Agent identity* and *Handoffs* trigger before the first issue / first dispatch (after the traversal + facts check); *Review* triggers when I build the review plan. Nothing justifies a read right now.
+- **The worker task references belong to the workers.** `express‑issue`, `implement‑issue`, `review‑changes`, `submit‑pr` (and the downstream `pr‑lifecycle` / `address‑pr‑review`) are read by the workers I dispatch. I only confirm their paths — I do not read their procedures myself.
+
+## Rule that decides it
+
+**`burndown‑ready‑queue.md` (reference‑loading rule):** *"Open the shared references when their conditions apply… Confirm the paths of worker task references, such as implement‑issue, review‑changes, and submit‑pr, **without reading their procedures; the workers read them. Reading every reference before the first dispatch delays it and changes no decision.**"*
+
+Corroborated by **`SKILL.md`**: *"Load only the task and shared rules needed now"* and *"do not read every shared reference before the first action."*
+
+So the bulk read I had planned is exactly the behavior the rule forbids — it delays the first dispatch and changes no decision. The correct next move is the board traversal, loading any shared reference only when its own condition later fires.
+
+Scenario: burndown-conditional-reads
+Session ID: ses_ec9974218ffelsJTlUsXBfMriB
+
+## What I do next
+
+I proceed directly to **Audit the Ready queue** — resolving the project to its node ID (`gh project view … --format json`) and then running the GraphQL traversal to read and select the Ready issues. I do **not** read the six shared references, `express-issue`, `implement-issue`, `review-changes`, `submit-pr`, `pr-lifecycle`, `address-pr-review`, or the CLI reference before that traversal.
+
+## Why
+
+The burndown reference orders the work so that reference-reading is **conditional and deferred**, not a preamble:
+
+- **Shared references** (identity, review, authorization, evidence, board-status, github-writes) are opened *when their condition applies* — e.g., identity before the first issue, review when preparing the review plan, authorization when the endpoint is in question, evidence when reading a worker report, board-status/github-writes before changing a GitHub record myself. None of those conditions is met yet at the point of the board traversal.
+- **`express-issue` and `Handoffs`** are opened *before the first dispatch*, not before the board traversal — the traversal is not a dispatch.
+- **Worker task references** (`implement-issue`, `review-changes`, `submit-pr`) are confirmed *by path only*; "the workers read them."
+- The plan to read everything for "the full picture" is exactly the anti-pattern the reference warns against: *"Reading every reference before the first dispatch delays it and changes no decision."*
+
+## The skill rule that decides it
+
+`burndown-ready-queue.md`, § "Read this reference first":
+
+> "Open the shared references when their conditions apply … **Reading every reference before the first dispatch delays it and changes no decision.**"
+
+Reinforced by `SKILL.md`:
+
+> "Open a shared reference when its condition applies, and read the section that owns the decision; **do not read every shared reference before the first action**."
+
+Both rules make the next action the board traversal, with reference-loading deferred to the points in the flow where each condition actually fires.
+
+Scenario: burndown-no-code-research
+Session ID: 281bb519-1632-4677-9194-c31a308594b1
+
+**What I do next:** I don't read `tools.py` or its tests. I dispatch the implementation worker for #688 now, using [express-issue](express-issue.md) and then [implement-issue](implement-issue.md).
+
+The handoff contains:
+- The repository and issue #688.
+- The owner's decision that rules out an untagged fallback.
+- The endpoint, which is through PR review follow-up without merge.
+- The authorization limits.
+- The established review path, model evidence, or explicit exception, from [Prepare required review](../shared/review.md#prepare-required-review).
+- The path to the project facts file. The facts check comes first. If `stale_sources` is non-empty, I dispatch prepare-project-facts and pass the refreshed file's path instead.
+- Permission for the same worker to continue into draft publication through [submit-pr](submit-pr.md). It must not mark the PR ready.
+
+**The rule that decides it:** express-issue says the coordinator "does not do subject-repository work." It also says to "Inspect the subject repository only to settle a fact that the next dispatch depends on, such as a disputed finding." Separately, "Do not read a worker's procedure."
+
+Ten minutes of reading to find the return paths is not that kind of inspection. The handoff only needs the confirmed scope and the owner's decision, and the issue and the owner's comment already give both. The worker reads the facts file and the code itself, and it finds the exact return paths as part of implementing. Writing a precise scope from my own code reading would take over the worker's job and delay the first dispatch.
+
+The scope is clear, so none of the issue-clarification references (reconsider-issue, define-issue, interview-issue) apply.
+
+Review stays separate. A fresh-context reviewer takes the exact base and published head under [review-changes](review-changes.md). I read the worker's and reviewer's reports, not the diff. After ready submission, the parent dispatches address-pr-review if the evidence isn't already final.
+
+Scenario: burndown-no-code-research
+Session ID: 601b0c83-82f0-4519-9d1c-6e1da313b461
+
+**Next step:** I don't read `src/decafclaw/skills/vault/tools.py` or its tests. I write the handoff for #688 without that code research and dispatch the implementation worker directly.
+
+**Rule that decides it:** `burndown-ready-queue.md`, "Deliver issues sequentially", step 2. Where a subagent can't dispatch subagents of its own, as in OpenCode, I coordinate the issue myself under express-issue. The rule says: "keep express-issue's limits on the coordinator. In particular, do not read the subject code to scope a handoff."
+
+`express-issue.md` backs this up. The coordinator "does not do subject-repository work." It may inspect the repo "only to settle a fact that the next dispatch depends on, such as a disputed finding." Finding return paths so the scope reads precisely isn't that case. The research belongs to the implementation worker.
+
+**What the handoff contains:**
+- The repo, issue #688, and the endpoint, which is through PR review follow-up without merge.
+- The confirmed decision, that no untagged fallback is allowed, and where it is recorded: the owner's last issue comment.
+- The path to the project facts file. The queue's facts check already ran and the file is present. If `stale_sources` were non-empty, the handoff would name them instead.
+- The review plan or exception, set up before substantial implementation under Prepare required review.
+- The authorization and its limits, including draft publication through submit-pr and no marking the PR ready until review is done.
+- References to the implement-issue, review-changes and submit-pr task files. I confirm their paths but don't read their procedures.
+
+The worker finds the exact return paths in `tools.py` and its tests. I then dispatch the fresh-context reviewer myself, resume the worker for corrections and ready submission, and run address-pr-review as the conversation parent. I verify the endpoint and board status from the workers' read-backs, not from my own reads of the repo.
+
+Scenario: burndown-no-code-research
+Session ID: ef4ff4a3-a630-4de3-9c9c-438fad22a4ff
+
+**What I do next:** I don't read `src/decafclaw/skills/vault/tools.py` or its tests. I write the handoff for #688 from what I already have and dispatch the implementation worker.
+
+**Rule that decides it:** `burndown-ready-queue.md`, step 2 of "Deliver issues sequentially". In a runtime like OpenCode, where subagents can't dispatch their own subagents, I coordinate the issue myself under express-issue. I dispatch the implementation, review, and ready workers directly. The step says: "keep express-issue's limits on the coordinator. In particular, do not read the subject code to scope a handoff."
+
+`express-issue.md` supports this in three places:
+- The coordinator "does not do subject-repository work."
+- It may inspect the repository "only to settle a fact that the next dispatch depends on, such as a disputed finding."
+- Handoffs name the task reference and supply the facts, decisions, and authorization. They don't restate the procedure.
+
+Ten minutes spent finding return paths so the handoff can state a precise scope is exactly the subject-code reading these rules forbid. No next dispatch depends on that fact. The implementation worker does that research.
+
+**What the handoff contains:**
+- The repository and issue #688. The request is a clearer empty-result message from `vault_search` when a tag filter removes every match.
+- The owner's decision in the last issue comment, and where it is recorded. It rules out an untagged fallback, so the worker must not add one.
+- The project facts file path. Before the first dispatch I'd confirm `facts` reports it present and not stale. If sources were stale, the refreshed file's path goes in the handoff instead.
+- The endpoint, which is through PR review follow-up without merge. Also the authorization limits and the review path established under "Prepare required review".
+- Authorization for the same worker to continue into submit-pr for draft publication. It must not mark the PR ready.
+
+After that I follow the rest of express-issue:
+1. Dispatch a fresh-context reviewer on the published head.
+2. Pass actionable findings back to the implementation worker.
+3. Have the worker mark the PR ready.
+4. Dispatch address-pr-review myself, since I'm the conversation parent.
+
+Scenario: burndown-no-code-research
+Session ID: ses_ec99d166affep687f5hfjefwtR
+
+**Next action: do not read `tools.py` or its tests. Dispatch the implementation worker for #688 now, under the express-issue flow** (an `implement-issue` handoff naming that task reference, with the confirmed repo, issue number, the endpoint — review follow-up, no merge — the authorization, the established review path, the facts file, and the confirmed scope plus the owner's decision: clearer empty-result message when a tag filter removes every match, with the untagged fallback ruled out). The worker reads the source and tests itself and locates the return paths as part of implementation.
+
+**Why:**
+
+- The scope is already settled: the issue text states the change, and the owner's last comment resolved the one open design question (no untagged fallback). Nothing is disputed, so there is no `define-issue`-level ambiguity to resolve either.
+- A handoff supplies "the facts, decisions, and authorization that the worker cannot read itself" (express-issue, *Establish the task and endpoint*). The exact return paths are code the worker can read itself, so they do not belong in the handoff, and discovering them is implementation work, not coordination work.
+- The 10-minute reading would only delay the first dispatch on #688 and change no decision.
+
+**Deciding rule (express-issue):** the coordinator "does not do subject-repository work," and you may "inspect the subject repository only to settle a fact that the next dispatch depends on, such as a disputed finding." Reading the source to "state a precise scope" fails that condition — the scope is fixed by the issue and the owner's decision, and no disputed fact gates the dispatch — so the burndown step ("Dispatch a subagent to execute express-issue on that issue") applies directly: #688 is the top selected issue not yet at the endpoint, and I dispatch it.
+
+Scenario: burndown-no-code-research
+Session ID: ses_ec999c094ffe89GEx4t5UluUKZ
+
+**What I do next:** I drop the ten-minute code read. Instead, I dispatch the implementation worker for #688 directly (in OpenCode my subagents can't dispatch, so I run express-issue myself: implementation, review, ready). The handoff names the `implement-issue` task reference, the issue number, the confirmed decision — the owner's ruling in the last issue comment that an untagged fallback is out of scope, with that comment as its record — and the project facts file. Finding the exact return paths in `tools.py` and its tests is the implementation worker's research, not mine.
+
+**Why:** The coordinator's job is to dispatch, read returned evidence, and settle decisions — it does not do subject-repository work. Reading the subject code to scope the handoff is explicitly forbidden, and it delays the dispatch without changing any decision.
+
+**The deciding rule:** *Burndown the ready queue → Deliver issues sequentially, step 2* — when a runtime's subagents cannot dispatch subagents of their own (OpenCode), "coordinate the issue yourself under express-issue… dispatch its implementation, review, and ready workers directly, and keep express-issue's limits on the coordinator. **In particular, do not read the subject code to scope a handoff. The handoff names the issue, the confirmed decisions and where they are recorded, and the project facts file, and the implementation worker does the research.**" (Reinforced by *express-issue*: the handoff supplies the facts, decisions, and authorization the worker cannot read itself; it does not restate the procedure.)
+
+Scenario: shared-references-on-condition
+Session ID: 5c60f2ab-5084-480b-a43a-31897ba42593
+
+**Next step: don't read the ten shared references or the implement-issue, submit-pr and review-changes references. Start with the issue instead.** Read issue #1054, the repository instructions, and any existing work. I would use `python3 "$GHFLOW_CLI" facts --issue ISSUE_URL` for the branches, worktrees, PRs and board state. I would also read any existing task notes, then dispatch the implementation worker.
+
+**Rules that decide this**
+
+- **Express-issue, opening section:** "Open the other shared references when their conditions apply… Reading all of them first delays the first dispatch and changes no decision."
+- **Express-issue, "Establish the task and endpoint":** "Read the selected issue, repository instructions, existing work, and user decisions." It also says "Do not read a worker's procedure: the handoff names it, and the worker reads it." The implement-issue, submit-pr and review-changes references are worker procedures, so the handoff names them and the workers read them.
+- **SKILL.md:** "do not read every shared reference before the first action." Each shared reference has a trigger condition.
+
+**Why**
+
+- I'm the coordinator, so I don't do subject-repository work. My job is to dispatch, read the returned evidence, and settle decisions.
+- The endpoint is already settled: PR review follow-up, without merge. That is the default, and the user agreed to it. I only need to state it in the handoff.
+- The one open design choice was already settled by the user. I carry it into the handoff as a confirmed decision and don't reopen it.
+- I'd open the shared references only when their condition comes up:
+  - **Coordination#handoffs:** I read it before the first dispatch, because express-issue requires it.
+  - **Review, "Prepare required review":** I apply it before substantial implementation, so I read it then.
+  - **Evidence:** I read it when a worker's report comes back.
+  - **Authorization:** I read it only if an endpoint or limit is in question.
+  - **GitHub writes:** I read it only if I change a GitHub record myself.
+  - **Decisions:** I read it only if a fact or choice is missing.
+  - **Identity:** I read it only if a subagent will run Git or GitHub commands. This will likely apply to the workers, so I'd check it before dispatch.
+- Reading everything first would delay the first dispatch and change no decision.
+
+**Sequence**
+
+1. Read Coordination#handoffs and the task notes.
+2. Run `facts` for the issue, then read the issue itself.
+3. Check for existing work to resume.
+4. Apply the Review preparation rule.
+5. Dispatch the implement-issue worker. It continues into submit-pr for a draft PR and must not mark the PR ready.
+6. Dispatch a fresh-context review-changes reviewer.
+7. Resume the worker to fix findings and mark the PR ready.
+8. Dispatch address-pr-review from the parent if the ready-submission evidence isn't already final.
+9. Stop without merging.
+
+Scenario: coordinator-ready-to-dispatch
+Session ID: d0a20493-dff9-4ddd-bf37-d68b8b68b4fd
+
+**Next step: dispatch the implementation worker now. I wouldn't add anything to the handoff to make it obey project instructions, and I wouldn't read the later task procedures first.**
+
+**Deciding rules:**
+- **Express-issue, "Establish the task and endpoint":** "Do not read a worker's procedure: the handoff names it, and the worker reads it." The submit-pr, review-changes and address-pr-review procedures belong to the workers who run them, so I don't read them before dispatch.
+- **Coordination, Handoffs:** "Link to the issue and project instructions instead of copying their procedures." Handoffs also say to "point to" the project facts file and to `facts --issue ISSUE_URL` rather than restate "the project's setup, gates, and conventions." The handoff should name only what differs for this task.
+
+**Why:** The worry is whether a general worker will reliably follow the project instructions. The skill answers that by pointing the worker at those instructions, not by relaying them. The handoff carries the `PROJECT_INSTRUCTIONS` path and the facts file. Copying conventions into the prompt would duplicate sources the worker can read, and the copy could drift from them. I also can't read the instructions on the worker's behalf, because the coordinator doesn't do subject-repository work.
+
+**What the handoff contains**, following the implement-issue form in Handoffs:
+- **Paths:** the entry skill, the implement-issue reference, and the CLI.
+- **Source:** the source checkout and its revision.
+- **Subject:** the issue URL, the target checkout, and the project instructions path.
+- **Project facts:** the facts file path, plus `facts --issue ISSUE_URL` for live state. If `facts` reports a source as stale, I name that source so the worker reads it directly.
+- **Base and existing work:** the base commit, plus the worktree, branch, head and publication state of any existing work.
+- **Confirmed decisions and review plan:** the decisions already made, and the agreed review path from the recorded metadata. I'd settle that path with "Prepare required review" before substantial dependent implementation.
+- **Authorization:** the flow's endpoint (PR review follow-up, no merge) and its limits. This handoff covers implementation, then draft publication through submit-pr in the same session. The worker must not mark the PR ready or request review.
+- **Notes:** the task notes path, if one exists.
+- **Return:** the PR URL, published head, check results, evidence limits and remaining work.
+
+I would send the complete handoff in the dispatch call itself, not an empty or placeholder prompt. Review-changes comes later, in a fresh context, before the PR is marked ready.
