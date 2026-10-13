@@ -44,7 +44,9 @@ fi
 case "$AGENT" in
   opencode)
     [ -f "$SKILL_DIR/SKILL.md" ] || { echo "entry skill not found at $SKILL_DIR/SKILL.md" >&2; exit 1; }
-    PROMPT="$(cat "$SKILL_DIR/SKILL.md")
+    # Drop the YAML frontmatter: a message that starts with "---" is parsed as an option and prints help.
+    SKILL_BODY=$(awk 'NR==1 && $0=="---" {skip=1; next} skip && $0=="---" {skip=0; next} !skip' "$SKILL_DIR/SKILL.md" | sed '/./,$!d')
+    PROMPT="$SKILL_BODY
 
 Base directory for this skill: $SKILL_DIR
 Relative paths in this skill (e.g., scripts/, references/) are relative to this base directory.
@@ -73,6 +75,9 @@ if [ "$DRY_RUN" = "yes" ]; then
   exit 0
 fi
 
+case "$PROMPT" in -*) echo "composed prompt starts with '-'; refusing to launch" >&2; exit 1 ;; esac
 echo "launching $AGENT at $(date); log $LOG; deadline $DEADLINE"
-"$@" > "$LOG" 2>&1
-echo "finished at $(date); exit $?"
+status=0
+"$@" > "$LOG" 2>&1 || status=$?
+echo "finished at $(date); exit $status"
+if [ "$status" -ne 0 ]; then echo "$AGENT exited with status $status; see $LOG" >&2; exit "$status"; fi
