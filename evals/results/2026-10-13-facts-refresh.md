@@ -13,8 +13,8 @@ The first changed commit is `15d84e0` and the final commit is `e882a6e` on branc
 | Scenario | Phase | Commit | Session | Grade |
 | --- | --- | --- | --- | --- |
 | burndown-refreshes-stale-facts | old text | `ed6e9bc` | `56907f86-3021-4a4f-adb0-b442379edb20` | Fail |
-| burndown-refreshes-stale-facts | new text | `15d84e0` | `` | Pass |
 | burndown-refreshes-stale-facts | new text | `15d84e0` | `f00aab3e-a4fa-4f24-970e-49ff8cc9d794` | Pass |
+| burndown-refreshes-stale-facts | new text | `15d84e0` | `5984c12f-2e2f-400e-b587-abe4e1e89d41` | Pass |
 | burndown-refreshes-stale-facts | final text | `e882a6e` | `a7f3e440-4572-4f28-9a48-3d82e7462da7` | Pass |
 | project-facts-stale-source | regression | `15d84e0` | `35e2c14e-6831-4023-881e-9eecc0695799` | Pass |
 | handoff-points-to-project-facts | regression | `15d84e0` | `2fd41ff9-fdcd-4e9e-8fc4-a3988c13610c` | Pass |
