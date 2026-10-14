@@ -5,6 +5,7 @@ import shlex
 import subprocess
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -2431,11 +2432,27 @@ class ProjectFactsTests(unittest.TestCase):
         result, status = self.facts()
         self.assertEqual(status, 0, result["errors"])
         head = result["repository"]["origin_default_head"]
-        self.assertEqual(result["base_ci"], {"commit": head, "summary": "green",
-                                             "checks": [{"name": "lint", "state": "passed"}, {"name": "test", "state": "passed"}]})
+        base = dict(result["base_ci"])
+        age, stale = base.pop("fetch_age_seconds"), base.pop("stale")
+        self.assertEqual(base, {"commit": head, "summary": "green",
+                                "checks": [{"name": "lint", "state": "passed"}, {"name": "test", "state": "passed"}]})
+        self.assertEqual(stale, age is None or age > 600)
         self.assertEqual(result["runtime"]["agent"], None)
         source = result["skill_source"]
         self.assertEqual((source["head"], source["branch"], source["upstream"], source["up_to_date"]), (head, "main", "origin/main", True))
+
+    def test_base_ci_is_stale_without_a_recent_fetch(self):
+        fetch_head = os.path.join(self.clone, ".git", "FETCH_HEAD")
+        with open(fetch_head, "w") as out:
+            out.write("")
+        old = time.time() - 3600
+        os.utime(fetch_head, (old, old))
+        result, _ = self.facts()
+        self.assertTrue(result["base_ci"]["stale"])
+        self.assertGreater(result["base_ci"]["fetch_age_seconds"], 3500)
+        os.utime(fetch_head, None)
+        result, _ = self.facts()
+        self.assertFalse(result["base_ci"]["stale"])
 
     def test_base_ci_reports_a_missing_required_check_and_a_failure(self):
         def gh(args):

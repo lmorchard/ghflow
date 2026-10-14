@@ -1175,6 +1175,10 @@ def read_skill_source(skill_root, git):
     return info
 
 
+# base_ci reads the default branch head as of the checkout's last fetch; older than this, report it stale.
+BASE_CI_STALE_SECONDS = 600
+
+
 def read_base_ci(remote, sha, required, gh):
     """Summarize the check runs and commit statuses on one commit, marking absent required checks as missing."""
     runs = response_type(gh(["api", f"repos/{remote}/commits/{sha}/check-runs?per_page=100"]), dict, "The check runs response")
@@ -1338,6 +1342,10 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
     base_ci = None
     if repository and repository.get("remote") and repository.get("origin_default_head"):
         base_ci = part("base_ci", lambda: read_base_ci(repository["remote"], repository["origin_default_head"], required_checks, gh))
+        if base_ci is not None:
+            age = repository.get("fetch_head_age_seconds")
+            base_ci["fetch_age_seconds"] = age
+            base_ci["stale"] = age is None or age > BASE_CI_STALE_SECONDS
     runtime = part("runtime", lambda: read_runtime(root, os.environ if env is None else env, Path.home() if home is None else Path(home)))
     skill_source = part("skill_source", lambda: read_skill_source(Path(skill_root), git)) if skill_root else None
 

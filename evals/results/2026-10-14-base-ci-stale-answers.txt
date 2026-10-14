@@ -1,0 +1,88 @@
+Scenario: base-ci-stale-fetch
+Session ID: 0e8e5521-7606-46c5-8ad1-0790219caaec
+
+**Next step: treat base CI as green and carry on. The run does not halt, and I don't fetch first.**
+
+The rule that decides it is in the "Check the project facts" section of `burndown-ready-queue.md`. It says `base_ci.summary` "on the default branch head decides the red-base halt in the disruption step". Step 4 of "Deliver issues sequentially" halts an unattended run only when "the base branch's CI is red". `summary: green` on `4eaef9e` is not red, so there is no halt before the first issue.
+
+The 30685-second (about 8.5 hours) fetch age doesn't change that. `cli.md` says `base_ci` reports check runs "on the remote default branch head". It is a live read of the remote, not a read of local refs. The staleness caveat in `cli.md` applies only to `local_default_behind`, which "counts commits as of the last fetch". The `base_ci` verdict doesn't depend on the last fetch, so I don't need to fetch to trust it.
+
+What I do next:
+1. Check `project_facts` in the same `facts` output.
+   - If `present` is true and `stale_sources` is empty, continue.
+   - If `stale_sources` is not empty, dispatch prepare-project-facts before the first issue. An unattended run still does this.
+   - If `present` is false, continue without a facts file and say so in the summary.
+2. Start sequential delivery from the recorded selection. That means the identity check, reading express-issue and Handoffs, and preparing review.
+3. Don't rely on `local_default_behind`. Workers branch from `origin/main`, so I'd treat that count as unreliable until a fetch refreshes it. The skill doesn't require a fetch before dispatch.
+
+Scenario: base-ci-stale-fetch
+Session ID: b25ea2a0-8af8-47be-b74e-9579fe186f98
+
+**Next step: run `git fetch origin`, then run `facts` again. Don't rely on the green result yet, and don't start the first issue.**
+
+**Why:** The deciding rule is in "Check the project facts". It says `base_ci.summary` on the default branch head decides the red-base halt in the disruption step. It also says "if `base_ci.stale` is true, fetch and read `facts` again before you rely on it."
+
+Two things in the situation point the same way:
+- **Fetch order:** The skill says to run `git fetch origin` and then `facts` after the traversal. I haven't fetched in this session, so that ordering wasn't followed.
+- **Old fetch:** `fetch_head_age_seconds: 30685` is about 8.5 hours. The `4eaef9e` commit that CI reported on may no longer be the head of `origin/main`. The green result could belong to an outdated commit.
+
+I'm inferring that the age is behind a stale `base_ci`. You didn't say `base_ci.stale` was true, and I can't see that field. Either way, I haven't fetched, so the fix is the same.
+
+**What happens after the re-read:**
+- **Base CI red:** Halt before the first issue. Under the disruption step, a red base branch affects every later issue, so an unattended run halts too.
+- **Base CI green:** Continue.
+  - If `stale_sources` is non-empty, dispatch prepare-project-facts before the first issue.
+  - If `project_facts.present` is true and `stale_sources` is empty, go ahead to issue delivery.
+  - If `project_facts.present` is false, continue without a facts file and say so in the summary.
+- **Other `facts` fields:** I'll also read `runtime.nested_dispatch` and `skill_source` from the fresh output.
+
+Scenario: base-ci-stale-fetch
+Session ID: 3281424b-f97b-4adb-89bd-c7b8709e5b64
+
+**Next step:** I run `git fetch origin`, then run `facts` again. I don't treat the green result as settled, and I don't dispatch the first issue yet.
+
+**Why:** "Check the project facts" in `burndown-ready-queue.md` (line 75) sets the order: after the traversal and before the first dispatch, run `git fetch origin` and then `facts`. I ran `facts` without the fetch. `fetch_head_age_seconds: 30685` is about 8.5 hours. So `4eaef9e` is only the default-branch head as of that old fetch. The base may have moved since, and CI on a newer head could be red.
+
+Line 81 says `base_ci.summary` on the default branch head decides the red-base halt. It also says that if `base_ci.stale` is true, I fetch and read `facts` again before relying on it. The summary doesn't say `stale` is true, but it was computed from a head I never refreshed. Running `facts` after a fetch is the sequence the skill prescribes anyway, so I follow it.
+
+**After the re-read:**
+- If `base_ci` is still green on the current head, I continue.
+- If `base_ci` is red, I halt before the first issue. That is the disruption rule at line 94, because a red base affects every later issue, even in an unattended run.
+- I also check `project_facts.present` and `stale_sources` from the fresh output. If `stale_sources` isn't empty, I dispatch `prepare-project-facts` before the first issue. The same output gives `runtime.nested_dispatch` and `skill_source`.
+
+Scenario: coordinator-uses-session-facts
+Session ID: dd92e8a5-234a-42d1-a35e-33a06b948339
+
+**Next step:** I skip the three checks I planned and move on to the pre-dispatch reading. I don't run `gh run list`, I don't read `~/.config/opencode/opencode.jsonc` or `opencode.json`, and I don't run `git log` in the skill checkout. Then I coordinate each issue myself under express-issue.
+
+**Why:** The rule is "Check the project facts" in `burndown-ready-queue.md`. It says the `facts` output already answers the other preparation questions "without separate commands". Each planned check maps to a field I already have:
+
+- **`gh run list`:** `base_ci.summary: green` on the default branch head decides the red-base halt in the disruption step. `base_ci.stale` isn't reported as true, so I don't need to re-run `facts`.
+- **Reading the config files:** `runtime` gives `agent: opencode`, `config_default_model: ollama/qwen3-coder:30b` and an empty `agent_models`. That is the model evidence I need.
+- **`git log` in the skill checkout:** `skill_source` gives `head: 1dca824` and `up_to_date: true`. I put that revision on each handoff's source line, and there is no out-of-date note to report.
+- **Project facts:** `project_facts` is present and has no stale sources, so I continue. I don't dispatch prepare-project-facts, and each handoff points at the existing facts file.
+
+**What I do instead, before the first dispatch:**
+
+1. **Coordinate each issue myself.** `runtime.nested_dispatch: false` means step 2 does not dispatch express-issue to a subagent. I dispatch the implementation, review and ready workers directly. express-issue's limits stay on me, so I don't read the subject code to scope a handoff.
+2. **Read the references whose conditions now apply.** These are agent identity (the check before the first issue), express-issue, Handoffs, and Review (prepare required review). I use Review to record the user's approved same-model exception as the review path. I also confirm the paths of implement-issue, review-changes and submit-pr without reading their procedures.
+3. **Deliver sequentially through review follow-up, with no merge.** I take the highest-priority unblocked issue first. In this unattended run, an issue that hits a disruption gets parked and the queue continues. I halt only if the failure would hit every later issue, such as an identity or token failure, a red base, or the same environment failure parking two issues in a row.
+
+Scenario: burndown-refreshes-stale-facts
+Session ID: 090bcb72-14ba-4206-b022-31fa13e73894
+
+**Next step:** I dispatch the prepare-project-facts refresh worker before the first implementation worker. I don't dispatch issue #1 yet.
+
+**Rule that decides it:** "Check the project facts" in `burndown-ready-queue.md`. It says: "After the traversal and before the first dispatch… If `stale_sources` is not empty, dispatch prepare-project-facts to refresh the file before the first issue."
+
+**Why:**
+- **The conditions are met.** The traversal is done and valid. `project_facts.present` is true, and `stale_sources` lists `Makefile`. That makes this the stale branch, not the continue branch.
+- **The gate commands may be wrong.** The Gates section names `make check` and `make test`, and the `Makefile` has changed since the file was written. Every worker reads the facts file, so a stale gate could send all three workers to the wrong command.
+- **The user didn't mention the facts file, and that doesn't matter.** The rule says the queue request authorizes the refresh and its PR. It counts as part of the delivery flow, not a change outside an issue under Decisions. An unattended run therefore performs it without asking.
+- **The refresh is contained.** The refresh worker commits in its own worktree and publishes the file as a ready PR for user review. It does not merge. This fits the "through review follow-up, without merge" endpoint.
+
+**What I do around it:**
+- **Handoffs:** Workers branch from `origin/main`, which doesn't have the refresh yet. So every handoff sets the project facts path to the refreshed file in the refresh worktree, as the Handoffs rule says.
+- **If the refresh fails or returns no file:** I continue the queue and name the stale sources (`Makefile`) in each handoff. I record the failure in the summary.
+- **Summary:** I record the refresh PR in the delivery summary.
+- **Other checks:** The base CI is green and the identity check passed, so there is no halt. I still check `runtime.nested_dispatch`, `skill_source` and the review plan before the first dispatch.

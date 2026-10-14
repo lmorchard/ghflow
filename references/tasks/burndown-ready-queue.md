@@ -72,13 +72,13 @@ Use the delivery endpoint the user already selected. If none is set, confirm it 
 
 ## Check the project facts
 
-After the traversal and before the first dispatch, run `python3 "$GHFLOW_CLI" facts` from the subject checkout. If `project_facts.present` is true and `stale_sources` is empty, continue. If `stale_sources` is not empty, dispatch [prepare-project-facts](prepare-project-facts.md) to refresh the file before the first issue. Every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
+After the traversal and before the first dispatch, run `git fetch origin` and then `python3 "$GHFLOW_CLI" facts` from the subject checkout. If `project_facts.present` is true and `stale_sources` is empty, continue. If `stale_sources` is not empty, dispatch [prepare-project-facts](prepare-project-facts.md) to refresh the file before the first issue. Every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
 
 The queue request authorizes the refresh and its PR. It is part of the delivery flow, not a change outside an issue under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow), so an unattended run performs it. The refresh worker commits in its own worktree and publishes the file as a ready PR for the user's review; it does not merge. Workers branch from `origin/main`, where the refresh is not yet merged, so set the project facts path in every handoff to the refreshed file in the refresh worktree, as [Handoffs](../shared/coordination.md#handoffs) states. Record the refresh PR in the delivery summary. If the refresh fails or returns no refreshed file, continue the queue: name the stale sources in each handoff, as [Handoffs](../shared/coordination.md#handoffs) states, and record the failure in the summary.
 
 If `project_facts.present` is false, continue without a facts file and say so in the summary; writing the first facts file is a separate task the user requests.
 
-The same output answers three other preparation questions without separate commands. `base_ci.summary` on the default branch head decides the red-base halt in the disruption step. `runtime.nested_dispatch` decides whether step 2 dispatches express-issue or coordinates each issue yourself. `skill_source` gives the revision for each handoff's source line; if `up_to_date` is false, report it in the summary and continue with the checked-out revision.
+The same output answers three other preparation questions without separate commands. `base_ci.summary` on the default branch head decides the red-base halt in the disruption step; if `base_ci.stale` is true, fetch and read `facts` again before you rely on it. `runtime.nested_dispatch` decides whether step 2 dispatches express-issue or coordinates each issue yourself. `skill_source` gives the revision for each handoff's source line; if `up_to_date` is false, report it in the summary and continue with the checked-out revision.
 
 ## Deliver issues sequentially
 
