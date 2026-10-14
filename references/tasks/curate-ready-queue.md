@@ -34,11 +34,18 @@ When the user curates for an unattended run, apply this criterion in place of th
 
 Size is a flag, not a condition. Estimate each fitting candidate's change, including tests; the default range is about 50 to 200 lines. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
 
-In the table, give each candidate's result against each condition and its size estimate, and name the first condition a rejected candidate fails.
+The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those and say that the pool is thin. Name at most one candidate past the range, as an optional last pick. Do not fill the batch with candidates past the range.
+
+Present the unattended candidates in this table, one row per candidate, including rejected ones:
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+
+Write yes or no in each condition column, with the evidence when the answer is not obvious from the title. In Result, write pick, optional last pick, or the first condition the candidate fails.
 
 ## Review selection with the user
 
-Present the candidate queue in conversation:
+Present the candidate queue in conversation. For an unattended run, use the table in [Unattended fit](#unattended-fit); otherwise use this one:
 
 | Issue | Title | Priority | Size | Why Next |
 |---|---|:---:|:---:|---|

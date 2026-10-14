@@ -1,0 +1,182 @@
+Scenario: curate-thin-pool
+Session ID: 48d2d8d7-a368-4ea9-b2e0-47a53bb989a9
+
+**Next step:** I present a proposed queue in a table and make no board changes yet. The skill's "Review selection with the user" step requires approval before any `Backlog` → `Ready` move. I take it that the board audit is already done, since Ready is empty and there are no open PRs. I haven't read the linked traversal reference.
+
+**Deciding rule:** "Unattended fit" in `curate-ready-queue.md`. The user is curating for an unattended run, so that criterion replaces the P0/P1 priority default. That is why P2 and P3 issues can qualify. The user's "two or three" overrides the default WIP count. Size is a flag rather than a condition, and anything past the roughly 50–200 line range goes last with the risk named.
+
+| Issue | Gates check it (`make check`/`make test`) | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|---|---|---|---|---|
+| H | pass | pass | pass | pass | 40–80 | **Fits**, first |
+| I | pass | pass | pass | pass | 20–40 | **Fits**, second |
+| G | pass (`make check` runs the dependency lint) | pass | pass | pass | 100–250 | **Fits**, third. The upper end is past the range. |
+| E | pass | pass | pass | pass | 200–300 | Fits, but over range. Held back. |
+| F | pass | pass | pass | pass | 200–350 | Fits, but over range. Held back. |
+| J | **Fails**: acceptance needs a live Mattermost server | not reached | not reached | not reached | 80 | **Rejected** at the first condition |
+
+**Proposed order:** H, then I, then G.
+- H goes first because it is a test guard, and guards go before new tests.
+- I is a small config-load test that comes after the guard.
+- G goes last because its estimate reaches 250 lines. The risk is that it could run long and take far more time than the other two. In an earlier unattended run, an issue estimated at 150–240 lines took twice as long as the others. G is the smallest of the over-range fits and its check is the dependency lint inside `make check`.
+
+**Why E and F aren't in the batch:**
+- Both are P1 and settled, but at 200–350 lines they run well past the range.
+- Both may touch compaction or workflow-recovery code, so independence would need checking.
+- The user can swap one in for G if they want a larger run.
+
+**After approval:**
+- A subagent under the machine identity would move H, I and G to `Ready` with `board set-status`.
+- It would confirm each read-back.
+- I would then show the final Ready queue (3 items) and hand off to implement-issue or express-issue.
+
+Scenario: curate-thin-pool
+Session ID: 05ec7853-1604-40c2-bb2e-bf01ac1a2460
+
+**Next step:** I'd present a proposed batch of H and I, with G as an optional last pick. I'd make no board changes until the user approves. The rule that decides this is the **Unattended fit** section of `curate-ready-queue.md`. Its size rule says size is a flag, the requested count is a maximum, and the batch must not be filled with candidates past the range. Because the user asked for an unattended burndown, this criterion replaces the P0/P1 priority default. That is why a P3 and a P2 are eligible.
+
+Before any transition, I'd also complete the audit that the skill requires. That means reading every board item with the validated traversal in `burndown-ready-queue.md`, which confirms Ready is empty and nothing is in progress or in review. I'd do that at the point where commands are allowed. The user's statement that Ready is empty isn't a substitute for it.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| H | Autouse test guard for leaked asyncio marker | yes (`make test`) | yes | yes (fully specified) | yes | 40–80 | pick |
+| I | Config-file load test | yes (`make test`) | yes | yes (fully specified) | yes | 20–40 | pick |
+| G | Dependency lifecycle-script policy and exact pinning | yes (`make check` runs the dependency lint) | yes | yes (decisions recorded) | yes | 100–250 | optional last pick: the estimate runs past 200 |
+| E | File-operation ledger for compaction | yes (unit tests) | yes | yes | yes | 200–300 | not picked: past the size range, and G is the one past-range candidate I'm naming |
+| F | Persist tool intent for workflow recovery | yes (crash-injection test) | yes | yes | yes | 200–350 | not picked: past the size range, and G is the one past-range candidate I'm naming |
+| J | Mattermost thread fix | no, acceptance needs a live Mattermost server | no | not established | n/a | ~80 | rejected: fails the first condition |
+
+I haven't checked independence between E and F, or between G and the other candidates, against their bodies and comments. I'd confirm it before finalizing the table.
+
+**Why this shape:**
+- **J fails the first condition.** A criterion that needs a live external service disqualifies the issue. Its small size and P1 priority don't change that.
+- **H and I fit.** Both are gated by `make test`, are fully specified and are within or below the range. H is a test guard, so it goes first. That follows the skill's advice to sequence guards before new tests.
+- **The pool is thin.** Only two candidates fit within the range, so I'd say that plainly and propose two issues, not three.
+- **G is the single optional last pick.** It is the smallest overshoot, at 100–250 lines, and `make check` verifies it. I'd flag the risk that a run estimated past the range took about twice as long in an earlier unattended run. The user decides whether it goes in.
+- **E and F stay in Backlog.** At 200–350 lines they are the large P1s. Adding them just to reach three would fill the batch with past-range work, which the skill forbids.
+
+**After approval:** I'd have a subagent move the approved issues to `Ready` under the machine identity with `board set-status`, confirming each read-back. Then I'd show the final queue against the WIP limit and hand off to `implement-issue` or `express-issue`.
+
+Scenario: curate-thin-pool
+Session ID: a8ce719e-5b09-4592-b0c0-a8e8da096083
+
+**What I do next:** I give the user the unattended-fit table below. It proposes two issues, I and H, and says the pool is thin. I don't move anything on the board yet. First I confirm the batch with the user, then a subagent does the moves.
+
+**Rule that decides it:** the "Unattended fit" section of `curate-ready-queue.md`. The user's "unattended burndown" criterion replaces the P0/P1 priority default. A candidate fits only if all four conditions hold: gates verify acceptance, no new service or credential, scope settled, and independent. The number requested is a maximum. Size is a flag, not a condition. At most one candidate past the range may be named, as an optional last pick. The batch is not filled with candidates past the range.
+
+**Caveat on the board audit:** I can't run commands here. I'm treating "Ready is empty and no open PRs" as your report. The skill requires the validated paginated traversal of every board item before any queue claim. That traversal has not been done, so I'd run it before any board write.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| E | File-operation ledger for compaction | yes (unit tests under `make test`) | yes | yes | yes | 200–300, past the 50–200 default range | Past range (see below) |
+| F | Persist tool intent for workflow recovery | yes (crash-injection test) | yes | yes | yes | 200–350, past range | Past range, not named |
+| G | Dependency lifecycle-script policy and pinning | yes (`make check` runs the dependency lint) | yes | yes (decisions recorded) | yes | 100–250, upper end past range | Optional last pick |
+| H | Autouse guard for leaked asyncio marker | yes | yes | yes (fully specified) | yes | 40–80 | pick |
+| I | Config-file load test | yes | yes | yes (fully specified) | yes | 20–40, under range but fine | pick |
+| J | Mattermost thread fix | no (needs a live Mattermost server) | no | not shown | yes | 80 | Fails "Gates verify acceptance" |
+
+**Proposed order:**
+1. **H.** It is a test guard, and sequencing test guards before new tests is the sensible order. It's the only P3 here, but the unattended criterion replaces the priority default.
+2. **I.** It's small and fully specified.
+3. **G (optional last pick).** This is the one candidate past the range that I name. Its estimate reaches 250 lines, so the risk is that it runs long. Past unattended runs showed an issue estimated at 150 to 240 lines taking about twice as long as the others. The user decides whether it goes in.
+
+**Why E and F are not proposed:** both are past the range, and the skill allows naming only one past-range candidate. G is the better choice for that slot because its range is closest to the limit (100 to 250), and `make check` checks it directly. E and F are not needed to fill the batch.
+
+**Why J is out:** its acceptance needs a live Mattermost server. The skill says a live external service disqualifies an issue even when unit tests also exist.
+
+After the user approves, I'd dispatch a subagent under the machine identity to run `board set-status … --status "Ready"` for each approved issue and confirm each read-back. Then I'd report the final Ready queue against the WIP limit and hand off to implement-issue or express-issue.
+
+Scenario: curate-thin-pool
+Session ID: ses_ec41e040dffe7u52y3arWibDpc
+
+I read the skill and applied it. Here's the decision.
+
+## What I do next
+
+I evaluate the Backlog candidates against the **Unattended fit** criterion (not the P0/P1 priority default), produce the fit/size table, and present a proposed 2–3 issue queue for confirmation. I do **not** move anything to `Ready` yet — the skill requires the user to confirm the batch before I dispatch a subagent to advance status, and I'm not dispatching or running anything in this step.
+
+## Why — applying Unattended fit
+
+The user is curating for an unattended run, so the **Unattended fit** criterion replaces the priority default. A candidate fits only if all four conditions hold; size is a *flag*, not a disqualifier (default range ~50–200 lines; estimates reaching past it go last and the user decides).
+
+| Issue | Priority | Size | Gate-checked (1) | No new svc/cred (2) | Settled (3) | Independent (4) | Result |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|---|
+| E — file-op ledger | P1 | 200–300 | ✔ (unit tests) | ✔ | ✔ | ✔ | Fits — **size flag** (past range → last) |
+| F — persist tool intent | P1 | 200–350 | ✔ (crash-injection test) | ✔ | ✔ | ✔ | Fits — **size flag** (past range → last) |
+| G — dependency lifecycle | P1 | 100–250 | ✔ (`make check` dep lint) | ✔ | ✔ | ✔ | Fits — **size flag** (top end past range → last) |
+| H — autouse test guard | P3 | 40–80 | ✔ (`make test`) | ✔ | ✔ | ✔ | Fits — **in range → first** |
+| I — config load test | P2 | 20–40 | ✔ (`make test`) | ✔ | ✔ | ✔ | Fits — **in range → first** |
+| J — Mattermost thread fix | P1 | 80 | ✘ **live Mattermost server** | — | — | — | **Rejected — fails condition 1** |
+
+Key calls:
+- **J is disqualified** by condition 1: its acceptance needs a *live external service* (Mattermost server), which disqualifies it "even when unit tests also exist."
+- **E, F, G fit** but their estimates reach/past the ~50–200 line range, so they are size-flagged and ordered last (the skill notes a 150–240-line issue took 2× as long in an unattended run). The user decides whether they go in.
+- **H and I** are in-range, settled, gate-checked, and independent — best unattended fit.
+
+**Proposed queue (2–3):** 1) **H** (test guard first, per "test guards before new feature tests"), 2) **I**, 3) **G** (P1, explicitly `make check`-gated — size risk named). E and F are offered only if the user accepts the size risk.
+
+## The rule that decides it
+
+**Unattended fit** (`curate-ready-queue.md` § "Unattended fit") — it replaces the P0/P1 priority default for unattended curation, disqualifies J via condition 1 (live external service), and treats size as a flag (not a disqualifier) that pushes E/F/G to the end for the user's decision.
+
+Scenario: curate-thin-pool
+Session ID: ses_ec414eca0ffe4bOSYNenWDejp0
+
+**Next action: no board changes yet — rank the six candidates under the unattended-fit criterion and present the candidate table (rejected rows included) for user confirmation.** Only after the user approves the batch do I dispatch a subagent to move the picks `Backlog → Ready`.
+
+**Why (applying the criterion against the gates `make check` / `make test` from the project facts file):**
+
+- **J — rejected, fails the first condition.** Its acceptance needs a live Mattermost server — a live external service disqualifies the issue even though unit tests exist.
+- **H (P3) and I (P2) — picks.** Both satisfy all four conditions (tests verify via `make test`, no new service/credential, fully specified = scope settled, independent — Ready is empty and no open PRs), and their sizes sit in the default 50–200 line band. Low priority does not disqualify them here.
+- **G — optional last pick, with the risk named.** It meets all conditions (acceptance is explicitly checked by `make check`), but 100–250 lines reaches past the size range, so it goes last and the user decides whether it goes in.
+- **E and F — out of the batch.** Both meet the four conditions, but 200–300 / 200–350 lines is past the range, and I may name at most one past-range candidate as the optional last pick (G). The batch must not be filled with past-range candidates.
+- Result: 2 picks plus 1 optional last pick = at most 3, honoring "two or three" as a maximum, and I say the pool is thin.
+
+**Deciding rule:** the **Unattended fit** section of `references/tasks/curate-ready-queue.md` — "When the user curates for an unattended run, apply this criterion **in place of the priority default**," including "The requested number of issues is a maximum" and "Do not fill the batch with candidates past the range" — enforced via the unattended candidate table in **Review selection with the user**; board transitions happen only "Once approved."
+
+Scenario: curate-unattended-fit
+Session ID: c4167a54-71c5-4939-b81c-a371af379e55
+
+**Next step:** I present the unattended-fit table to the user and propose a batch of **A and B**. I don't move anything on the board until the user approves. I'd also mention that D is available as an optional last pick.
+
+**Rule that decides it:** the "Unattended fit" section of `curate-ready-queue.md`. Its first condition says a criterion that needs a running dev server disqualifies an issue, even when unit tests also exist. The same section says the requested count is a maximum, and that a candidate past the size range is at most one optional last pick.
+
+| Issue | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| A | yes (mock tests, run by `make test`) | yes | yes (decisions recorded) | yes | 120–190, in range | pick |
+| B | yes (four named tests) | yes | yes ("Open: none") | yes | 80–140, in range | pick |
+| C | **no** | yes | yes | yes | 50–90, in range | rejected: gates condition |
+| D | yes (named tests) | yes | yes (approved spec) | yes | 150–240, past range | optional last pick |
+
+- **C fails the first condition.** Its acceptance criterion is "With `make dev` running, an edit to the config file restarts the server." That needs a running dev server, and `make check` and `make test` can't verify it. The unit tests for the file filter don't change that.
+- **D is past the size range.** Its estimate runs to 240 lines. The skill says to put it last and name the risk: in the second unattended run, an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
+- **The batch is a maximum.** I don't fill it with D to reach three. I'd say the pool is thin, with two clean fits.
+- **A's estimate runs close to the top of the range.** It is still in range, so I'd put B first and A second.
+- **Still unverified:** I haven't confirmed that the candidates are independent of each other and of open PRs. I also haven't confirmed that Ready is really empty. The skill requires a full paginated read of the board (`burndown-ready-queue.md#audit-the-ready-queue`) before I rely on "Ready is empty", and I can't run commands in this session. I'd say both of these in the proposal. Once the user approves, a subagent runs the audit, checks the Ready column and open PRs, and then moves the approved issues to Ready.
+
+**Proposed order:** B, A, then optionally D with the size risk named.
+
+Scenario: curate-for-unattended-run
+Session ID: 45ae2889-b55b-41b8-84cc-66aff6c9d809
+
+**What I do next:** I start with the board audit and make no selection yet. The audit is the first step of `curate-ready-queue.md` ("Audit current board WIP"). It uses the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`.
+
+1. **Read every board item with the validated traversal.** That means `gh project view`, then `gh api graphql --paginate --slurp`. I check every page for valid JSON, no `errors`, the right project ID, `status` and `priority` keys on each item, and correct `hasNextPage` and `endCursor` values. If any check fails, I discard the output and treat discovery as incomplete. I don't work from partial output.
+
+2. **Count the WIP and recommend on each Ready item.** The three Ready items are a P1 survey task, a P1 web feature, and a P1 dev-server change that needs `make dev` running. Under the "Unattended fit" criterion, none of them fits:
+   - The web feature fails because its acceptance check needs a browser or a person.
+   - The dev-server change fails because a running dev server disqualifies it, even if unit tests also exist.
+   - The survey task almost certainly isn't a small Python issue that `make check` and `make test` can verify. I would still read its body before ruling on it.
+
+   I would recommend moving all three back to `Backlog`, with a one-line reason each. Each of those moves is backward, so it needs `--allow-backward` and the user's decision as the reason. I don't make them without approval.
+
+3. **Select candidates by the user's criterion.** The user's stated criterion (unattended, small, gate-verifiable Python) replaces the default P0/P1 priority filter. That makes the many large P0/P1 design items irrelevant. I read the body and comments of each plausible candidate, mainly the small-looking P2–P4 items. The `triage:ready` label and an unset Size are not evidence that an issue is small or settled. Only two Backlog items have Size set, so I estimate size from the issue text myself.
+
+4. **Check each candidate against all four conditions.** The conditions are gates verify acceptance, no new service or credential, scope settled, and independent of the other picks and open PRs. I estimate the change including tests, against the 50–200 line range. At most one candidate past that range goes in, as an optional last pick, placed last with the risk named.
+
+5. **Present the "Unattended fit" table.** It has one row per candidate, rejected ones included. The Result column says pick, optional last pick, or the first condition the candidate failed. The user asked for two or three issues, and that number is a maximum. If fewer fit, I propose only those and say the pool is thin. I don't pad the batch with oversized or doubtful items.
+
+6. **Wait for the user's approval.** Only after approval would a subagent run `board set-status` to move the picks to `Ready`, with a read-back after each move.
+
+I also need to say that the traversal isn't an atomic snapshot, since the board could change while I read it.
+
+**The rule that decides this:** The deciding rule is the "Unattended fit" section of `curate-ready-queue.md`, together with the sentence that labels such as `triage:ready` and unset Size or Priority "do not show that an issue is small or settled." The Ready items fail because a criterion that needs a person, a browser, or a running dev server disqualifies an issue. The 126 Backlog items need individual vetting because the labels and the missing Size values can't be trusted.
