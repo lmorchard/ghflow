@@ -15,13 +15,26 @@ Read every board item with the validated traversal in [Audit the Ready queue](bu
 
 ## Select candidates from Backlog
 
-Use the selection criterion that the user states, such as size, language, verification method, or fitness for an unattended run. It replaces the priority default below. Without one, select items with status `Backlog` and priority `P0` or `P1`. Read each plausible candidate's body and comments before you rank it. Labels such as `triage:ready` and an unset Size or Priority field do not show that an issue is small or settled.
+Use the selection criterion that the user states, such as size, language, verification method, or fitness for an unattended run, which [Unattended fit](#unattended-fit) defines. It replaces the priority default below. Without one, select items with status `Backlog` and priority `P0` or `P1`. Read each plausible candidate's body and comments before you rank it. Labels such as `triage:ready` and an unset Size or Priority field do not show that an issue is small or settled.
 
 1. Sort candidates:
    - `P0` items before `P1`.
    - Small, self-contained tasks (`XS`/`S`) that unblock other work.
    - Tasks with satisfied prerequisites.
 2. If the `P0`/`P1` Backlog is empty, recommend running [sweep-prioritize](sweep-prioritize.md) to evaluate unprioritized issues or re-sweep deferred `P2`/`P3` issues.
+
+## Unattended fit
+
+When the user curates for an unattended run, apply this criterion in place of the priority default. The user's request can change any part of it, such as the size range or the number of issues. A candidate fits when all of these hold:
+
+- Its acceptance criteria are checked by the project's gate commands, which the project facts file names. A criterion that needs a person, a running dev server, a browser, or a live external service disqualifies the issue, even when unit tests also exist.
+- Verifying it needs no new service, credential, or account.
+- Its scope is settled: the decisions are recorded on the issue, and no open question or proposal awaits the user.
+- It is independent of the other selected issues and of open PRs.
+
+Size is a flag, not a condition. Estimate each fitting candidate's change, including tests; the default range is about 50 to 200 lines. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
+
+In the table, give each candidate's result against each condition and its size estimate, and name the first condition a rejected candidate fails.
 
 ## Review selection with the user
 

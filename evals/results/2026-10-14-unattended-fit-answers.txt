@@ -1,0 +1,144 @@
+Scenario: curate-unattended-fit
+Session ID: ea4969af-6abe-4722-b76f-7d518025cbfb
+
+**Next step:** I'd present a proposed batch of A, B and D for the user to confirm, and keep C in Backlog. I wouldn't move anything to Ready yet. Moving issues needs the user's approval, then a subagent running `board set-status` under the machine identity, with a read-back of each move.
+
+**Rule that decides it:** in "Select candidates from Backlog" in `curate-ready-queue.md`, a selection criterion the user states replaces the P0/P1 default. Here the criterion is fitness for an unattended run. The same rule says to read each candidate's body and comments, because labels and unset Size or Priority fields don't show an issue is settled.
+
+**Why C is out:** its acceptance criterion is "With `make dev` running, an edit to the config file restarts the server." That needs a live dev server and a human or interactive check. The gates, `make check` and `make test`, only cover the file-filter unit tests. An unattended worker could pass both gates and still not show the criterion is met. It would either claim a result it can't verify or park the issue partway through. C is also the smallest estimate, so size doesn't make up for this. I'd tell the user C can go to Ready later if its acceptance criterion is rewritten to something the gates can check, or if someone is present to verify it.
+
+**Why A, B and D:**
+- **A:** the decisions are recorded, the mock tests are specified, and the tests run under the gates. The estimate is 120–190 lines.
+- **B:** "Open: none", four named tests, and the smallest estimate (80–140 lines).
+- **D:** it has an approved spec and named tests. It is the largest at 150–240 lines, so I'd put it last. If a time budget cuts the run short, D is the one that gets parked.
+
+**Table for the user:**
+
+| Issue | Why next |
+|---|---|
+| B | Smallest and fully settled, so it is a safe first item. |
+| A | Decisions recorded and mock tests specified. |
+| D | Approved spec and named tests, but the largest, so last. |
+
+I haven't seen Priority or Size values for these issues, so the table leaves those columns blank rather than guessing.
+
+**Before any move:** the skill requires a full validated board traversal, using `gh api graphql --paginate --slurp` as in `burndown-ready-queue.md#audit-the-ready-queue`. It confirms that Ready is empty, gives the In progress and In review counts, and sets the available slots. I'd do that traversal before moving anything. Partial output can't be used to report the queue as empty. Three items fits the 3–5 WIP default.
+
+After approval and the moves, I'd show the final Ready queue and its count against the WIP limit. Then I'd hand off to implement-issue or express-issue, or to the burndown run.
+
+Scenario: curate-unattended-fit
+Session ID: c9fd39ce-4119-4d10-95d6-08a17c6ea1ec
+
+**Next step:** I'd present the selection table to the user and ask them to confirm A and B. I wouldn't move anything on the board yet. The rules that decide this are "Unattended fit" and "Review selection with the user" in `curate-ready-queue.md`.
+
+The user is curating for an unattended run, so the Unattended-fit criterion replaces the P0/P1 default. The facts file names `make check` and `make test` as the gates. Here is each candidate against the conditions.
+
+| Issue | Result | Reason |
+|---|---|---|
+| **A** | Fits, with a flag | Mock tests run under the gates, and the decisions are recorded. The 120–190 line estimate is within range but near the top, so I'd flag it. |
+| **B** | Fits | The four named tests run under the gates. "Open: none" means the scope is settled. The 80–140 line estimate is comfortably in range. |
+| **C** | Rejected. It fails the first condition. | The acceptance criterion needs `make dev` running, so it can't be checked by `make check` or `make test`. The skill says a running dev server disqualifies an issue "even when unit tests also exist." The recorded decisions and the 50–90 line estimate don't change that. |
+| **D** | Rejected. It fails the size condition. | The spec is approved and the tests are named, but 150–240 lines exceeds about 200. This is the estimate range that took twice as long in the second unattended run. |
+
+**Proposed queue:** A and B, which is within the user's "two or three". Padding to three with C or D would break the criterion, so I'd stop at two and say why.
+
+Before presenting, I still owe two checks:
+
+- **Audit:** The skill requires reading every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. I can't run commands here, so I'd take "Ready is empty" from the user and note that it hasn't been verified. That leaves 3 to 5 slots under the default WIP limit, which is plenty.
+- **Independence:** I'd confirm that A and B don't depend on each other or on any open PR. I can't check open PRs from here, so that would be stated as unverified.
+
+After the user approves, a subagent would run `board set-status ... --status "Ready"` under the machine identity. The writes would follow the GitHub-writes rules, and each one would be read back to confirm.
+
+Scenario: curate-unattended-fit
+Session ID: ef34c2bd-2bae-49de-b7cd-649ec3631091
+
+**What I do next:** I don't move anything to Ready yet. I screen the four candidates against the Unattended fit criterion, then present the result as a table and ask the user to confirm the batch. Only after they approve would a subagent make the board moves.
+
+I did not run the board audit, because I was told not to run commands. The skill's "Audit current board WIP" step requires a full paginated read of every board item. I'm relying on your statement that Ready is empty. Before any move, the audit needs to confirm that Ready is empty and that no open PRs or In progress items conflict with the candidates.
+
+**Rule that decides it:** "Unattended fit" in `curate-ready-queue.md`. It replaces the default P0/P1 ordering when the user curates for an unattended run. Its first condition is that acceptance criteria must be checked by the gate commands (`make check` and `make test`). A criterion that needs a running dev server disqualifies the issue "even when unit tests also exist." The skill also says to name the first condition each rejected candidate fails.
+
+| Issue | Result | Notes |
+|---|---|---|
+| A | **Fits** | Mock tests are gated by `make test`. It needs no new service. Decisions are recorded. 120–190 lines is in range, but near the top, so flag it. |
+| B | **Fits, pending a check** | The four named tests are gated and "Open: none" means the scope is settled. 80–140 lines is comfortably in range. I'd still read the body and comments before ranking it. |
+| C | **Rejected on condition 1** | The acceptance criterion needs `make dev` running. The unit tests for the file filter don't rescue it. |
+| D | **Fits on paper, flagged** | It has an approved spec with named tests. 150–240 lines exceeds the 200-line ceiling and matches the size that ran twice as long in the second unattended run. It is the weakest of the fits. |
+
+**Proposed batch:** B and A, which gives two issues. D would be a third only if the user accepts the size risk. I'd recommend leaving D out, or putting it last, so it can't stall the night. I would also check that A and B are independent of each other and of open PRs.
+
+**Before confirming with the user,** I'd read each plausible candidate's body and comments, since the skill says labels and size fields don't show that an issue is settled. I'd then present the table (Issue, Title, Priority, Size, Why Next) with the rejection reason for C and the size flags on A and D.
+
+Scenario: curate-unattended-fit
+Session ID: 7833142f-d50f-492d-9d41-01dd24636171
+
+**Next step:** I'd present the candidate table to the user and ask them to confirm the batch. I wouldn't move anything to Ready yet. The user told me Ready is empty, but the skill still says to confirm that from a full board read. That read is the paginated `gh api graphql --paginate --slurp` traversal in `burndown-ready-queue.md#audit-the-ready-queue`. It also gives me the In progress and In review counts and the open PRs, which I need to check independence. I can't run commands in this session, so I'd label "Ready is empty" as the user's statement, not something I verified.
+
+**Rule that decides it:** "Unattended fit" in `curate-ready-queue.md`. It replaces the P0/P1 priority default when the user curates for an unattended run. Size is only a flag.
+
+| Issue | Gate-checked | No new service or credential | Scope settled | Independent | Size | Result |
+|---|---|---|---|---|---|---|
+| A | Yes (mock tests, run by `make test`) | Yes | Yes (decisions recorded) | Yes (confirm against open PRs) | 120–190 lines | Fits |
+| B | Yes (four named tests) | Yes | Yes ("Open: none") | Yes (confirm against open PRs) | 80–140 lines | Fits |
+| C | **No** | Yes | Yes | Yes | 50–90 lines | **Rejected** |
+| D | Yes (named tests) | Yes | Yes (approved spec) | Yes (confirm against open PRs) | 150–240 lines | Fits, with a size flag |
+
+- **C fails the first condition.** Its acceptance criterion needs a running dev server: "With `make dev` running, an edit… restarts the server." The skill says that disqualifies the issue "even when unit tests also exist." The file-filter unit tests don't change that.
+- **D goes last.** Its estimate runs past the roughly 50–200 line range. The skill says to put it last and name the risk. An issue estimated at 150–240 lines took twice as long as the others in the second unattended run. The user decides whether D goes in.
+
+**Proposed order:** B, then A, then D as an optional third, flagged for size. The user asked for two or three issues, so B and A alone is a valid batch. I haven't ranked them by priority because the user's unattended criterion replaces that default. I'd still read each candidate's comments before ranking and confirm the gates for A, B and D are `make check` and `make test`.
+
+**After approval:** a subagent would move the approved issues from Backlog to Ready under the machine identity, with a read-back on each. Then I'd hand off to implement-issue or express-issue.
+
+Scenario: curate-unattended-fit
+Session ID: 24182b5b-58ab-429f-aff2-67d9c9a27b09
+
+**What I do next:** I propose a batch of A and B, with a note on D, and ask the user to confirm it. I don't move anything on the board yet. I can't run commands here, so before proposing I would also audit board WIP in a live session. That means reading every project item with the paginated `gh api graphql --paginate --slurp` traversal in `burndown-ready-queue.md#audit-the-ready-queue`. "Ready is empty" is then a verified count, not an assumption. It would also show whether open PRs or In progress items conflict with A, B or D.
+
+**The rule that decides it:** the "Unattended fit" section of `curate-ready-queue.md`. It replaces the P0/P1 default when the user states an unattended-run criterion. The first listed condition is that acceptance criteria must be checked by the gate commands in the project facts file (`make check` and `make test`). A criterion that needs a running dev server disqualifies the issue "even when unit tests also exist."
+
+| Issue | Gate-checked | No new service or credential | Scope settled | Independent | Size (50–200) | Result |
+|---|---|---|---|---|---|---|
+| A | Yes, mock tests | Yes | Yes, decisions recorded | Yes | 120–190, within range | Fits |
+| B | Yes, four named tests | Yes | Yes, "Open: none" | Yes | 80–140, within range | Fits |
+| C | **No.** The criterion needs `make dev` running | n/a | Yes | n/a | 50–90 | **Rejected on the first condition.** Its unit tests for the file filter don't rescue it. |
+| D | Yes, named tests | Yes | Yes, approved spec | Yes | 150–240, past the range | Fits, but flagged |
+
+**Proposed order:** B, then A, then D last if the user wants a third.
+
+- **Size flag on D:** its estimate reaches past 200 lines. Size is a flag, not a condition, so D isn't rejected. The skill says to put it last and name the risk: in the second unattended run, an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether D goes in.
+- **A:** at the top of its range it is close to the limit, so it goes after B.
+- **Independence:** I'd confirm that A, B and D don't touch the same code and that no open PR overlaps them.
+
+After the user approves, I'd dispatch a subagent to move the approved issues from Backlog to Ready with `board set-status` and confirm each read-back. Then I'd report the Ready queue against the WIP limit and hand off to implement-issue or express-issue.
+
+Scenario: curate-for-unattended-run
+Session ID: edf4e0fd-ea9c-4f9a-b76b-b1611fb268c1
+
+**Next step:** I'd start by auditing the whole board. That means reading every project item with the validated paginated traversal. Nothing gets selected, moved, or recommended until that read succeeds.
+
+**Rule that decides it:** "Audit current board WIP" in `curate-ready-queue.md`. It says to read every board item with the traversal in `burndown-ready-queue.md#audit-the-ready-queue` and to "use nothing from partial output." The traversal is `gh project view`, then `gh api graphql --paginate --slurp`. I would check every page for valid JSON, no `errors`, the right project ID, and sane `pageInfo`. If any check fails, the discovery is incomplete and I discard the output. With 126 or more items, several pages are certain, so partial output is a real risk.
+
+**After the audit, these rules decide the rest:**
+
+1. **Selection criterion.** The user stated one: small Python issues that `make check` and `make test` verify, with no web UI or manual checks, for an unattended run. "Select candidates from Backlog" says that criterion replaces the P0/P1 default, so I don't limit the search to P0/P1. Most P0/P1 Backlog items are large design work, so they would fail anyway. The P2–P4 items that look small are in scope.
+
+2. **Labels and Size don't count as evidence.** The skill says `triage:ready` and an unset Size or Priority do "not show that an issue is small or settled." I would not trust the label, which sits on items of every size. I would also not trust the two items that have Size set. I'd read the body and comments of each plausible candidate. The "Unattended fit" conditions then decide whether it qualifies:
+   - Acceptance is checked by the gate commands named in the project facts file.
+   - Verification needs no new service, credential, or account.
+   - Scope is settled, with decisions recorded on the issue and nothing awaiting the user.
+   - The issue is independent of the other selected issues and of open PRs.
+   - The estimated change is about 50–200 lines including tests. I'd flag any estimate near 200.
+
+3. **The current Ready items.** The audit requires a stay-or-return recommendation for each, judged against the same criteria.
+   - **P1 survey task:** return to Backlog unless its body shows it is a small Python task checked by the gates. A survey is unlikely to meet that.
+   - **P1 web feature:** return to Backlog. The user excluded web UI work, and it likely needs manual or browser checks.
+   - **P1 dev-server change:** return to Backlog. Its acceptance needs `make dev` running, and "Unattended fit" disqualifies a criterion that needs a running dev server, even if unit tests also exist.
+
+   Moving any of them back is a backward move. It needs `--allow-backward` with the user's decision as the reason, so I only propose it.
+
+4. **Presenting the result.** I'd show a table that gives each candidate's result against each condition. A rejected candidate gets the first condition it fails. I'd propose 2–3 items and wait for the user to confirm.
+
+5. **Writes.** I make no board changes until the user approves. After approval, a subagent runs the `set-status` moves under the machine identity, per "Advance status on the board". It reads back each change.
+
+If the traversal fails, I report incomplete discovery and stop. If fewer than two items pass the fit test, I report that honestly and don't pad the queue. The skill's fallback of recommending sweep-prioritize applies to an empty P0/P1 Backlog, so it doesn't clearly cover this case.
