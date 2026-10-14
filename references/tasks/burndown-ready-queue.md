@@ -61,7 +61,7 @@ Do not use partial output to report a clear queue or dispatch work.
 
 For a new task, after the full traversal succeeds, identify every item whose named `Status` value is `Ready`. Record the issue IDs in that initial Ready queue as this task's selection. A later board read can refresh issue state, but it does not replace the selection. Add a later arrival only after the user explicitly expands the scope. On resumption, use the recorded selection and the procedure in [Resume an interrupted queue](#resume-an-interrupted-queue); do not create a new selection.
 If a Ready item has no actionable issue URL and repository identity, report it as unresolved and do not report the queue as empty.
-Sort actionable Ready issues by priority (`P0` before `P1`).
+Sort actionable Ready issues by priority (`P0` before `P1`), then by ascending issue number within a priority. The board's card order is not read. If a Ready issue is below `P1`, it breaks [Priority tiers](../shared/board-status.md#priority-tiers): deliver it with the selection, and name it in the summary so the user can promote or remove it.
 For a new task only, if the complete inventory contains no Ready items, report that the initial selection is empty and the selected delivery is complete.
 This traversal is not an atomic snapshot. Report that limit if the board could change during retrieval.
 

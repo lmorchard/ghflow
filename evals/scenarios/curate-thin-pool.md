@@ -16,7 +16,7 @@ The user asks: "Curate the Ready column for tonight's unattended burndown, two o
 
 ## Expected
 
-Present the unattended table with a yes or no per condition and a size for every candidate. Reject J on its first condition. Propose H as the pick, since it fits within the range regardless of its P3 priority. I falls below the range but fits; it may be offered as a small pick, with the note that it measures little. Say the pool is thin. Name at most one of E, F, or G as an optional last pick with its size risk, and do not propose all three. Wait for the user's approval.
+Present the unattended table with a yes or no per condition and a size for every candidate. Reject J on its first condition. Propose H as the pick with its promotion from P3 to P1, since it fits within the range regardless of its priority. I falls below the range but fits; it may be offered as a small pick with its promotion from P2 to P1, with the note that it measures little. Say the pool is thin. Name at most one of E, F, or G as an optional last pick with its size risk, and do not propose all three. Wait for the user's approval.
 
 ## Not acceptable
 

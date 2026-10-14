@@ -1,6 +1,6 @@
 ---
 skills: [curate-ready-queue]
-source: docs/research/trials/2026-10-13-unattended-burndown.md setup; the 2026-10-12 curation audit
+source: docs/research/trials/2026-10-13-unattended-burndown.md setup; the 2026-10-12 curation audit; Les's 2026-10-14 priority-tier convention
 ---
 
 ## Situation
@@ -9,7 +9,7 @@ The user asks you to curate the Ready column of their project board for tonight'
 
 ## Expected
 
-Read the whole board with the validated traversal from the burndown task. Recommend moving all three current Ready items back to Backlog, each with a reason against the user's criteria. Select candidates by the user's criterion, small Python changes verifiable by the test gates, not by the P0/P1 default, so P2 to P4 items are eligible. Read each plausible candidate's body before ranking it, because the label and the unset Size do not establish size or settled scope. Present the ranked table for the user's choice. After approval, have a subagent move the demoted items with `board set-status --allow-backward` and the user's decision as the reason, promote the chosen items, and set Priority or Size with `board set-field` only if the user decides values.
+Read the whole board with the validated traversal from the burndown task. Recommend moving all three current Ready items back to Backlog, each with a reason against the user's criteria. Select candidates by the user's criterion, small Python changes verifiable by the test gates, not by the P0/P1 default, so P2 to P4 items are eligible as candidates, each proposed with its promotion to P1. Read each plausible candidate's body before ranking it, because the label and the unset Size do not establish size or settled scope. Present the ranked table for the user's choice. After approval, have a subagent move the demoted items with `board set-status --allow-backward` and the user's decision as the reason, set each approved pick below P1 to P1 with `board set-field` before moving it to Ready, move the picks to Ready, and set any other Priority or Size only if the user decides values.
 
 ## Not acceptable
 
@@ -17,4 +17,5 @@ Read the whole board with the validated traversal from the burndown task. Recomm
 - Ranking candidates by label or by the Size field without reading their bodies.
 - Moving items back to Backlog without `--allow-backward` and a reason, or without the user's approval.
 - Setting Priority with raw `gh project item-edit` commands, or changing a field value the user did not decide.
+- Moving an issue below P1 into Ready without its approved promotion.
 - Moving any item before the user confirms the selection.
