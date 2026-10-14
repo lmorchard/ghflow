@@ -1,0 +1,170 @@
+Scenario: curate-promotes-before-ready
+Session ID: 0288a518-4a24-405b-9fc6-75928b1c4ff3
+
+**Next step:** dispatch one subagent to make all the board changes under the machine identity. It sets the two priorities first, then moves the three issues to Ready. I don't make the changes myself in the parent, and I don't ask the user again. They already approved the table.
+
+**Which rule decides it:** two rules in `curate-ready-queue.md` ("Advance status on the board") and one in `board-status.md`.
+- The curate-ready-queue rule says that once the selection is approved, a subagent makes the board changes under the machine identity.
+- It also says that when the user decides a Priority or Size, you set it with `board set-field`, following the board-status rule "Other single-select fields".
+- That board-status rule says to set a field only on the user's decision. The approved "promote to P1" marks on #947 (P3) and #600 (P2) are that decision. They are also the only reason the priority writes are authorized.
+
+**Subagent steps, in order:**
+1. Set Priority to P1 on #947 and on #600:
+   `board set-field ISSUE_URL --owner OWNER --project N --field "Priority" --value "P1"`
+2. Move #947, #600 and #930 from Backlog to Ready:
+   `board set-status ISSUE_URL --owner OWNER --project N --status "Ready"`
+   - #930 is already P1, so it needs no priority change.
+   - Ready is empty, so all three are forward moves. They don't need `--allow-backward`, and no swaps are involved.
+3. Read back each write and report the `before`, `after` and `readback_matches` values. Exit status 2 means the write happened but the read-back didn't match. Exit status 1 means the write failed. In either case, read GitHub before retrying, as the GitHub-writes rule requires.
+
+**Limits:**
+- Change only the approved priority and status values. Don't touch other fields.
+- If a write fails, report it separately and continue with the rest.
+
+**After the dispatch:** show the final Ready queue with each item's priority, size and title. Give the count against the WIP limit (3 here). Then hand off to implement-issue or express-issue to pick up the top item.
+
+Scenario: curate-promotes-before-ready
+Session ID: 4089d971-85f7-430f-8e02-cfc53b73e258
+
+**Next step:** I dispatch a subagent to make the board changes under the machine identity. I don't make them myself. The subagent does the promotions first, then the moves.
+
+1. **Promote #947 (P3) and #600 (P2) to P1.** For each, the subagent runs `board set-field ISSUE_URL --owner OWNER --project NUMBER --field "Priority" --value "P1"` and confirms the read-back.
+2. **Move the three issues from Backlog to Ready.** For #947, #600 and #930, the subagent runs `board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"`. It reports `before`, `after`, `added` and `readback_matches` for each, and records the returned URLs and identifiers.
+3. **Don't use `--allow-backward`.** Ready is empty, so there is nothing to swap back to Backlog and no backward move.
+4. **Don't set Size or any other field.** The user didn't decide one.
+5. **Return the final Ready queue.** I show the issues in Ready with their priority, size and title, and the count against the WIP limit. Three items fits the default of 3 to 5. Then I hand off to implement-issue or express-issue.
+
+**Rules that decide this:**
+- **Priority before status:** curate-ready-queue.md, "Advance status on the board", says to set a below-P1 candidate's Priority to the approved promoted value with `board set-field` before moving it to Ready. This is backed by board-status.md, "Priority tiers": an issue below P1 enters Ready only after the user promotes it. The approved table's "promote to P1" mark counts as that promotion. Without the field change, #947 and #600 would sit in an active column at P3 and P2.
+- **Dispatch:** the same section says to dispatch a subagent to make the changes under the machine identity once the user approves.
+- **Checking the writes:** github-writes.md says a success response isn't proof, so each write is read back. If a command fails or is interrupted, the subagent reads the board before retrying and retries only the failed steps.
+
+Scenario: curate-promotes-before-ready
+Session ID: 1a611c2e-3457-4861-895c-4e88aa1bfe52
+
+**Next step:** Dispatch one subagent to make the board changes under the machine identity. I don't run the commands myself, because the skill assigns board transitions to a subagent. I'm not asking the user anything further, because they already approved the table. The subagent does these things in order:
+
+1. **Promote #947 and #600 first.** For each, run `board set-field ISSUE_URL --owner OWNER --project NUMBER --field "Priority" --value "P1"`. #947 goes from P3 to P1 and #600 from P2 to P1. Confirm each read-back.
+2. **Move all three issues to Ready.** Run `board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"` for #930, #947 and #600. #930 is already P1, so it needs no field change. No `--allow-backward` is needed, because these are Backlog → Ready moves and Ready is empty, so nothing is swapped out.
+3. **Report the results.** Report each command's `before`, `after` and `readback_matches` values. Then show the final Ready queue with priority, size and title, and the count against the WIP limit. Three items is within the 3–5 target. Hand off to implement-issue or express-issue for the top item.
+
+**Why the order matters:** Both skill rules point the same way.
+
+- **Priority tiers** (`curate-ready-queue.md` "Select candidates from Backlog", and `board-status.md` "Priority tiers"): Ready, In progress and In review hold only P0 and P1 issues. An issue below P1 enters Ready only after the user promotes it. The user's approval of "promote to P1" is that promotion.
+- **Advance status** (`curate-ready-queue.md` "Advance status on the board"): "Before you move a candidate below `P1` to `Ready`, set its Priority to the promoted value the user approved with `board set-field`." Moving #947 or #600 to Ready before the priority write would break the P0/P1-only invariant.
+
+**Other rules that apply:**
+
+- **GitHub writes:** Read back each write rather than trusting a success response. If a write fails, read GitHub before retrying and retry only the failed step.
+- **Board status "Other single-select fields":** A failed priority write is not worked around. I would report it and not move that issue to Ready.
+
+Scenario: curate-thin-pool
+Session ID: dd255a34-cf5f-4189-98a5-c4c320d0f7bc
+
+**What I do next:** I make no board changes. I present the unattended-fit table to the user and propose a batch. The batch is thin: two issues, F and E, plus G as an optional last pick. The user confirms before any move to `Ready`.
+
+The rule that decides it is **"Unattended fit"** in `curate-ready-queue.md`. For an unattended run it replaces the P0/P1 default. The requested "two or three" is a maximum, and it says not to fill the batch with candidates past the size range.
+
+Before proposing, I would still do the audit step. The skill says to read every board item with the paginated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. That confirms the empty `Ready` column and the absence of open PRs, so I don't rely on your summary. I can't run commands in this session, so that check is pending. Both facts are assumed from what you told me.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| F | Persist tool intent for workflow recovery | yes (crash-injection test, under `make test`) | yes | yes | yes | 200–350 | optional last pick (past range; highest overrun risk) |
+| E | Deterministic file-operation ledger for compaction | yes (unit tests) | yes | yes | yes | 200–300 | optional last pick (past range) |
+| G | Dependency lifecycle-script policy and exact pinning | yes (`make check` runs the dependency lint) | yes | yes | yes | 100–250 | pick, or last if the upper estimate is a concern |
+| H | Autouse guard for leaked asyncio marker | yes | yes | yes | yes | 40–80 | no pick, because P3 (see below) |
+| I | Config-file load test | yes | yes | yes | yes | 20–40 | no pick, because P2 (see below) |
+| J | Mattermost thread fix | no (needs a live Mattermost server) | no | not stated | yes | ~80 | rejected: gates don't verify acceptance |
+
+I haven't confirmed that E, F and G don't touch the same code. Independence is "yes" on the evidence so far, and I'd recheck it when I read the bodies.
+
+**Reasoning**
+- **J fails the first condition.** Acceptance needs a live external service, and the skill says that disqualifies an issue even when unit tests also exist.
+- **E, F and G meet all four conditions.** They differ only in size.
+- **Size is a flag, not a condition.** The default range is about 50 to 200 lines. G reaches 250, which is slightly past the range. E and F are clearly past it, and the skill's evidence is that a 150–240 line issue took twice as long in an earlier unattended run.
+- **The skill allows at most one candidate past the range**, as an optional last pick. It says not to fill the batch with candidates past the range. E, F and G all have estimates that reach past it, so I can't name all three.
+- **H and I fit inside the range.** Both are small and fully specified, and the skill's selection criterion doesn't require P0/P1 for an unattended run. The user's stated criterion replaces the priority default, so priority is not a disqualifier. So H and I are the in-range picks, and the correction below applies.
+
+**Correction to the table.** The user's criterion replaces the priority default, so H and I should be picks, not rejections. The proposed order is:
+
+1. **I** (20–40 lines, config-file load test)
+2. **H** (40–80 lines, autouse guard). This goes early because test guards go before other test work.
+3. **Optional last pick: G** (100–250 lines). It is the smallest of the over-range candidates and is checked by `make check`. The risk is that its upper estimate runs past the range and could take about twice as long.
+
+E and F are left in `Backlog` and named as past the range. The pool within range is thin, so I propose H and I as the batch, with G as the single optional pick for the user to decide on.
+
+**After the user confirms,** I dispatch a subagent to run `board set-status ... --status "Ready"` for each approved issue under the machine identity. I confirm each read-back, then display the final `Ready` queue against the WIP limit and hand off to implement-issue or express-issue.
+
+Scenario: curate-thin-pool
+Session ID: a855258f-02de-4773-80c2-c2c1bc43f45d
+
+**Next step:** I present the unattended-fit table and a proposed batch for the user to review. I make no board changes until they approve. Ready is empty and there are no open PRs, so there are 3 free slots and nothing to swap out. I'm taking the empty Ready column from your description. I haven't run the board traversal.
+
+**Rules that decide it:** the "Unattended fit" section of `curate-ready-queue.md`. Three parts of it apply:
+- The criterion can draw candidates from any priority tier, and a pick below P1 is proposed with its promotion.
+- Size is a flag, and the requested count is a maximum.
+- At most one candidate past the size range can be named, as an optional last pick.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| H | Autouse guard for leaked asyncio marker | yes | yes | yes | yes | 40–80 | pick, promote P3 to P1 |
+| I | Config-file load test | yes | yes | yes | yes | 20–40 | pick, promote P2 to P1 |
+| G | Dependency lifecycle-script policy and exact pinning | yes (`make check` runs the dependency lint) | yes | yes (decisions recorded) | yes | 100–250 | optional last pick, upper estimate past the range |
+| E | File-operation ledger for compaction | yes | yes | yes | yes | 200–300 | not proposed, size past range |
+| F | Persist tool intent for workflow recovery | yes | yes | yes | yes | 200–350 | not proposed, size past range |
+| J | Mattermost thread fix | no (needs a live Mattermost server) | no | not stated | yes | 80 | no: gates don't verify acceptance |
+
+**Why this batch:**
+- **J** is disqualified outright. Its acceptance needs a live external service, and that rules it out even though it is P1 and small.
+- **H and I** fit every condition and are in or near the default 50–200 line range, with I slightly under it. Both are below P1, so each is proposed with its promotion. Neither goes into Ready until the user approves the promotion, and I would set Priority with `board set-field` before moving it.
+- **Sequencing:** H goes first because a test guard should come before other test work. I is next.
+- **G** is the only past-range candidate I'd name. Its estimate tops out at 250 lines, which is closer to the range than E or F. It goes last, and the risk is that an issue estimated past the range took about twice as long as the others in an earlier unattended run. The user decides whether it goes in.
+- **E and F** are past the range by more, and the rule says not to fill the batch with past-range candidates. Only one may be named, and G is the closest to the range.
+- **Thin pool:** you asked for two or three, which is a maximum. Only H and I fit within the range, so I'd say the pool is thin. G is an optional third.
+
+After the user approves, a subagent would move the approved issues to Ready under the machine identity and read each change back. I'd then show the final Ready queue against the WIP limit.
+
+Scenario: curate-for-unattended-run
+Session ID: 7d1a143c-80e6-471d-9a12-6cd9f5cae314
+
+**Next step:** I'd start with the full board audit in `curate-ready-queue.md`, under "Audit current board WIP". I wouldn't pick candidates or ask you anything yet. I haven't run anything in this session, and I've read only the curate skill and the audit heading of `burndown-ready-queue.md`.
+
+**Why:** The audit rule says to read every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue` and to use partial output for nothing. That traversal is `gh project view` to get the project node ID, then a paginated, slurped `gh api graphql` query over all items. It covers all 129 items: the 3 in Ready and the 126 in Backlog, plus anything in In progress or In review. Without the full inventory I can't count WIP or open slots, and I can't tell whether any open PRs conflict with a candidate. I'd also pull the project facts file, because it names the gate commands, `make check` and `make test`.
+
+**What I expect the audit to lead to:**
+
+1. **Ready items.** The skill says to recommend keeping or moving back each Ready item against the same criteria as candidates, with a one-line reason. All three fail the unattended-fit rule, so I'd recommend moving all three back to Backlog:
+   - The survey task isn't a small Python issue that the gates verify.
+   - The web feature needs a web UI or manual check.
+   - The dev-server change needs `make dev` running, and the skill says a running dev server disqualifies an issue "even when unit tests also exist."
+
+   Moving them back is a backward move. It needs `--allow-backward` and your decision as the reason, so I'd only propose it and wait for approval.
+
+2. **Candidate selection.** The deciding rule is "Unattended fit". It says your stated criterion can draw candidates from any priority tier. So I'd look at the small P2–P4 items and not limit myself to P0/P1.
+   - I'd read each plausible candidate's body and comments. The `triage:ready` label and the mostly unset Size field don't show that an issue is small or settled.
+   - I'd test each candidate against four conditions: the gates verify acceptance, no new service or credential is needed, scope is settled, and it is independent of the other picks and of open PRs.
+   - I'd estimate the change at about 50–200 lines including tests. Size is a flag, not a condition.
+   - Two or three is a maximum. If fewer fit, I'd propose only those and say the pool is thin. I'd name at most one over-range item, as an optional last pick placed last.
+
+3. **Presentation.** I'd give you the unattended-fit table, with a row for every candidate including rejected ones. Each row would say yes or no on each condition and a Result of pick, optional last pick, or the first condition it fails. Any pick below P1 would carry a proposed promotion, for example "pick, promote P3 to P1".
+
+4. **Board changes.** I'd change nothing until you approve. After that, a subagent would set Priority first for any promoted item, then move the item to Ready, and confirm each read-back.
+
+Scenario: board-transition-cli
+Session ID: b2eec7ce-dd78-481e-ac7f-efdb420c8d63
+
+**Next step:** move issue #920 from In progress to **In review** on project 3 (owner `acme`). Then arrange the review and hand off.
+
+**Deciding rule:** the "Mark the issue in review" section of `submit-pr.md` says that once a PR is ready for review, the issue it implements moves to In review. `shared/board-status.md` backs this up: its table lists submit-pr as the skill that sets "In review" when the PR exists and is ready. Two things in your situation make it apply:
+- The PR is ready, not a draft, so the draft exception doesn't apply.
+- #920 is the issue the PR implements, so it is the right issue to move.
+
+**How:**
+- If the PR is still a draft, use `pr ready`. Pass the body file, the reviewed head in `--expect-head`, and `--issue #920 --owner acme --project 3`. That one command updates the description, marks the PR ready and moves the issue, reading back each write. I wouldn't chain `gh pr edit` and `gh pr ready` myself.
+- If the PR was created ready, use `board set-status ISSUE_URL --owner acme --project 3 --status "In review"`.
+- I wouldn't query the board first. The tool reports the earlier status as `before`, which should match your handoff's In progress. I'd report `before`, `after`, `added` and `readback_matches`.
+- If `board set-status` or `pr ready` fails, I'd report the failure and still do the review request. A board failure doesn't fail the task.
+
+**Then:**
+- **Review:** for an agent PR, the review source is a completed different-model local review of the published head. I wouldn't request Copilot unless you asked for it.
+- **Handoff:** I'd run `pr-state` and `verify-commit` on the published head. The report would cover the PR and issue URLs, head, body file path, CI and review state, and the board result. I wouldn't merge, enable auto-merge, or change code to address findings.
