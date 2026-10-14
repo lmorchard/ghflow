@@ -47,7 +47,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [coordinator-notes-outside-checkout](scenarios/coordinator-notes-outside-checkout.md) | 2026-10-13 | f5f565b | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-notes-and-time-park.md](results/2026-10-13-notes-and-time-park.md) |
 | [coordinator-ready-to-dispatch](scenarios/coordinator-ready-to-dispatch.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [coordinator-settles-review-notes](scenarios/coordinator-settles-review-notes.md) | 2026-10-13 | 8e97ff9 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-unattended-budget.md](results/2026-10-13-unattended-budget.md) |
-| [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md) | 2026-10-13 | ca2ea3e | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-session-facts.md](results/2026-10-13-session-facts.md) |
+| [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md) | 2026-10-14 | b5e4e31 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
 | [copilot-automatic-request](scenarios/copilot-automatic-request.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [copilot-needs-closer-look](scenarios/copilot-needs-closer-look.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-cleanup-and-review-substitute.md](results/2026-10-03-cleanup-and-review-substitute.md): Evaluated commit after change not stated. |
 | [copilot-request-silent-local-covers](scenarios/copilot-request-silent-local-covers.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated. |
@@ -149,7 +149,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [reviewer-model-unknown](scenarios/reviewer-model-unknown.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [reviewer-recorded-models](scenarios/reviewer-recorded-models.md) | 2026-10-13 | 274ff30 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-waiver-model-evidence.md](results/2026-10-13-waiver-model-evidence.md) |
 | [reviewer-unneeded-draft](scenarios/reviewer-unneeded-draft.md) | 2026-10-07 | 05859e1de3d8eba77e7221499bdbdb30c0215b46 | Claude Code CLI 2.1.293 | claude-opus-5-5 | Pass | sample | [2026-10-07-reviewer-preparation.md](results/2026-10-07-reviewer-preparation.md): Uncommitted instruction hashes matched this later commit; accepted criteria refinement, not a rerun. |
-| [same-model-request-identity-gap](scenarios/same-model-request-identity-gap.md) | 2026-10-13 | d6e7c7f | claude | claude-sonnet-5-5 | Pass | final text | [2026-10-13-waiver-model-evidence.md](results/2026-10-13-waiver-model-evidence.md) |
+| [same-model-request-identity-gap](scenarios/same-model-request-identity-gap.md) | 2026-10-14 | b5e4e31 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
 | [shared-references-on-condition](scenarios/shared-references-on-condition.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [stale-handoff-board](scenarios/stale-handoff-board.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | regression | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after board change not stated. |
 | [stale-handoff-board](scenarios/stale-handoff-board.md) | 2026-10-02 | ff39aa1 | unknown | Claude Sonnet | Pass | baseline | [2026-10-02-retro.md](results/2026-10-02-retro.md) |
@@ -186,8 +186,9 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [unpublished-local-commit-missing](scenarios/unpublished-local-commit-missing.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
 | [unpublished-local-review](scenarios/unpublished-local-review.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [verify-cited-commit](scenarios/verify-cited-commit.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after change not stated. |
-| [waiver-skips-config-reads](scenarios/waiver-skips-config-reads.md) | 2026-10-13 | d6e7c7f | claude | claude-sonnet-5-5 | Pass | final text | [2026-10-13-waiver-model-evidence.md](results/2026-10-13-waiver-model-evidence.md) |
+| [waiver-skips-config-reads](scenarios/waiver-skips-config-reads.md) | 2026-10-14 | b5e4e31 | claude | claude-sonnet-5-5 | Pass | new text | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
 | [worker-placeholder-prompt](scenarios/worker-placeholder-prompt.md) | 2026-10-12 | ceb0134 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-worker-placeholder.md](results/2026-10-12-worker-placeholder.md) |
+| [worker-reports-own-model](scenarios/worker-reports-own-model.md) | 2026-10-14 | 6066701 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
 
 ## No recorded run
 
@@ -196,4 +197,3 @@ These scenarios have no structured run record in the reports. This does not prov
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
-- [worker-reports-own-model](scenarios/worker-reports-own-model.md)
