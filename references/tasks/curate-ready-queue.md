@@ -15,7 +15,7 @@ Read every board item with the validated traversal in [Audit the Ready queue](bu
 
 ## Select candidates from Backlog
 
-Use the selection criterion that the user states, such as size, language, verification method, or fitness for an unattended run, which [Unattended fit](#unattended-fit) defines. That criterion can draw candidates from any priority tier. Without one, select items with status `Backlog` and priority `P0` or `P1`. A candidate below `P1` needs the user's promotion to `P1` or `P0` before it enters `Ready`, as [Priority tiers](../shared/board-status.md#priority-tiers) states, so name the proposed promotion with the candidate. Read each plausible candidate's body and comments before you rank it. Labels such as `triage:ready` and an unset Size or Priority field do not show that an issue is small or settled.
+Use the selection criterion that the user states, such as size, language, verification method, or fitness for an unattended run, which [Unattended fit](#unattended-fit) defines. Apply it to `Backlog` items with priority `P0` or `P1` only; without a stated criterion, select from the same tier. Curation narrows attention to that tier and does not change priorities, as [Priority tiers](../shared/board-status.md#priority-tiers) states. Read each plausible candidate's body and comments before you rank it. Labels such as `triage:ready` and an unset Size or Priority field do not show that an issue is small or settled.
 
 1. Sort candidates:
    - `P0` items before `P1`.
@@ -25,7 +25,7 @@ Use the selection criterion that the user states, such as size, language, verifi
 
 ## Unattended fit
 
-When the user curates for an unattended run, apply this criterion to candidates of any priority. A pick below `P1` is proposed with its promotion to `P1`. The user's request can change any part of it, such as the size range or the number of issues. A candidate fits when all of these hold:
+When the user curates for an unattended run, apply this criterion to the `P0` and `P1` candidates. The user's request can change any part of it, such as the size range or the number of issues. A candidate fits when all of these hold:
 
 - Its acceptance criteria are checked by the project's gate commands, which the project facts file names. A criterion that needs a person, a running dev server, a browser, or a live external service disqualifies the issue, even when unit tests also exist.
 - Verifying it needs no new service, credential, or account.
@@ -34,14 +34,14 @@ When the user curates for an unattended run, apply this criterion to candidates 
 
 Size is a flag, not a condition. Estimate each fitting candidate's change, including tests; the default range is about 50 to 200 lines. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
 
-The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those and say that the pool is thin. Name at most one candidate past the range, as an optional last pick. Do not fill the batch with candidates past the range.
+The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those, say that the pool is thin, and recommend a [sweep-prioritize](sweep-prioritize.md) re-sweep of the lower tiers. Name at most one candidate past the range, as an optional last pick. Do not fill the batch with candidates past the range.
 
 Present the unattended candidates in this table, one row per candidate, including rejected ones:
 
 | Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
 |---|---|:---:|:---:|:---:|:---:|:---:|---|
 
-Write yes or no in each condition column, with the evidence when the answer is not obvious from the title. In Result, write pick, optional last pick, or the first condition the candidate fails. For a pick below `P1`, add the proposed promotion, such as "pick, promote P3 to P1".
+Write yes or no in each condition column, with the evidence when the answer is not obvious from the title. In Result, write pick, optional last pick, or the first condition the candidate fails.
 
 ## Review selection with the user
 
@@ -60,7 +60,7 @@ Once approved, dispatch a subagent to make the board changes under the machine i
 python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"
 ```
 
-A swap of a `Ready` item back to `Backlog` is a backward move. Pass `--allow-backward` with the user's decision as the reason, as [Board status](../shared/board-status.md#limits) requires. Before you move a candidate below `P1` to `Ready`, set its Priority to the promoted value the user approved with `board set-field` under [Other single-select fields](../shared/board-status.md#other-single-select-fields). Set any other Priority or Size the user decides the same way. Confirm each read-back.
+A swap of a `Ready` item back to `Backlog` is a backward move. Pass `--allow-backward` with the user's decision as the reason, as [Board status](../shared/board-status.md#limits) requires. When the user decides a Size, set it with `board set-field` under [Other single-select fields](../shared/board-status.md#other-single-select-fields). Do not change Priority here. Confirm each read-back.
 
 ## Return and hand off
 

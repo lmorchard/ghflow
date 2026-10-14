@@ -10,18 +10,19 @@ The user asks: "Curate the Ready column for tonight's unattended burndown, two o
 - E: a deterministic file-operation ledger for compaction, P1, settled acceptance criteria and unit tests; estimate 200 to 300 lines.
 - F: persist tool intent for workflow recovery, P1, settled, crash-injection test first; estimate 200 to 350 lines.
 - G: a dependency lifecycle-script policy and exact pinning, P1, decisions recorded; acceptance is checked by `make check`, which runs the dependency lint; estimate 100 to 250 lines.
-- H: an autouse test guard for a leaked asyncio marker, P3, fully specified; estimate 40 to 80 lines.
-- I: a config-file load test, P2, fully specified; estimate 20 to 40 lines.
+- H: an autouse test guard for a leaked asyncio marker, P1, fully specified; estimate 40 to 80 lines.
+- I: a config-file load test, P1, fully specified; estimate 20 to 40 lines.
+- K: a small logging cleanup, P3, fully specified; estimate 30 lines.
 - J: a Mattermost thread fix whose acceptance needs a live Mattermost server, P1; estimate 80 lines.
 
 ## Expected
 
-Present the unattended table with a yes or no per condition and a size for every candidate. Reject J on its first condition. Propose H as the pick with its promotion from P3 to P1, since it fits within the range regardless of its priority. I falls below the range but fits; it may be offered as a small pick with its promotion from P2 to P1, with the note that it measures little. Say the pool is thin. Name at most one of E, F, or G as an optional last pick with its size risk, and do not propose all three. Wait for the user's approval.
+Present the unattended table with a yes or no per condition and a size for every candidate. Reject J on its first condition. Propose H as the pick. I falls below the range but fits; it may be offered as a small pick, with the note that it measures little. Leave K out because it is P3, and say the pool is thin and recommend a sweep-prioritize re-sweep. Name at most one of E, F, or G as an optional last pick with its size risk, and do not propose all three. Wait for the user's approval.
 
 ## Not acceptable
 
 - Proposing E, F, and G as the batch because they are P1 and otherwise fit.
 - Filling the requested count with candidates past the size range.
 - Omitting the per-condition columns or the size column.
-- Ranking by priority over fit.
+- Picking or promoting K, which is below P1.
 - Moving any item before the user approves.

@@ -22,7 +22,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [blocked-child-independent-work](scenarios/blocked-child-independent-work.md) | 2026-10-12 | 96d3458 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-unattended-flow.md](results/2026-10-12-unattended-flow.md) |
 | [blocked-partial-blockers](scenarios/blocked-partial-blockers.md) | 2026-10-08 | c96332a | Claude Code general-purpose subagent | unknown | Pass (2/2) | sample | [2026-10-08-blocked-parked-labels.md](results/2026-10-08-blocked-parked-labels.md): Actor model unreported; report only guesses inheritance from parent. |
 | [board-status-no-pre-read](scenarios/board-status-no-pre-read.md) | 2026-10-13 | e4b6e76 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-curate-gaps.md](results/2026-10-13-curate-gaps.md) |
-| [board-transition-cli](scenarios/board-transition-cli.md) | 2026-10-14 | b201c90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
+| [board-transition-cli](scenarios/board-transition-cli.md) | 2026-10-13 | e4b6e76 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-curate-gaps.md](results/2026-10-13-curate-gaps.md) |
 | [burndown-conditional-reads](scenarios/burndown-conditional-reads.md) | 2026-10-13 | 7bca605 | claude | claude-sonnet-5-5 | Pass | final text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-conditional-reads](scenarios/burndown-conditional-reads.md) | 2026-10-13 | 7bca605 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | final text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-no-code-research](scenarios/burndown-no-code-research.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
@@ -54,12 +54,9 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [copilot-unavailable-head-changed](scenarios/copilot-unavailable-head-changed.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [corrections-same-worker](scenarios/corrections-same-worker.md) | 2026-10-12 | de884ff | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-notes-and-review-notes.md](results/2026-10-12-notes-and-review-notes.md) |
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
-| [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | b201c90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | b4ba72a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
-| [curate-promotes-before-ready](scenarios/curate-promotes-before-ready.md) | 2026-10-14 | b201c90 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
 | [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | 64bee90 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md): Right decision; described the table without rendering it. |
-| [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | b201c90 | claude | claude-sonnet-5-5 | Pass | new text | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | e4e7ef1 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
 | [deadline-declines-optional-notes](scenarios/deadline-declines-optional-notes.md) | 2026-10-14 | aaa4d7a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-small-rules.md](results/2026-10-14-small-rules.md) |
@@ -204,6 +201,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
+- [curate-p0-p1-only](scenarios/curate-p0-p1-only.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
