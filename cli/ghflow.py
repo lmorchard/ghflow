@@ -1119,8 +1119,8 @@ def strip_jsonc(text):
 RUNTIME_NESTED_DISPATCH = {"opencode": False}
 # OpenCode, 2026-10-12/13: every subagent ran the session's --model value, not the configured default.
 OPENCODE_SUBAGENT_MODEL_RULE = ("A subagent without its own agent model runs the model of the session that dispatched it. "
-                                "The session model can come from a --model flag, which no configuration file shows; "
-                                "each task result's metadata records the model a worker actually ran.")
+                                "The session model can come from a --model flag, which no configuration file shows. "
+                                "A worker's identity is the model ID its runtime states to it.")
 
 
 def read_runtime(root, env, home):
@@ -1141,20 +1141,20 @@ def read_runtime(root, env, home):
         candidates.append(("env", Path(env["OPENCODE_CONFIG"]).expanduser()))
     candidates += [("global", home / ".config" / "opencode" / name) for name in ("opencode.json", "opencode.jsonc")]
     candidates += [("project", root / name) for name in ("opencode.json", "opencode.jsonc")]
-    files, default_model, small_model, agent_models = [], None, None, {}
+    files, agent_models = [], {}
     for scope, path in candidates:
         if not path.is_file():
             continue
         config = json.loads(strip_jsonc(path.read_text(encoding="utf-8")))
         response_type(config, dict, f"The OpenCode config {path}")
         files.append({"scope": scope, "path": str(path)})
-        default_model = config.get("model", default_model)
-        small_model = config.get("small_model", small_model)
         for name, settings in (config.get("agent") or {}).items():
             if isinstance(settings, dict) and isinstance(settings.get("model"), str):
                 agent_models[name] = settings["model"]
-    info.update({"config_files": files, "config_default_model": default_model, "config_small_model": small_model,
-                 "agent_models": agent_models, "subagent_model_rule": OPENCODE_SUBAGENT_MODEL_RULE})
+    # The configured default model is not reported: a --model flag overrides it, and workers
+    # recorded it as their own identity in the 2026-10-13 burndown. Per-agent overrides do
+    # decide a subagent's model, so they stay.
+    info.update({"config_files": files, "agent_models": agent_models, "subagent_model_rule": OPENCODE_SUBAGENT_MODEL_RULE})
     return info
 
 
