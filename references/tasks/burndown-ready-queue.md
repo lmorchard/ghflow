@@ -92,7 +92,7 @@ Process one issue at a time:
 4. **Disruption**: a persistent test failure, a review defect that the correction cycle does not resolve, an unexpected merge conflict, or a decision that [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks.
    - In an interactive run, **halt the burndown immediately.** Do not advance to the next issue. Preserve the worktree and branch. Return the blocker, error logs, and proposed remediation to the user.
    - In an unattended run, which the user's request states, park the issue under [Park an issue in an unattended flow](express-issue.md#park-an-issue-in-an-unattended-flow), record it for the summary, and continue with the next selected issue. Halt even when unattended if the failure would affect every later issue: the identity check or token fails, the base branch's CI is red, or the same environment failure parks two issues in a row. A merge endpoint never runs unattended.
-   - When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded.
+   - When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded. A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline.
    - Before you dispatch work under a time budget, estimate it from durations measured in this run: the worker's last comparable task, a review, and your own recent turns between dispatches. CI time alone is not an estimate. Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint.
 5. For a merge endpoint, obtain CI on the base branch's merge commit through the responsible worker before you start the next issue. If it fails, treat it as a disruption and halt. After each merge, run `facts` again; if a source became stale, apply [Check the project facts](#check-the-project-facts) before the next issue.
 6. If the issue successfully completes to the authorized endpoint, proceed to the next selected issue that has not reached that endpoint.
@@ -101,7 +101,7 @@ Process one issue at a time:
 
 When all selected issues have reached the agreed endpoint:
 
-1. Present a delivery summary table:
+1. Read the time with a clock command, and state the actual end time and any step that finished after the deadline. Then present a delivery summary table:
    - Issue number and title.
    - Pull request URL and head commit SHA.
    - Review evidence (local reviewer model or Copilot).
