@@ -59,7 +59,7 @@ Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live fac
 
 Three parts describe the session rather than the project:
 
-- `base_ci` gives the check runs and commit statuses on the remote default branch head, with `summary` as in `pr-state` and each required check that has not reported marked `missing`.
+- `base_ci` gives the check runs and commit statuses on the remote default branch head as of the checkout's last fetch, with `summary` as in `pr-state` and each required check that has not reported marked `missing`. `fetch_age_seconds` gives the age of that fetch, and `stale` is true when no fetch is recorded or it is older than ten minutes; `facts` does not fetch, so run `git fetch origin` and read it again.
 - `runtime` names the agent runtime that `facts` detects from its environment, such as `opencode` from `OPENCODE` or `claude` from `CLAUDECODE`, and `nested_dispatch`, which is `false` when a subagent in that runtime cannot dispatch its own subagents and `null` when that is unverified. For OpenCode it also lists the configuration files read, per-agent `agent_models`, and `subagent_model_rule`. It does not report a configured default model: a session started with `--model` runs another model, and a worker's identity is the model ID its own runtime states to it.
 - `skill_source` gives the skill checkout path, head, branch, dirty state, upstream, the upstream's remote head from `git ls-remote`, and `up_to_date`.
 
