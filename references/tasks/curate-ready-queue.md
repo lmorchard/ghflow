@@ -31,9 +31,10 @@ When the user curates for an unattended run, apply this criterion in place of th
 - Verifying it needs no new service, credential, or account.
 - Its scope is settled: the decisions are recorded on the issue, and no open question or proposal awaits the user.
 - It is independent of the other selected issues and of open PRs.
-- Its estimated change is about 50 to 200 lines, including tests. Flag an estimate near the top of the range: in the second unattended run, an issue estimated at 150 to 240 lines took twice as long as the others.
 
-In the table, give each candidate's result against each condition, and name the first condition a rejected candidate fails.
+Size is a flag, not a condition. Estimate each fitting candidate's change, including tests; the default range is about 50 to 200 lines. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
+
+In the table, give each candidate's result against each condition and its size estimate, and name the first condition a rejected candidate fails.
 
 ## Review selection with the user
 
