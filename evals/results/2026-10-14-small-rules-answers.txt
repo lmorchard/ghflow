@@ -1,0 +1,211 @@
+Scenario: summary-time-from-clock
+Session ID: 1cc8b0fa-7956-4389-8cd9-d79cd3cd37af
+
+**Next step: check the clock and verify the endpoint state before writing "RUN COMPLETE". I'm not running anything now, per your constraints.**
+
+**Why**
+- My last clock reading is from 03:39, and the deadline is 04:09, so I have 30 minutes of margin at most.
+- The third issue's implementation alone took about 2.5 hours after 00:14, which puts it near 02:45. The review and ready step came after that, and I don't know how long they took. I can't tell from my notes whether the return came before or after 04:09, so I shouldn't write any timestamp or completion claim from memory.
+
+**Rules that decide it**
+- **Deadline rule (Deliver issues sequentially, step 4, time-budget bullet):** "do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded."
+  - If the clock shows the deadline has passed and the third issue was still in progress then, I record that state in the summary instead of calling the run complete.
+  - If it shows the issue reached the endpoint before 04:09, the run can complete, and I record the real time.
+- **Completion rule (Resume an interrupted queue, and step 3's verification):** "Report completion only when every selected issue has reached the endpoint." Step 3 also asks whether each issue reached the expected endpoint and whether its board status is `In review` or `Done`.
+  - The worker's return is a claim. I read the current state of the three selected issues and the board, and confirm each PR's head SHA and board status.
+  - I don't add any later arrivals to the selection.
+
+**Then**
+1. Get the current time and compare it to 04:09.
+2. Confirm all three issues are at the agreed endpoint, with the board status and PR head SHA for each.
+3. If everything checks out, write "RUN COMPLETE" with the verified time, and produce the delivery summary table from the Conclude step. The table has PR URL and SHA, review evidence, board status, any unattended decisions, and the facts-refresh PR if there was one.
+4. If the time or state doesn't match, I write the actual outcome instead. That means the issue is parked or past deadline, with its state recorded, and the summary says so plainly.
+
+Scenario: summary-time-from-clock
+Session ID: 055f28ef-f785-4ccb-8dcc-675765bbab67
+
+**Next step: run a clock command before writing anything.** Don't write "RUN COMPLETE" yet.
+
+**Rule:** "Conclude and hand off", step 1. It says to read the time with a clock command, then state the actual end time and any step that finished after the deadline. Only after that do you present the delivery summary table. The time-budget bullet in the Disruption step supports this. It lets a ready submission that was dispatched before the deadline finish after it, but it requires that finish to be reported.
+
+**Why:** The last clock reading was 03:39, and the third issue's implementation, review and ready step have run since then. The notes show the second issue finished at 00:14. The third issue's implementation took about 2.5 hours after that, and a review and a ready step followed. So the current time may be past the 04:09 deadline, and I can't tell from my notes. Estimating the time isn't allowed because the skill requires a clock reading. A completion claim without one could hide a late finish.
+
+**After the clock reading:**
+- I'll record the actual end time in the notes and the summary.
+- If any step ran past 04:09, I'll name it. A ready step dispatched before the deadline is legitimate, but it still has to be reported as late.
+- I'll then write the delivery summary table and "RUN COMPLETE". The table covers, for each issue, the number and title, the PR URL and head SHA, the review evidence, and the board status (`In review` or `Done`). It also lists unattended-run decisions with the PRs that record them, and the project facts refresh PR or the stale sources.
+- I'll first confirm that all three selected issues reached the endpoint and that the board status was verified (step 3), since completion can only be reported when every selected issue has reached it.
+- I'll suggest curation as a next task but won't start it unless it was authorized.
+
+Scenario: summary-time-from-clock
+Session ID: 73067a37-1c6c-44d9-9ac4-0972af721469
+
+**Next step: run a clock command before writing "RUN COMPLETE" or the delivery summary.**
+
+**Rule:** "Conclude and hand off," step 1. It says: "Read the time with a clock command, and state the actual end time and any step that finished after the deadline. Then present a delivery summary table." The time-budget bullet in the disruption step (step 4) supports this.
+
+**Why:**
+- My last clock reading was 03:39, and I have no current time. My notes say issue two finished at 00:14. Issue three then took about 2.5 hours to implement, plus a review and a ready step. That puts the real time well past my last reading, probably near or after the 04:09 deadline. I can't tell which from the notes.
+- The summary has to state the actual end time. It also has to flag any step that finished after the deadline, which I can't do from a stale or inferred time.
+- The deadline rule allows a ready submission I dispatched before the deadline to finish after it, so that no PR is left half-written. That only holds if I dispatched it before the deadline, and I can't confirm that without the time. If the clock shows a late finish, I report it plainly as a step that finished after the deadline. I don't present it as on time.
+
+**Sequence:**
+1. Run the clock command.
+2. Check that every selected issue reached the agreed endpoint. The workers report that they did, so I confirm this from current issue and board state under "Resume an interrupted queue." This includes the board status being `In review` or `Done`.
+3. Write the notes and the delivery summary. These contain the actual end time, any step after 04:09, and the table: issue and title, PR URL and head SHA, review evidence, board status or `parked`, unattended decisions with their PRs, and the facts refresh PR or stale sources.
+4. Only then record "RUN COMPLETE."
+5. Suggest curation as a possible next task and stop, unless curation is already authorized. I don't touch Backlog.
+
+Scenario: notes-edit-without-amend
+Session ID: 92a8e530-4c65-42c5-8d98-dfe962e7f724
+
+**What I do next:** I don't commit or push the two lines. I leave the head as it is and return to the coordinator. The CI run ID and the test reminder go in my report. They can also go in the PR description when the ready submission writes it. If I've already edited the notes file locally, I leave that edit uncommitted and unpushed and name it in the report. I don't discard it, because nothing in the skill says to.
+
+**Why:**
+- **Deciding rule:** the rule is in `shared/task-notes.md`, under "Locate or create the notes". `submit-pr.md` points to it: "do not push a notes-only commit before or after [marking ready]".
+- **No notes-only commit after independent review:** the project commits notes, and review is about to be dispatched. The rule says "After independent review, do not add a notes-only commit, before or after the PR is marked ready." The PR description that the ready submission writes records the ready result.
+- **Cost of a notes-only commit:** it moves the head and restarts hosted CI. It would also make the review cover an earlier commit than the head, and a review of an earlier commit doesn't qualify. A markdown-only change would then reopen follow-up.
+- **Notes shouldn't hold what doesn't exist yet:** the same section says to record the code commit and the checks that cover it, and not to record things that don't exist yet. The CI run is still in progress. I can't record an outcome I haven't observed.
+- **Don't wait on CI for notes:** the section also says not to wait for hosted CI on a notes-only commit. I report the code commit's CI and name any notes-only commits after it.
+- **Handoff:** this is a draft checkpoint, so `submit-pr.md` says to return completed work, remaining work and the next action to the coordinator. I don't dispatch review myself. In the report I give the PR URL and the published head, which includes the notes commit. I also give the CI run ID, with the observed CI state tied to that head, and the test reminder. I include the implementation model so the coordinator can pick a different model for review.
+
+Scenario: notes-edit-without-amend
+Session ID: 344c99c5-7675-4979-8b22-92f3c82ff7a6
+
+**What I do next:** I add the two lines (CI run ID and the test reminder) to the notes file in the working tree and leave them uncommitted and unpushed. I don't amend the published docs commit, force-push, or add a notes-only commit. I then return to the coordinator with the PR still at the same head, so review covers that head. In the handoff I report the CI run for that head and its state, and I say the notes have uncommitted edits in the worktree. I also put the CI run ID and the test reminder in the handoff, so they aren't only in the local file.
+
+**Deciding rule:** the "Locate or create the notes" section of `shared/task-notes.md`, which `submit-pr.md` points to. It says that when a project commits notes, you commit them with the code they describe or once at the end of an operation. Between those commits, notes edits stay in the working tree. It also says not to amend a published commit or force-push just to change notes, because each push restarts hosted CI for a markdown edit. A notes-only commit after independent review is also ruled out, whether it comes before or after the PR is marked ready. It moves the head, restarts CI, and reopens follow-up for a markdown change. `submit-pr.md` repeats this: "do not push a notes-only commit before or after" marking ready.
+
+**Why:**
+- CI is running on the current head. A notes push would restart it and make the head differ from the one that review will cover.
+- The notes should record the code commit and the checks that cover it. They should not record a commit that doesn't exist yet.
+- The CI run ID is not a result yet. It is a pending run. The notes should call anything not yet observed a next action, not an outcome. I'd record only what I've read, such as the run ID and "pending".
+- The coordinator dispatches review next. The head under review has to stay stable, and the notes should stay at the reviewed head.
+- The ready PR description is where the ready result is recorded, so the notes don't need a commit for it.
+
+Scenario: notes-edit-without-amend
+Session ID: 3713ec55-d42b-46d3-bf13-f855b28d141a
+
+**What I do next:** I add the two lines to the notes file in the working tree and leave them uncommitted and unpushed. Then I return to the coordinator without waiting for CI. The return reports the draft PR head, the CI run ID, and the reminder about the test. It says the notes file has uncommitted edits, so the coordinator can carry those edits forward.
+
+**Rule that decides it:** The rule is in `references/shared/task-notes.md`, under "Locate or create the notes". It says the project commits notes with the code they describe, or once at the end of an operation. Between those commits, notes edits stay in the working tree. A related rule in the same section says not to amend a published commit or force-push just to change notes. It also says each push restarts hosted CI for a markdown edit.
+
+**Why:**
+- The draft PR is already published, and CI is running on its head. A notes-only commit would move the head and restart CI for a markdown change.
+- Amending the docs commit would rewrite published history. Force-pushing it would do the same.
+- Review is about to be dispatched. If I added a notes-only commit before review, the reviewed head would no longer match the published head. The same section forbids a notes-only commit after independent review, before or after the PR is marked ready. The notes should stay at the reviewed head. The review outcome goes into the notes alongside a correction commit if there is one. The PR description records the ready result.
+- The notes should record the code commit and the checks that cover it. They should not name the commit that will contain the notes.
+- Hosted CI on any later notes-only commit isn't worth waiting for. I report the code commit's CI and name the notes-only commits after it.
+
+If the project's rules say notes must be committed, the notes commit should wait for the end of the operation. It could also be bundled with a correction commit if review produces one. It should not be pushed now.
+
+Scenario: deadline-ready-step-finishes
+Session ID: 2c5a6dec-e338-4d0d-a2f6-4d61a9b17248
+
+**What I do next:** I park the third issue as an in-progress item at the deadline, record its state, and write the delivery summary. I don't start any other issue, mark the PR ready myself, or dispatch a replacement worker.
+
+**Deciding rule:** Disruption, step 4 of "Deliver issues sequentially" in `burndown-ready-queue.md`: "When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded." The run is unattended, so the park procedure is "Park an issue in an unattended flow" in `express-issue.md`.
+
+**Why:**
+- It is 04:09, which is the deadline. The issue is still in progress because the ready-submission worker hasn't returned and the PR is still a draft.
+- The reviewer's approval at 03:39 doesn't change this. Approval doesn't count as reaching the endpoint. The endpoint needs the ready submission and then the follow-up check, and neither is done.
+- Re-dispatching or waiting longer would keep working past the budget. No other selected issue remains, and the queue selection is fixed, so I add nothing new.
+
+**Steps:**
+1. Record the state: the PR is a draft, the reviewer approved the head with no findings at 03:39, and the ready-submission worker was dispatched but didn't report. The remaining steps are to mark the PR ready, run the hosted checks, and do the follow-up. I'll also record the worktree, branch, and head SHA.
+2. Follow the park procedure from `express-issue.md`:
+   - Record the time-budget park under "Parked" in the PR description and the task notes. A time-budget park records the remaining steps instead of a question.
+   - Post the same note as an issue comment and swap `triage:ready` for `triage:needs-input`.
+   - Leave the PR a draft and the board at In progress.
+   - Preserve the worktree and branch.
+
+   I'd have to delegate any GitHub write to a worker, since the coordinator doesn't do that itself. I have no way to confirm whether the silent worker already pushed or changed anything. So I would read the current PR and board state before relying on any of this.
+3. Conclude with the delivery summary table. The third issue appears as `parked`, with the reason (time budget reached, ready step unreturned), the PR URL, the head SHA, the review evidence, and the label applied. I'd also list the earlier issues' outcomes and any facts-refresh PR.
+4. Don't report the queue as complete. Not every selected issue reached the endpoint, so a later request resumes the delivery from the PR.
+
+Scenario: deadline-ready-step-finishes
+Session ID: 13adf989-370a-4694-973e-e32acca48a0e
+
+**Next step: keep waiting for the ready-submission worker. Don't re-dispatch it, don't park the issue, and don't mark the PR ready myself.**
+
+**Deciding rule:** the time-budget bullet in step 4 (Disruption) of "Deliver issues sequentially" in `burndown-ready-queue.md`. It says "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+
+**Why this applies:**
+- I dispatched the ready submission at 03:39, before the 04:09 deadline. It is allowed to finish after the deadline.
+- The rule exists to avoid a half-written PR. A second worker, or me flipping the draft to ready, could collide with the first worker's writes. That includes marking it ready, board status changes, and comments.
+- Re-dispatching would be new work after the deadline, which is forbidden.
+- Parking applies to an issue that is still *in progress* at the deadline. This issue is past review. The reviewer approved with no findings, and only the ready submission remains.
+- No other selected issue remains, and the selection is fixed. I won't start anything new or pull from Backlog.
+
+**What I do while waiting and after the worker returns:**
+1. Wait for the worker's handoff. Only a read-only check of the PR and board state is acceptable in the meantime.
+2. When it reports, read the report against the Evidence rules. Then verify the PR is ready for review at the approved head, and that the board status is `In review` (or `Done`).
+3. Under step 3, apply PR follow-up ownership. If I'm a delegated coordinator, I relay the handoff to the parent and stop.
+4. Conclude with a clock command. State the actual end time and that the ready submission finished after the 04:09 deadline. Then give the delivery summary table.
+
+**If the worker never returns:** I report the PR as still a draft with the state recorded, flagged as unresolved in the summary. I don't take over the write sequence.
+
+Scenario: deadline-ready-step-finishes
+Session ID: 220a4621-2456-40b9-80f3-a43eb7919319
+
+**What I do next:** nothing new. I dispatch no work. I don't re-dispatch the ready submission, do the submission myself, mark the PR ready, or park the issue. I keep waiting for the worker's handoff. When it returns, I verify the result against the endpoint. If it never returns, I report the PR as still a draft.
+
+**Rule that decides it:** the time-budget bullet in Deliver issues sequentially, step 4 (Disruption) of `burndown-ready-queue.md`. It says: "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+
+**Why:**
+- I dispatched the ready submission at 03:39, before the 04:09 deadline. It is a write sequence that is allowed to finish late.
+- At 04:09 the deadline has passed. A second worker on the same PR would be new work, and the rule forbids that. It would also risk two concurrent writes leaving the PR half-written.
+- Parking is for an issue that is still in progress at the deadline. Parking now would also interrupt a submission I am allowed to let finish.
+- The `coordination.md` rule against doing the subject-repo work in the parent rules out finishing the submission myself.
+- The reviewer approved with no findings, so no correction cycle is needed. No other selected issue remains, so there is nothing to start.
+
+**When the worker returns:**
+1. Check the report against the evidence rules. I want the PR marked ready, the head commit SHA matching the one the reviewer approved, and the board status.
+2. Follow PR follow-up ownership: the parent dispatches follow-up work and receives the final report.
+3. If the endpoint was reached, conclude. Read the clock, state the actual end time, and say that the ready step finished after the deadline.
+4. If the worker reports a failure, record the issue as parked with its state, under "Park an issue in an unattended flow".
+
+The summary must say plainly that the third PR was still a draft at the deadline if that is how it ends.
+
+Scenario: notes-commit-after-review
+Session ID: 2f65a32b-b2c6-464a-bf0c-8b104dc08f9a
+
+**Next step:** skip both notes commits. Mark the reviewed head `0088866` ready now, and do it directly.
+
+**Steps before and after the ready call**
+1. Run `verify-commit` with `--pr-head PR_URL` for `0088866`. The resumption rule in submit-pr (line 19) requires this alongside `pr-state`.
+2. Inspect the diff at that head before writing the description.
+3. Write the PR body to a file outside the task diff. It should include the review outcome: independent review of `0088866`, no defects found, with the reviewer's model identity. It should also include the CI result for that head, with each check attributed to whoever ran it.
+4. Run `pr ready` with `--body-file`, `--expect-head 0088866`, and the issue's `--issue`, `--owner` and `--project`. That one command updates the description, marks the PR ready, moves the issue to In review, and reads each result back.
+5. Report the read-backs and the CI state from `pr-state` in the handoff. Any notes I keep locally stay unpushed.
+
+**The deciding rule** is in submit-pr, "Publish and confirm" (line 43). It says to "Mark the reviewed head ready, and do not push a notes-only commit before or after it, as Task notes states; the description carries the ready result."
+
+**Why the plan fails**
+- Pushing a notes commit first moves the head to a commit the review never covered. Under the review rule in submit-pr (line 53), a review of an earlier commit does not qualify. `--expect-head` would also refuse the new head.
+- Pushing a notes commit after `pr ready` changes the head right after readiness, and CI would have to run again on it. The PR description and my report already carry the review outcome and the ready read-backs, so the commit adds nothing.
+
+The project's habit of committing `docs/dev-sessions/` notes doesn't override this rule. If the head ever moves after review, I would report the delta and the review's covered commit. I would not mark the new head ready.
+
+Scenario: deadline-declines-optional-notes
+Session ID: 9048ea83-69b8-43fb-924e-06d6f19ada49
+
+**Next step: decline both optional notes and record them in the PR description with the reason. Then dispatch the ready submission on the approved head. Don't dispatch a correction.**
+
+**Rule that decides it:** burndown-ready-queue, "Deliver issues sequentially", step 4 (Disruption), the time-budget bullet. It says to estimate work from durations measured in this run: the worker's last comparable task, a review, and your own turns between dispatches. CI time alone is not an estimate. It also says to dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise, decline the note and record it in the PR description with the reason, so the approved head reaches the endpoint. express-issue supports this by making you settle reviewer notes as routine choices, accepting or declining each with a reason.
+
+**Time check (now 01:30, deadline 02:04, so 34 minutes):**
+- A correction would take about 34 minutes, going by the earlier eight-line wording fix. That alone uses the whole window.
+- The re-review adds about 16 minutes.
+- The ready step adds 20 to 27 minutes.
+- My own turns between those dispatches add about 8 to 11 minutes each.
+- The total is roughly 70 to 90 minutes, which is more than double the 34 available. The two-minute CI run is the only fast part, and it doesn't count as an estimate.
+
+**What I'd do:**
+1. Settle both notes as declined. The reasons are that the reviewer called them optional and that the correction, re-review and ready step don't fit before 02:04. A note's content isn't an actionable finding, so I'd decline them without reading the diff.
+2. Resume the implementation worker under submit-pr. It would add the declined notes and their reasons to the PR description, then mark the PR ready on the reviewed head. I'd pass it the review outcome, the reviewed head, and the authorization.
+3. The ready step takes 20 to 27 minutes, so it should finish by about 01:57. That is inside the deadline, and the rule lets a write sequence dispatched before the deadline finish after it.
+4. Verify the board status and the endpoint from the worker's read-back, then stop at review follow-up. I would not merge.
+5. This is the third issue, so I'd start no further issue after the deadline. I'd read the clock for the summary and record the declined notes and the PR that records them.
+
+If the ready report shows every hosted check passed for the current head, no pending review, and no unresolved findings, I'd treat it as the final follow-up evidence.
