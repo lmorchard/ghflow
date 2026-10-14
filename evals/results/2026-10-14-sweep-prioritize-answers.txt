@@ -1,0 +1,156 @@
+Scenario: sweep-promotes-for-unattended
+Session ID: 47fe9115-16ac-4406-b8b9-873a1648d1e4
+
+**Next step: present a ranking table to the user and stop. Don't change the board yet.**
+
+**Rule that decides it:** In `sweep-prioritize.md`, "Review ranking with the user" says to present a summary table, discuss adjustments, and record confirmed values. "Update project board fields" then starts with "Once rankings are confirmed". Subagents write the fields only after that confirmation, and the GitHub-writes rule applies before any write. A re-sweep of P2/P3 issues is a valid trigger because the P0/P1 queue is thin. The skill also says it does not move issues to `Ready` or begin implementation, so choosing what runs tonight belongs to curate-ready-queue.
+
+**Priority and size follow the tier definitions, not how easy an issue is to run unattended.** Fully specified, verifiable by `make test`, and small are properties of Size and of curation. They don't make an issue P0 or P1.
+
+| Issue | Suggested Priority | Suggested Size | Rationale |
+|---|:---:|:---:|---|
+| #947 autouse test guard | P3 now; P0 if the guard blocks a real test-execution hazard | S (40–80 lines) | The skill lists test execution hazards as P0, so I'd check the issue against current code. If it only adds a convenience guard, it stays P3. |
+| #600 config-file load test | P2 | S (20–40 lines) | Quality-of-life test coverage. Nothing in it argues for promotion. |
+| #948 copy button on keyboard focus | P2 | S (~30 lines) | UI polish. Acceptance needs a manual Tab check in a browser, so it is a poor fit for unattended work. That is a curation concern, not a reason to change its priority. |
+| #637 telemetry report | P2 | M, or L at the top of the range (250–400 lines) | The scope is settled, but it is large. It isn't a P1 unless there is a reason to call it high-leverage. |
+
+**Other points for the user:**
+- The skill defines `P0`–`P3`, but the board also offers P4. I'd use only P0–P3 unless the user says otherwise.
+- Promoting any of these to P0/P1 would also put it in `Backlog` once confirmed. P2/P3 items stay where they are.
+- On confirmation, a subagent would set Priority, Size and Status under the machine identity. After that, I'd hand off to curate-ready-queue.
+- Curation will probably find that #947 and #600 suit tonight's run, #948 doesn't because of its manual check, and #637 is too big.
+
+Scenario: sweep-promotes-for-unattended
+Session ID: da0596e1-4c5e-4749-ad85-6abfe0c9ff23
+
+**Next step:** I'd run the re-sweep as a ranking review and change nothing on the board yet. I'd present a table to the user and wait for their confirmation. The deciding rules are in `sweep-prioritize.md`. "Re-sweep of lower tiers" applies because curation reported a thin P0/P1 pool. "Review ranking with the user" says "Change no field before the user confirms." Because the re-sweep feeds an unattended run, the skill also requires the unattended-fit check from `curate-ready-queue.md#unattended-fit`. I report that result beside each suggested priority. Fit is evidence for the user's promotion decision, not a promotion by itself.
+
+The board's Priority options are P0 to P4, which match the skill's list, so there is no difference to report.
+
+| Issue | Current | Suggested | Gates verify | No new service | Scope settled | Independent | Size estimate | Fit result |
+|---|:---:|:---:|:---:|:---:|:---:|:---:|---|---|
+| #947 autouse test guard | P3 | P1 (promote) | yes (`make test`) | yes | yes | yes | 40–80 lines, S | pick |
+| #600 config-file load test | P2 | P1 (promote) | yes | yes | yes | yes | 20–40 lines, S | pick. It is under the ~50-line default range, but size is only a flag. |
+| #948 copy button on focus | P2 | stay P2 | **no** (needs a manual Tab check in a browser) | yes | yes | yes | ~30 lines | fails the first condition |
+| #637 telemetry report | P2 | stay P2 | yes | yes | yes | yes | 250–400 lines, L | optional last pick at most, because it is well past the range |
+
+**Why:**
+- **#947 and #600** pass all four conditions. Both are checked by `make test`, need no new service, are fully specified, and are independent. I'd suggest promoting both to P1, subject to the user's confirmation.
+- **#947 priority:** a test guard also matches the P0 "test execution hazard" idea. I'd flag that for the user's judgment.
+- **#948** fails the first condition. A criterion that needs a browser or a person disqualifies it "even when unit tests also exist". It stays out of tonight's run whatever its priority.
+- **#637** fits except on size. Size is a flag, not a condition, so it isn't rejected. At 250–400 lines it is well past the range, and the skill says not to fill the batch with candidates past the range. I'd name it only as an optional last pick, and I'd leave promoting it to the user.
+
+**Thin pool:** only two issues fit cleanly. I'd say so plainly and not pad the batch.
+
+**After confirmation:** a subagent sets Priority and Size with `board set-field` and confirms each read-back. Promoted issues stay in `Backlog`. I'd then hand off to `curate-ready-queue` to choose what moves to `Ready`.
+
+Scenario: sweep-promotes-for-unattended
+Session ID: 88256690-e370-48e9-8602-00f79b72da75
+
+**Next step:** I don't change any board fields yet. I present a ranking table to the user and wait for their confirmation. The deciding rule is in sweep-prioritize, under "Review ranking with the user": "Change no field before the user confirms." The same section says an unattended re-sweep adds the unattended-fit result to each row and marks each promotion. The re-sweep is the "Re-sweep of lower tiers" case, triggered by curation's thin-pool report. Because the user said it feeds an unattended run, "Select the candidate pool" requires checking each candidate against curate-ready-queue's Unattended fit. Fit is evidence for the user's promotion decision, not a promotion by itself.
+
+The board's Priority options are P0 to P4, which match the skill's list, so there is no difference to report.
+
+| Issue | Current | Suggested Priority | Size | Gates verify | No new service | Scope settled | Independent | Size estimate | Result |
+|---|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|---|
+| #947 autouse test guard | P3 | P1 (promote; it is a test-hazard guard, closer to P0/P1 under the skill's tiers) | S | yes (`make test`) | yes | yes | yes | 40–80, within the 50–200 range | pick |
+| #600 config-file load test | P2 | P1 (promote) | S | yes | yes | yes | yes | 20–40, below the range | pick, with a note on its small size |
+| #948 copy button on focus | P2 | stay P2 | S | **no**: acceptance needs a manual Tab check in a browser | – | – | – | 30 | fails the first condition |
+| #637 telemetry report | P2 | stay P2 | M/L | yes | yes | yes | yes | 250–400, well past the range | optional last pick, with the overrun risk named |
+
+**Why this outcome:**
+- **#947 and #600** meet all four conditions. The size band is a flag, not a condition, so #600's small estimate doesn't disqualify it. Both are promotion candidates, and I'd suggest a combined run of about 60–120 lines.
+- **#948** fails the first condition, because a browser check by hand disqualifies it even if unit tests exist. It stays out of tonight's run.
+- **#637** meets the conditions but is past the range. The skill allows at most one candidate past the range, as an optional last pick, and says not to fill the batch with such items. I'd flag the risk that overruns take about twice as long, and leave the decision to the user.
+- The pool is still thin: only two issues fit within the range. I'd say so plainly instead of padding it.
+
+**After the user confirms:** a subagent sets Priority and Size with `board set-field` under the machine identity, and I check each read-back. Promoted issues stay in `Backlog`. I then hand off to curate-ready-queue to pull them into `Ready`.
+
+Scenario: sweep-promotes-for-unattended
+Session ID: ses_ec37ee815ffejUU6y4cPNHMNjY
+
+## Decision — what I do next
+
+I re‑evaluate the four P2/P3 candidates against the Priority and Size tiers, produce the re‑sweep ranking (suggested Priority + Size + rationale per issue), and **present that ranking to the parent/user for confirmation**. I do **not** dispatch a board‑writing subagent, I do **not** write the board, and — most importantly — I do **not** pre‑select a Ready batch "for tonight's run." Once the ranking is confirmed, a subagent would write the fields (staging any promoted P0/P1 into `Backlog`), and only then does the hand‑off skill pick the actual unattended batch.
+
+## Why
+
+The re‑sweep itself is in scope (thin P0/P1 pool; curation recommended it). But the user's framing — "issues that could feed tonight's run" — is asking for a Ready selection, which is not this skill's job. Promotion and Ready entry are two different steps:
+
+- `sweep-prioritize` re‑prioritizes and stages promoted P0/P1 into **Backlog**; it explicitly **does not move issues to Ready** and hands off to `curate-ready-queue` to select the Ready column.
+- `board-status` (Priority tiers): *"An issue below `P1` enters `Ready` only after it is promoted to `P1` or `P0`, through sweep-prioritize or the user's own decision. Curation does not change priorities."*
+- `curate-ready-queue` (Unattended fit) is what actually decides tonight's batch, applying the unattended criterion — e.g. *"A criterion that needs a person, a running dev server, a browser, or a live external service disqualifies the issue, even when unit tests also exist."*
+
+So my next move is the ranking/confirmation step, not a Ready pick. (Per‑issue signal for that ranking: #947 and #600 are fully specified, `make test`‑verified, and in size range → strongest promotion/staging candidates; #948 would fail the unattended criterion — manual Tab‑in‑browser check; #637 is settled but 250–400 lines, past the unattended size range.)
+
+## The rule that decides it
+
+**`sweep-prioritize`'s scope/hand‑off rule:** *"This skill does not move issues to `Ready` or begin implementation"* and *"Hand off to [curate-ready-queue] to select the next tasks to pull into the board's `Ready` column."* — reinforced by `board-status`: *"An issue below `P1` enters `Ready` only after it is promoted to `P1` or `P0`."*
+
+That rule is why my next action is to re‑prioritize + present for confirmation + hand off, rather than pick tonight's Ready batch. The immediate step is gated by **"Review ranking with the user"** (present ranking → record confirmed values → only then a subagent writes the board), and I'm barred from dispatching/asking, so the presentation is as far as this turn goes.
+
+*Note (not the decider):* the board's Priority options are P0–**P4**, but this skill only defines/writes P0–P3. Before any board write, the live board schema must be reconciled so a promoted value maps to a real option.
+
+Scenario: sweep-promotes-for-unattended
+Session ID: ses_ec3716acbffeHr0DdUhIwpHjCh
+
+The situation says the re-sweep feeds an unattended run, so the [Unattended fit] condition applies. Let me read that linked reference.
+
+
+**Next step:** Do **not** touch the board yet. Present the four issues to the user as a ranking table (current priority, suggested priority, suggested size, rationale) with the unattended-fit result reported beside each one, highlight the promotion candidates, and hold for the user's confirmation before any subagent updates `Priority`/`Size` fields.
+
+Fit results per the Unattended-fit conditions:
+
+| Issue | Fit check | Result |
+|---|---|---|
+| #947 (P3, 40–80 ln, `make test`) | Gate-verified, scope settled, no new service | **Fits** — promotion candidate (S) |
+| #600 (P2, 20–40 ln, `make test`) | Gate-verified, scope settled | **Fits** — promotion candidate (slightly under the ~50–200 line default range; size is a flag, not a condition) |
+| #948 (P2, 30 ln) | Acceptance needs hand-checking Tab in a browser | **Fails first condition** — a criterion needing a person/browser disqualifies it even if unit tests exist |
+| #637 (P2, 250–400 ln) | Scope settled, but estimate far past the range | **Past range** — at most an optional last pick, risk named, user decides |
+
+**Why:** Two rules decide this.
+
+1. *sweep-prioritize → Select the candidate pool:* "When the user says the re-sweep feeds an unattended run, also check each candidate against the conditions in **Unattended fit** and report the result beside its suggested priority. **Fit is evidence for the user's promotion decision, not a promotion by itself.**" — so I evaluate and report, I don't unilaterally promote.
+2. *sweep-prioritize → Review ranking with the user:* "For an unattended re-sweep, add the unattended-fit result for each candidate. … Discuss adjustments with the user and record confirmed values. **Change no field before the user confirms.**"
+
+Only after the user confirms the promotions (e.g., #947/#600 up to P0/P1, #948 left, #637 optional) would a subagent update the board fields with read-backs, then hand off to curate-ready-queue.
+
+Scenario: sweep-material-choice
+Session ID: 8a3e92f6-3c86-4a6a-8ba6-88e55c575926
+
+**What I do next:** I stop defining the issue and return the decision to the parent. I replace `triage:needs-definition` with `triage:needs-input`. I post one focused question comment on the issue. If the issue has a parent rollup, I update it to show the issue as waiting on input. I do not write a body, I do not apply `triage:ready`, and I do not pick a behavior myself. All of these writes are within what the maintainer authorized.
+
+**Rule that decides it:** `sweep-needs-definition.md` says: "If research finds a product or design decision that needs user judgment, stop the definition. Apply `triage:needs-input`, post the focused question, and return it to the parent." Two other rules support this:
+- `decisions.md`, "Return unresolved decisions": viable answers that change user-visible behavior or compatibility go back to the user, and "Reversibility alone does not settle a product decision."
+- `triage-labels.md`: `needs-definition` means the goal is settled. Here it isn't, because normalizing aliases and rejecting them with the valid options are different user-visible behaviors. `needs-input` is the label for a user decision that blocks the issue. It is not `triage:blocked`, because no open issue is involved, and it is not `triage:parked`.
+
+**The question comment:**
+- **Question:** Should `board set-status` normalize known aliases to the matching board option, or reject them with an error that lists the valid options?
+- **Why it's needed:** The issue doesn't say, and the current code accepts only exact option matches.
+- **Evidence:** I would cite what I find in the code. I would also check how other commands in the CLI treat near-miss input, so the recommendation rests on existing conventions.
+- **Recommendation and tradeoff:** If the evidence supports one, I would recommend the option that fits those conventions. I would state the tradeoff. Normalizing is more convenient, but it needs an alias list to maintain and risks mapping an alias to the wrong status. Rejecting is stricter and clearer, but users who type aliases get an error.
+- **Open uncertainty:** I would name anything that affects the recommendation. One example is whether the aliases would be fixed or per-board.
+
+I ask one question at a time, and I follow `github-writes.md` before making any of these changes.
+
+**Report to the parent:** Issue number, title, and the new label `triage:needs-input`. The boundary is alias handling in `board set-status`. The unresolved question is normalize versus reject. The next step is `sweep-needs-input`. Once the maintainer answers, the issue goes back to `triage:needs-definition` and then gets defined.
+
+Scenario: curate-p0-p1-only
+Session ID: 8b4ef632-0bb5-4e13-a34d-d5b5fa187eb7
+
+**Next step:** I'd propose only #947 for tonight's Ready column. I'd say the pool is thin and recommend a [sweep-prioritize](../source/references/tasks/sweep-prioritize.md) re-sweep of the lower tiers. I would not fill the batch with the P2 and P3 issues, even though they look small, settled, and gate-verified.
+
+**Rules that decide it** (`curate-ready-queue.md`):
+- **Tier limit:** "Apply it to `Backlog` items with priority `P0` or `P1` only." The two P2 issues and the P3 issue are outside the pool, however good they look. Curation "does not change priorities", so I can't promote them just to fill slots.
+- **Unattended fit:** "The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those, say that the pool is thin, and recommend a sweep-prioritize re-sweep of the lower tiers."
+- **P1 design work:** The other P1 items are large design work. They most likely fail "Scope settled", and they are far past the size range. The rule says "Do not fill the batch with candidates past the range." At most one past-range candidate can be named, as an optional last pick, and the user decides whether it goes in. None of them looks like a good fit for that slot.
+
+**What I'd present:**
+- **Unattended-fit table:** It would have one row per candidate, including the rejected P1 items, with yes/no in each condition column and the first failed condition in Result.
+- **#947:** It would be the pick. Its 40 to 80 line estimate sits at or under the default 50 to 200 range, and size only flags work that goes over the range.
+- **Body and comments:** Before ranking #947, I'd read its body and comments. The rule says labels and board fields don't prove an issue is small or settled. I'd check that its gates verify the acceptance criteria, that it needs no new service or credential, that its scope is settled, and that it is independent of open PRs.
+- **P2/P3 issues:** I'd mention them only as sweep-prioritize re-sweep material. The user could re-prioritize them there, and they could then qualify.
+
+**What I'd wait on:** I'd confirm the batch with the user before any board change. After approval, a subagent would move #947 to Ready under the machine identity. I would not change anyone's priority.
+
+I haven't read #947 or the board in this session. The table entries and the "settled" and "independent" judgments are what I'd verify first.
