@@ -10,6 +10,10 @@ Three skills move a linked issue on the project board:
 | [submit-pr](../tasks/submit-pr.md) | The PR exists and is ready for review | In review |
 | [merge-pr](../tasks/merge-pr.md) | GitHub confirms the merge | Done |
 
+## Priority tiers
+
+The active columns, `Ready`, `In progress`, and `In review`, hold only `P0` and `P1` issues. Lower priorities are tiers that wait for promotion: when the higher tier runs out, or when the user reprioritizes an issue. An issue below `P1` enters `Ready` only after it is promoted to `P1` or `P0`, through [sweep-prioritize](../tasks/sweep-prioritize.md) or the user's own decision. Curation does not change priorities.
+
 The transition is part of that skill's task unless the user restricts GitHub or board writes. [file-issue](../tasks/file-issue.md) also sets a status when the filing request includes one, using the same procedure.
 
 ## Procedure

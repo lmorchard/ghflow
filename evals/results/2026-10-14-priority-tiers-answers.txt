@@ -1,0 +1,205 @@
+Scenario: curate-p0-p1-only
+Session ID: 9aecc43c-ffea-49c1-b3cd-1e40fa15dd0a
+
+**Next step:** I'd build the unattended-fit table and propose a batch to you. I would not move anything on the board yet. That means including the P2 and P3 issues as candidates, not stopping at #947 or falling back to sweep-prioritize.
+
+**Rules that decide it**
+
+1. **Select candidates from Backlog.** A selection criterion you state, here fitness for an unattended run, "replaces the priority default." The P0/P1 filter therefore no longer limits the pool. The P2 and P3 issues are eligible, and the large P1 design items fail on their own merits. Sweep-prioritize is only recommended when the P0/P1 Backlog is empty, and that isn't the case here.
+
+2. **Unattended fit.** Each candidate must pass four conditions:
+   - The gate commands verify its acceptance criteria.
+   - It needs no new service or credential.
+   - Its scope is settled.
+   - It is independent of the other picks and of open PRs.
+
+   Size is only a flag. #947's estimate of 40 to 80 lines is at or slightly below the default range of about 50 to 200, and the rule only penalizes estimates that go past the range. The number you asked for, two or three, is a maximum. If fewer than three fit, I propose only those and say the pool is thin. I don't pad the batch.
+
+3. **Select candidates, evidence rule.** I must read each plausible candidate's body and comments before ranking it. "Small, settled, gate-verified" is how the P2/P3 issues look right now, and labels or a missing Size field don't prove it. I would check each one for these things:
+   - The gate commands cover its acceptance criteria.
+   - Nothing it needs is a person, a browser, or a live service.
+   - Decisions are recorded on the issue, with no open question or proposal waiting on you.
+   - It doesn't overlap #947 or any open PR.
+
+4. **Audit current board WIP.** I would first read the full board inventory with the validated traversal. That confirms Ready is empty and tells me the In progress and In review counts. It also gives me three open slots, and I don't treat partial output as proof.
+
+**What I'd present**
+
+- The required table has one row per candidate, including the rejected P1 design items. Each row gets yes or no for every condition, evidence where it isn't obvious, a size estimate, and a Result of pick, optional last pick, or the first condition it fails.
+- #947 would likely be a pick, provided it passes the body and comment check.
+- The P2 and P3 issues would be picks only if they pass the same four conditions. I'd rank them by dependencies and by how small and self-contained they are.
+- If one of them lands well past the range, it becomes the single optional last pick, with the risk named.
+
+**What I'd hold back**
+
+I'd get your confirmation before any write. After you approve, a subagent would move the chosen issues from Backlog to Ready under the machine identity and confirm each read-back. Then I'd hand off to implement-issue.
+
+Scenario: curate-p0-p1-only
+Session ID: 8568d8cf-3b47-4283-979e-dfcf0039aa80
+
+**Next step:** propose only #947, say the pool is thin, and recommend a sweep-prioritize re-sweep of the P2/P3 tier. I would not add the two P2 issues or the P3 issue to the batch, however small and gate-verified they look.
+
+**The rule that decides it:** the "Unattended fit" section of `curate-ready-queue.md` says the requested number of issues is a maximum. When fewer candidates fit, you propose only those, say the pool is thin, and recommend a [sweep-prioritize](../tasks/sweep-prioritize.md) re-sweep of the lower tiers. The "Select candidates from Backlog" section backs this up. Selection applies to P0/P1 Backlog items only, and curation narrows attention to that tier without changing priorities. Promoting P2/P3 items into Ready would amount to reprioritizing them, and that is what sweep-prioritize is for.
+
+**What I would do:**
+1. **Audit the board first.** The skill requires reading every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. I would not rely on "Ready is empty" or on partial output. That audit also counts Ready, In progress and In review, and gives the open slots.
+2. **Check #947 properly.** I would read its body and comments before ranking it. Labels like `triage:ready` don't show that an issue is small or settled. It has to pass all four conditions:
+   - Gate commands verify its acceptance criteria.
+   - It needs no new service or credential.
+   - Its scope is settled.
+   - It is independent of the other selected issues and of open PRs.
+3. **Size.** 40 to 80 lines sits partly below the default 50 to 200 range. Size is a flag rather than a condition, and the flag is about estimates that run past the range, so this isn't a problem.
+4. **Present the unattended-fit table.** It has one row per candidate, including the rejected ones:
+   - #947 as a pick.
+   - The large P1 design items rejected, most likely under the first failing condition, scope settled.
+   - The P2/P3 issues are out of tier and not candidates, so I'd mention them only in the thin-pool note and the re-sweep recommendation.
+5. **Wait for the user's confirmation.** Only after approval would a subagent move #947 from Backlog to Ready under the machine identity, with read-back. I would not change any Priority.
+
+The user gets one well-fitting issue rather than a batch padded with out-of-tier items. They can then choose to run the re-sweep, which might promote the P2/P3 issues legitimately.
+
+Scenario: curate-p0-p1-only
+Session ID: 05849cfa-06aa-40cc-9358-c4a5c5d0a880
+
+**Next step:** I'd propose only #947 for Ready and tell you the pool is thin. I would not add the P2 or P3 issues. I'd also recommend a [sweep-prioritize](../tasks/sweep-prioritize.md) re-sweep of the lower tiers. This is a proposal in conversation. Nothing moves on the board until you approve it.
+
+**Rules that decide it** (`curate-ready-queue.md`):
+- **Tier limit:** "Apply it to `Backlog` items with priority `P0` or `P1` only." The P2 and P3 issues are outside the tier, however small, settled and gate-verified they look. Curation "does not change priorities", so I can't promote them to make them eligible.
+- **Thin pool, under Unattended fit:** "The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those, say that the pool is thin, and recommend a sweep-prioritize re-sweep of the lower tiers." Two or three was a ceiling, not a quota, and I shouldn't fill the batch with candidates that don't qualify.
+- **Large P1 design work:** These fail the unattended criteria, most likely "scope settled". They are also far past the size range. The skill allows at most one candidate past the range, as an optional last pick, and it must fit the other conditions. Open-ended design work doesn't, so I'd list these as rejected and not as picks.
+
+**Order of work:**
+1. **Audit the board.** I'd read every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. I'd do this even though you said Ready is empty, because the skill requires a full inventory. It gives the counts for Ready, In progress and In review, and it confirms the available slots.
+2. **Read #947 and the other P1 issues.** I'd read each body and comments. Labels like `triage:ready` don't prove an issue is small or settled. For #947 I'd confirm:
+   - the gate commands verify its acceptance criteria;
+   - it needs no new service or credential;
+   - its scope is settled;
+   - it is independent of open PRs.
+
+   The 40 to 80 line estimate is inside the default range, apart from the low end, and the skill treats size only as a flag above the range.
+3. **Present the Unattended fit table.** It has one row per candidate, including the rejected P1 items. #947 gets "pick", and each rejected P1 gets the first condition it fails. I'd note the P2/P3 issues below the table as out of tier and available for the re-sweep.
+4. **Wait for your approval.** After that, a subagent would move #947 to Ready under the machine identity and read the change back. I'd then hand off to implement-issue.
+
+If you want a bigger batch tonight, the sanctioned route is the sweep-prioritize re-sweep. It may legitimately raise those P2/P3 issues to P1, and then they'd be eligible.
+
+Scenario: curate-thin-pool
+Session ID: da111a5a-948d-47d7-a6d4-977db15aa27e
+
+**Next step:** I don't move anything yet. I present the unattended-fit table to the user for confirmation, and the board changes go to a subagent only after they approve. The rule that decides this is **Unattended fit** in `curate-ready-queue.md`. For an unattended run it replaces the P0/P1 priority default. It is followed by "Review selection with the user", which requires confirmation before any board write.
+
+Before that, the skill's "Audit current board WIP" step says to read every board item with the validated traversal. You've told me Ready is empty and no PRs are open, so I would still run that traversal to confirm, and there are 3 to 5 slots. I can't run it here. I would also read each candidate's body and comments, since labels and unset fields don't show that an issue is settled.
+
+The gates are `make check` and `make test`. The two size checks below follow the skill's default range of about 50 to 200 lines, and I did not treat the user's "two or three issues" as changing it.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| H | Autouse test guard for leaked asyncio marker | yes | yes | yes | yes | 40–80 | pick (first) |
+| I | Config-file load test | yes | yes | yes | yes | 20–40 | pick |
+| K | Small logging cleanup (P3) | yes | yes | yes | yes | ~30 | pick. P3 is eligible because the unattended criterion replaces the priority default. |
+| G | Dependency lifecycle-script policy and exact pinning | yes (`make check` runs the dependency lint) | yes | yes | yes | 100–250 | optional last pick. The estimate reaches past the range, so the risk is a long run. |
+| E | File-operation ledger for compaction | yes | yes | yes | yes | 200–300 | not picked. Past the range, and only one past-range issue may be named. |
+| F | Persist tool intent for workflow recovery | yes | yes | yes | yes | 200–350 | not picked. Past the range, and only one past-range issue may be named. |
+| J | Mattermost thread fix | no. Acceptance needs a live Mattermost server. | no | not checked, because J already failed the first condition | not checked | ~80 | no: fails "Gates verify acceptance" |
+
+**Proposal:** H, then I, then K. H goes first because it guards tests against a leaked asyncio marker, and I's new test benefits from that guard.
+
+All three fit the range. The requested number is a maximum, and the skill says not to fill the batch with past-range issues. I would name G only as an optional last pick if the user wants a heavier run, and I'd flag that its estimate reaches 250 lines. E and F stay in Backlog because they are 200 lines or more. The skill allows at most one past-range candidate to be named, and G, with the smaller estimate, is that one.
+
+**After approval:** a subagent runs `board set-status … --status "Ready"` for each approved issue under the machine identity. It confirms each read-back, and I show the final Ready queue against the WIP limit. Then I hand off to implement-issue or express-issue.
+
+Scenario: curate-thin-pool
+Session ID: 306c16af-3103-437b-b973-3ae76469c10c
+
+**Next step:** I'm not changing the board yet. I'm presenting the unattended-fit table and a proposed batch for you to confirm. A subagent moves issues to Ready only after you approve.
+
+**Rule that decides it:** "Unattended fit" in `curate-ready-queue.md`. A candidate must meet four conditions:
+- The project's gate commands check its acceptance criteria.
+- It needs no new service or credential.
+- Its scope is settled.
+- It is independent of the other picks and of open PRs.
+
+Size is only a flag. The default range is about 50 to 200 lines. The requested count is a maximum, so I don't pad the batch. At most one candidate past the range can be named, as an optional last pick.
+
+**Audit caveat:** The skill's "Audit current board WIP" step calls for a full validated traversal of the board (`gh api graphql --paginate --slurp`). I can't run commands in this session. I'm taking "Ready is empty, no open PRs" from your statement, not from my own audit. The board changes should wait on that audit.
+
+| Issue | Title | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|---|:---:|:---:|:---:|:---:|:---:|---|
+| H | Autouse test guard for leaked asyncio marker | yes | yes | yes | yes | 40–80 | pick |
+| I | Config-file load test | yes | yes | yes | yes | 20–40 | pick (small, below the range, which isn't a failure) |
+| G | Dependency lifecycle-script policy and exact pinning | yes (`make check` runs the dependency lint) | yes | yes (decisions recorded) | yes | 100–250 | pick, if the 200-line cap is stretched (see below) |
+| E | Deterministic file-operation ledger for compaction | yes (unit tests) | yes | yes | yes | 200–300 | past the range |
+| F | Persist tool intent for workflow recovery | yes (crash-injection test) | yes | yes | yes | 200–350 | past the range |
+| K | Logging cleanup | yes | yes | yes | yes | 30 | P3, so not in the P0/P1 tier |
+| J | Mattermost thread fix | no (needs a live Mattermost server) | no | – | – | 80 | fails the first condition |
+
+**Proposed order:**
+1. H
+2. I
+3. G, as the optional last pick. Its estimate of 100–250 lines reaches past the 200-line range, so I'd name that risk. Earlier unattended runs showed issues in that size class taking about twice as long as the others.
+
+**Why the others are out:**
+- **J:** It needs a live external service, which disqualifies it even if unit tests exist.
+- **K:** It is P3. Curation looks only at P0/P1 and doesn't change priorities.
+- **E and F:** Both are settled and gated, but they run 200–350 lines. The rule allows at most one candidate past the range, and I'd use that slot on G, the smaller of the three.
+
+**Thin pool:** Only H and I fit cleanly, so the pool is thin. I'd recommend a `sweep-prioritize` re-sweep of the lower tiers. I would not fill the third slot with E or F.
+
+Before ranking, I would read each candidate's body and comments to confirm that scope is settled. Labels and titles don't establish that.
+
+**Decision for you:** Do you approve H and I, with G as the optional third pick? Once you approve, a subagent moves them from Backlog to Ready under the machine identity, confirms each read-back, and hands off to `implement-issue`.
+
+Scenario: curate-for-unattended-run
+Session ID: 8421d57f-b099-4abb-8841-08d54a75e465
+
+**Next step: audit the whole board before I propose anything.** I'd do this first and wouldn't pick candidates yet.
+
+**Rule that decides it:** the "Audit current board WIP" section of `curate-ready-queue.md`. It says to read every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue` and to "use partial output for nothing." That traversal is `gh project view` for the node ID, then `gh api graphql --paginate --slurp` over all items, reading Status and Priority. The board has 129 items (3 in Ready, 126 in Backlog, and presumably the user's other columns), so it spans more than one 100-item page. A first-page read would miss items.
+
+I can't run commands in this session, so I'd hand the traversal to the proper executor or run it once I'm allowed. The summaries I have are not a substitute for that inventory.
+
+**What happens after the audit**
+
+1. **Count WIP.** I'd count Ready, In progress and In review, and work out the free slots against the WIP limit (default 3 to 5).
+
+2. **Judge the three Ready items against the unattended-fit criterion.**
+   - The P1 survey task and the P1 web feature almost certainly fail. The web feature needs a UI or manual check, and the survey task is likely not gate-verifiable. I'd confirm both by reading their bodies.
+   - The P1 dev-server change fails outright. Its acceptance check needs `make dev` running, and the "Unattended fit" section says a running dev server disqualifies an issue "even when unit tests also exist."
+   - I'd recommend moving all three back to Backlog, each with a one-line reason. Each move is backward, so it needs `--allow-backward` and the user's decision as the reason.
+
+3. **Select only from Backlog items with priority P0 or P1.**
+   - The P2 to P4 items that look small are out of scope. Curation "does not change priorities" and narrows attention to that tier.
+   - `triage:ready` labels and the missing Size values on 124 items prove nothing. The skill says these "do not show that an issue is small or settled."
+   - I'd read the body and comments of each plausible P0/P1 candidate and estimate its size myself, including tests, against the 50 to 200 line range.
+
+4. **Apply the four fit conditions to each candidate.** The conditions are:
+   - `make check` and `make test` verify acceptance.
+   - No new service or credential is needed.
+   - Scope is settled.
+   - The issue is independent of the other picks and of open PRs.
+
+   I'd put every candidate, rejected ones included, in the required table.
+
+5. **Expect a thin pool.** Most P0/P1 Backlog items are large design work, so few will fit. The requested "two or three" is a maximum. If fewer fit, I'd propose only those and say the pool is thin. I'd recommend a `sweep-prioritize` re-sweep of the lower tiers, which is where the small P2 to P4 items would get evaluated. I'd name at most one over-range candidate, as an optional last pick, with the risk stated. I would not pad the batch.
+
+6. **Confirm with the user before any board write.** After approval, a subagent under the machine identity would move the issues with `board set-status`, and I'd confirm each read-back. I'd then display the final Ready queue.
+
+Scenario: curate-unattended-fit
+Session ID: 914562d4-d349-4569-877f-3d55a503a677
+
+**Next step:** I'd present the unattended-fit table and a proposal, and make no board changes until you approve. Before that, I'd run the full board audit that the skill requires. I'd also confirm each candidate is `P0` or `P1` and that I've read its body and comments. I'm assuming all four are.
+
+The rule that decides this is **Unattended fit** in `curate-ready-queue.md`. Its first condition is that the project's gate commands must check the acceptance criteria. Its size rule treats size as a flag, not a condition. Its "requested number is a maximum" rule says not to fill the batch.
+
+| Issue | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size | Result |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| A: two optional tool parameters | yes (mock tests, `make test`) | yes | yes (decisions recorded) | yes | 120–190 | pick |
+| B: confirmation message | yes (four named tests) | yes | yes ("Open: none") | yes | 80–140 | pick |
+| C: dev-server restart on config change | **no** | yes | yes | yes | 50–90 | rejected: gates condition |
+| D: prune resolved errors | yes | yes | yes (approved spec) | yes | 150–240 | optional last pick |
+
+- **C is rejected.** Its acceptance criterion is "With `make dev` running, an edit restarts the server." That needs a running dev server. The skill says this disqualifies the issue even though unit tests exist for the file filter, so the small size doesn't rescue it.
+- **A and B fit.** Both are within the 50–200 line range.
+- **D is past the range.** Its estimate reaches 240 lines. I'd list it last and name the risk: in the second unattended run, an issue estimated at 150–240 lines took twice as long as the others. You decide whether it goes in.
+- **The pool is thin.** You asked for two or three, but that is a maximum. I'd propose A and B as the batch, with D as an optional last pick. I'd say the pool is thin and recommend a `sweep-prioritize` re-sweep of the lower tiers. I wouldn't pad the batch with C.
+- **Suggested order:** B, then A, then D if you want it.
+
+After you approve, a subagent would move the chosen issues to `Ready` under the machine identity and confirm each read-back. I wouldn't change any Priority.
