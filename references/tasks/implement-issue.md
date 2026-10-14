@@ -81,7 +81,7 @@ Return:
 - The issue URL, any existing draft PR URL, worktree path, branch, base revision, current commits, the revision you tested, and any remaining uncommitted changes.
 - For an unpublished handoff, the supplied checkout path and publication state, plus the full local Git verification result for the reported head and base.
 - The board transition result, or why it was skipped or failed.
-- The implementation model from session metadata, or "unknown". The parent uses it to choose a different model for review.
+- The implementation model: the ID your runtime states to you, or "unknown". Do not record or mention a configured or default model as your identity, in the return or the notes. The parent uses it to choose a different model for review.
 - The changes, and the result for each success condition.
 - The commands you ran and their results, including failures and checks you did not run.
 - Status: ready for PR preparation, incomplete, or awaiting a decision. A partial or failing implementation is not ready. Include existing failures, remaining human assessments, and unresolved risks.

@@ -2316,16 +2316,18 @@ class RuntimeFactsTests(unittest.TestCase):
         (self.root / "opencode.json").write_text('{"model": "c/project", "permission": {"edit": "deny"}}')
         info = read_runtime(self.root, {"OPENCODE": "1"}, self.home)
         self.assertEqual((info["agent"], info["detected_by"], info["nested_dispatch"]), ("opencode", "OPENCODE", False))
-        self.assertEqual(info["config_default_model"], "c/project")
+        self.assertNotIn("config_default_model", info)
         self.assertEqual(info["agent_models"], {"review": "b/reviewer"})
         self.assertEqual([f["scope"] for f in info["config_files"]], ["global", "project"])
         self.assertIn("--model", info["subagent_model_rule"])
 
     def test_opencode_config_variable_is_read_first(self):
         custom = self.tmp / "custom.json"
-        custom.write_text('{"model": "d/custom"}')
+        custom.write_text('{"model": "d/custom", "agent": {"general": {"model": "e/general"}}}')
         info = read_runtime(self.root, {"OPENCODE_PID": "7", "OPENCODE_CONFIG": str(custom)}, self.home)
-        self.assertEqual((info["detected_by"], info["config_default_model"]), ("OPENCODE_PID", "d/custom"))
+        self.assertEqual(info["detected_by"], "OPENCODE_PID")
+        self.assertEqual(info["config_files"][0], {"scope": "env", "path": str(custom)})
+        self.assertEqual(info["agent_models"], {"general": "e/general"})
 
     def test_strip_jsonc_keeps_slashes_inside_strings(self):
         text = '{"url": "http://x/y", /* block */ "a": [1, 2,],}'

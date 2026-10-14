@@ -1,0 +1,188 @@
+Scenario: worker-reports-own-model
+Session ID: ccb9f591-1fa0-4361-85aa-a65027c43260
+
+**Next step:** In the return report and the task notes, I report the implementation model as `llama.cpp/llama`. I don't use `ollama/qwen3-coder:30b`.
+
+**Deciding rule:** In `implement-issue.md`, "Return the result" says to report "The implementation model from session metadata, or 'unknown'. The parent uses it to choose a different model for review."
+
+**Why:**
+- **Session metadata:** The runtime statement that I'm running `llama.cpp/llama` is session metadata, so it is the source the rule names.
+- **Config file:** `opencode.jsonc` holds a configured default. It doesn't show which model actually served this session, because the session could have overridden it. Reporting it would present a guess as a fact, which the Evidence rule forbids. If the runtime statement were missing, I would write "unknown", not fall back to the config value.
+- **Same-model exception:** The user's approval lets the same model do both implementation and review. It doesn't change what I must report. The parent still needs the true model name to apply that exception, and a wrong name would make the exception meaningless.
+- **Config mismatch:** I can mention the config's `ollama/qwen3-coder:30b` in the notes as an unreconciled observation. It would be labeled as config, not as the model that ran.
+
+**Rest of the report:** I'd also include the other required items:
+- the issue and draft PR URLs, worktree, branch, base, commits, and the tested revision
+- the board transition result
+- the changes and the result for each success condition
+- the commands run, including failures and checks I skipped
+- the status
+
+The self-review would be described as self-review only, not as independent verification.
+
+Scenario: worker-reports-own-model
+Session ID: 56020d76-3ffa-4fc5-b286-be31584298ac
+
+**Next step:** In the return report and the task notes, I record the implementation model as `llama.cpp/llama`. That is the model my runtime states. I don't use `ollama/qwen3-coder:30b` from the config file.
+
+**Deciding rule:** The "Return the result" section of `implement-issue.md` says to give "The implementation model from session metadata, or 'unknown'". The parent uses it to choose a different model for review. The linked Evidence rule points the same way: a config file is a claim about configuration, not an observation of what ran.
+
+**Why:**
+- `~/.config/opencode/opencode.jsonc` is a configured default. It isn't session metadata, so it doesn't show which model served this session. The runtime's own statement is the session metadata, and it disagrees with the config.
+- I don't reconcile the two by choosing the config value. I report `llama.cpp/llama` as the model. I add a short note that the config's `model` key says `ollama/qwen3-coder:30b`, that the two differ, and that I did not verify which one actually served the work. Reporting "unknown" would only be right if I had no session metadata at all, and I do.
+- The user's same-model exception for implementation and review doesn't change the reported model. I record the model accurately and also record that the user approved using the same model for review. The parent can then apply the exception knowingly.
+- My self-review isn't independent review, and I don't describe it as independent verification. The same-model review, if it happens, is covered by the exception. It is not a different-model check.
+
+**Also in the report:**
+- Everything else the section requires: issue and draft PR URLs, worktree, branch, base, commits, tested revision, board result, per-condition results, commands run (including failures and checks not run), and status.
+- Evidence limits stated plainly.
+
+I wouldn't run commands or ask the user anything to settle the model question.
+
+Scenario: worker-reports-own-model
+Session ID: e4b06029-240e-4817-afe6-d05e3d703589
+
+**What I do next:** I write the return report and the task notes with the implementation model recorded as `llama.cpp/llama`. That is the identity my runtime states to me. I cite the `ollama/qwen3-coder:30b` value from `opencode.jsonc` only as a configured default that doesn't match the runtime, and I don't record it as the model I ran on. I also note the user-approved same-model exception for implementation and review, with its scope, in both the report and the notes. The rest of the report follows the "Return the result" list in `implement-issue.md`.
+
+**Which rules decide this:**
+- `implement-issue.md`, "Return the result": "The implementation model from session metadata, or 'unknown'. The parent uses it to choose a different model for review." My runtime statement is session metadata. A config file is not.
+- `shared/coordination.md:37`: the handoff asks for "the model ID your runtime states to you." That is `llama.cpp/llama`.
+- `tasks/review-changes.md:50` says the same thing from the reviewer's side: give the runtime-stated ID, "not a configured or default model."
+- `shared/review.md:13`: record model identity from runtime or dispatch metadata, and never infer it.
+
+**Why:** `opencode.jsonc` shows what the session was configured to use, not what is running. The two disagree here (`ollama/qwen3-coder:30b` against `llama.cpp/llama`), and the runtime value is the one that counts. If I reported the config value, the parent would plan the review around the wrong model identity. If my runtime had stated nothing, I would write "unknown" and not use the config value.
+
+**The exception:** Under `shared/review.md`, the approved exception is recorded explicitly, with its scope. It waives only the different-model requirement. It does not waive tests, CI, unresolved findings, or merge authorization. I also don't call my self-review independent verification. The report also covers the draft PR URL, commits, tested revision, checks run and not run, evidence limits, and status.
+
+Scenario: worker-reports-own-model
+Session ID: 95370a5f-8133-4b64-87c8-538048fde226
+
+Next, I write `llama.cpp/llama` as the implementation model in both the return report and the task notes. That is the ID my runtime states.
+
+**Rule that decides it:** the "Return the result" section of `implement-issue.md` says to return "the implementation model: the ID your runtime states to you, or 'unknown'. Do not record or mention a configured or default model as your identity, in the return or the notes. The parent uses it to choose a different model for review."
+
+**Why:**
+- The `model` key in `~/.config/opencode/opencode.jsonc` (`ollama/qwen3-coder:30b`) is configuration. It is not what my runtime told me, and it could differ from what is actually running. So I leave it out of the report and the notes, including as a "configured model" aside.
+- The same-model exception doesn't change this. The user approved using the same model for implementation and review, but that is the parent's decision. The parent can only apply it correctly if my reported ID is accurate. If I reported the config value, I could mislead that choice.
+- If my runtime hadn't given an ID, I would write "unknown" instead of filling in the config value.
+
+The rest of the report follows the same section:
+- Issue URL, draft PR URL, worktree, branch, base, commits, tested revision, and any uncommitted changes.
+- Board transition result.
+- Changes and the result for each success condition.
+- Commands run, including failures and checks I didn't run.
+- Status.
+
+I also state that my self-review was not independent verification. Using the same model for review under the exception doesn't make my own review independent.
+
+Scenario: worker-reports-own-model
+Session ID: 3e4630a2-2d1c-459b-9c7f-b515b6946e15
+
+Next, I write `llama.cpp/llama` as the implementation model in both the return report and the task notes. I leave out `ollama/qwen3-coder:30b`.
+
+**Deciding rule:** the "Return the result" section of `implement-issue.md` says the implementation model is "the ID your runtime states to you, or 'unknown'. Do not record or mention a configured or default model as your identity, in the return or the notes."
+
+**Why:**
+- The runtime states `llama.cpp/llama`, so that is the ID I report.
+- The `model` key in `~/.config/opencode/opencode.jsonc` is only configuration. It doesn't tell me what is actually running, and the rule bars recording or mentioning it as my identity. I don't cite it, hedge with it, or add it as an "also possibly" in the report or notes.
+- If the runtime had stated nothing, I would write "unknown". I would still not fall back to the config value.
+- The same-model exception doesn't change this. The parent uses the reported model to choose a reviewer. The user's approval lets the parent reuse the same model, but only if my reported ID is accurate. The exception gives me no reason to alter or omit it.
+
+The rest of the report follows the same section:
+- Include the issue URL, draft PR URL, worktree, branch, base, commits, tested revision, and any uncommitted changes.
+- Include the board transition result.
+- Include the changes and the result for each success condition.
+- Include the commands I ran, including failures and checks I didn't run.
+- Include a status.
+- State that my self-review was not independent verification.
+
+Scenario: waiver-skips-config-reads
+Session ID: 37ff36d0-9480-468b-8144-35e009a5b8be
+
+**What I do next:** I don't read `~/.config/opencode/opencode.jsonc` or the project's `opencode.json`. I skip that check and prepare the dispatch with only what the exception needs. That is:
+
+- **Confirm a dispatch path exists.** It does, because the task tool works.
+- **Record the exception.** I note the user's approval, its scope (OpenCode with the local model on this laptop) and the review method (a fresh-context `review-changes` run).
+- **Write the handoffs.** The implementer handoff names the review plan as same-model, fresh-context review under the approved exception. It also names the endpoint, which is through PR review follow-up without merge, and the limits. The reviewer handoff carries the same exception.
+- **Dispatch.** I send `implement-issue` first, with draft publication through `submit-pr` authorized in the same session. After that I dispatch a fresh-context `review-changes` run.
+- **Record model identity from the dispatch results.** I take each worker's model from the metadata the dispatch returns. If the runtime returns none, I report an identity limit and don't treat it as a blocker.
+
+**The rule that decides it:** this is in `references/shared/review.md`, under "Prepare required review" (linked from `express-issue.md` under "Implement and publish draft progress"). It says: "When the exception waives model difference, preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run." It also says: "Under an approved waiver of model difference, missing identity evidence is a reporting limit, not an unmet requirement: dispatch, and carry the limit into the review report."
+
+Reading those config files would be exactly the prediction the rule forbids. It would also not prove anything, since a shared configuration default alone doesn't establish which model a worker actually ran. The exception waives model difference but not accurate reporting. In the final report I will:
+
+- label the review as same-model under a user-approved waiver, not as an independent different-model review;
+- give the actual model evidence, or the identity limit if there is none;
+- give the commit the review covered;
+- keep tests, CI and unresolved findings as gates, since the exception doesn't waive them.
+
+**Process notes:** the coordinator doesn't do subject-repository work itself. After ready submission, the follow-up is `address-pr-review`, unless the ready read-back already shows that all checks passed, no review is pending and no findings are unresolved. There is no merge.
+
+Scenario: waiver-skips-config-reads
+Session ID: 39c19480-620a-451b-9e4b-fbc6fd327122
+
+**What I do next:** I skip reading `~/.config/opencode/opencode.jsonc` and the project's `opencode.json`. I don't try to confirm that subagents inherit my session's model. Instead I go straight to the handoff, which means writing and sending the first dispatch.
+
+1. **Prepare the review path.** I confirm only that task dispatch works, which the situation already says it does. I record the user's exception: OpenCode with the local model on this laptop, same model for implementation and review. I record its scope and that fresh-context `review-changes` stays required. I carry the exception into every handoff.
+2. **Dispatch `implement-issue`.** The handoff covers:
+   - the source revision and the issue;
+   - the endpoint, which is through PR review follow-up without merge;
+   - the review plan, meaning the same-model exception, a fresh-context reviewer, and no model-difference gate;
+   - authorization to continue into draft publication through `submit-pr`, without marking the PR ready or requesting review.
+3. **Ask for self-reported model IDs.** Each worker's handoff asks it to return the model ID its own runtime states. I record that as a self-reported identity.
+4. **Dispatch the reviewer later.** After the draft is published, I send `review-changes` in a fresh context for the exact base and head. If the reviewer's identity can't be established, I report that as a reporting limit.
+
+**Why, and the rule that decides it:** The deciding rule is the same-model clause in "Prepare required review" in `references/shared/review.md`. It says: "When the exception waives model difference, preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run."
+
+- **Config files can mislead.** The rule adds: "Never record a configured or default model as a worker's identity, because a session flag can override every configuration file." Reading the two config files would therefore tell me nothing reliable.
+- **Missing identity is only a reporting limit.** The same section says: "Under an approved waiver of model difference, missing identity evidence is a reporting limit, not an unmet requirement: dispatch."
+- **The exception is already in scope.** "User-approved exceptions" says to apply an existing exception, within its scope, before checking reviewer availability. It also says to carry the exception through without asking for approval again.
+- **The coordinator doesn't read config.** `express-issue.md` says the coordinator "dispatches, reads the returned evidence, and settles decisions." It also says to confirm only the task reference paths before dispatch.
+- **The exception still has limits.** It waives model difference, not accurate reporting, tests, CI, or findings. I'd label the review as same-model, or as waived, and never as a different-model review.
+
+Scenario: same-model-request-identity-gap
+Session ID: eb2fc676-1505-480a-b324-82587ce972cc
+
+**Next step: dispatch the implementation worker now.** I'd then dispatch the fresh-context reviewer later, at the review step. I would not stop to report an unmet requirement or send the choice back to the parent.
+
+**Rule that decides it:** `shared/review.md`, "Prepare required review", the paragraph on an explicit same-model request. The user's explicit same-model request is a user-approved exception that waives the different-model requirement. The rule says that in this case "preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run."
+
+**Why:**
+- **Dispatch path exists.** Both tasks can be dispatched as general agents. That is all preparation needs.
+- **Missing model evidence is a reporting limit.** The dispatch interface has no model selector and no identity metadata. Under an approved waiver, the rule says this is "a reporting limit, not an unmet requirement: dispatch, and carry the limit into the review report."
+- **Don't infer a model from what's visible.** The session names provider-x/model-a and the global configuration defaults to provider-y/model-b. Neither says what a general worker will run. The rule says "Never record a configured or default model as a worker's identity, because a session flag can override every configuration file." So I record neither as a worker's identity.
+- **Don't treat the same agent type as the same model.** A shared agent type or configuration default doesn't establish that both workers ran the same model.
+
+**What I do:**
+1. **Handoffs.** Preserve the same-model exception, its scope, and the fresh-context review method in the implementation handoff and the later review handoff. I don't ask for the approval again.
+2. **Identity request.** Ask each worker in its handoff to report the model ID its own runtime states to it. I record that as a self-reported identity, not as confirmed dispatch metadata.
+3. **Review report.** Label the review as same-model under an approved exception. The report states that identity is self-reported and that the dispatch interface offered no model control or metadata. If the two self-reported IDs differ, I report that mismatch and don't hide it.
+4. **Preparation report.** The preparation report to the parent states the path as available, the exception as applied, and the identity limit.
+
+I would not silently substitute self-review or a different-model review. I also wouldn't treat the exception as waiving tests, CI, unresolved findings, or the rest of the delivery requirements.
+
+Scenario: coordinator-uses-session-facts
+Session ID: 80fa6f60-7203-4a6b-ad5d-e7d071443d66
+
+**Next step: skip all four planned commands and go straight to the first dispatch.** I would coordinate the top-priority issue myself under express-issue, because `nested_dispatch` is false. I'd do the identity check first. The rule that decides it is in "Check the project facts":
+
+> "The same output answers three other preparation questions without separate commands."
+
+The `facts` output already answers each of the planned checks:
+
+- **`gh run list` on the default branch:** `base_ci.summary: green` on the default branch head is the input for the red-base halt. The base is green, so there is no halt. Running `gh run list` would only repeat that check.
+- **`git log` in the skill checkout:** `skill_source` gives `head: 1dca824` with `up_to_date: true`. That is the revision for each handoff's source line. Nothing needs reporting, and I continue with the checked-out revision.
+- **Reading `~/.config/opencode/opencode.jsonc` and `opencode.json`:** `agent_models` is empty, so I have no model evidence from config. The user's approved same-model exception covers review. Under `review.md`'s "User-approved exceptions", I check the existing exception before looking for a reviewer or a fallback. I record its instruction and scope and carry it through the handoffs. I report it as waived, not as met. Reading the configs wouldn't change that. The skill also says that inferring a model identity from anything other than runtime or dispatch metadata isn't allowed.
+- **Project facts:** `project_facts` is present with no stale sources, so I don't dispatch `prepare-project-facts`. I continue.
+
+Here is the order I'd follow:
+
+1. Apply [Agent identity](../shared/identity.md) before the first issue.
+2. Record the selection, the endpoint (through review follow-up, no merge), and the exception with its scope.
+3. Confirm the paths of implement-issue, review-changes, and submit-pr without reading their procedures.
+4. Read express-issue and Handoffs.
+5. Apply "Prepare required review" using the exception.
+6. Dispatch the implementation, review, and ready workers directly for the top-priority issue.
+   - Each handoff names the issue, the confirmed decisions, the facts file path, the exception, and the `1dca824` source line.
+   - I don't read the subject code to scope the handoffs.
+7. Run unattended. If an issue hits a disruption, I park it and continue. I halt only for a failure that would hit every later issue, such as an identity failure, a red base, or the same environment failure on two issues in a row.

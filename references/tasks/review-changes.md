@@ -47,6 +47,6 @@ Separate findings from notes. A finding is a demonstrated or reasoned defect, a 
 
 If you found no actionable defects, say so. Do not invent a finding to justify the review. Either way, state which callers and paths you traced and which behavior you did not test. A favorable review covers only what it traced.
 
-Return the reviewed base and head, the model identities and their sources, the findings, and the checks you ran. If the head changed during review, say that the result covers the earlier commit. Keep the report short, in the conversation or a requested location. Return user decisions to the parent.
+Return the reviewed base and head, the model identities and their sources, the findings, and the checks you ran. Give your own model as the ID your runtime states to you, not a configured or default model. If the head changed during review, say that the result covers the earlier commit. Keep the report short, in the conversation or a requested location. Return user decisions to the parent.
 
 Do not post a GitHub review without authorization to publish it. Do not edit code, resolve threads, approve a merge, or start a repair loop.
