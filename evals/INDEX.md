@@ -53,7 +53,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [copilot-request-silent-local-covers](scenarios/copilot-request-silent-local-covers.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass (2/2) | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated. |
 | [copilot-unavailable-head-changed](scenarios/copilot-unavailable-head-changed.md) | 2026-10-03 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-03-review-fallback.md](results/2026-10-03-review-fallback.md): Evaluated commit after change not stated; ad hoc unnamed regression is not a scenario record. |
 | [corrections-same-worker](scenarios/corrections-same-worker.md) | 2026-10-12 | de884ff | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-notes-and-review-notes.md](results/2026-10-12-notes-and-review-notes.md) |
-| [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-13 | e4b6e76 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-curate-gaps.md](results/2026-10-13-curate-gaps.md) |
+| [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | b4ba72a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
+| [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | e4e7ef1 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
 | [deadline-declines-optional-notes](scenarios/deadline-declines-optional-notes.md) | 2026-10-14 | aaa4d7a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-small-rules.md](results/2026-10-14-small-rules.md) |
 | [deadline-ready-step-finishes](scenarios/deadline-ready-step-finishes.md) | 2026-10-14 | aaa4d7a | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-small-rules.md](results/2026-10-14-small-rules.md) |
 | [definition-hits-dependency](scenarios/definition-hits-dependency.md) | 2026-10-08 | c96332a | Claude Code general-purpose subagent | unknown | Pass (2/2) | sample | [2026-10-08-blocked-parked-labels.md](results/2026-10-08-blocked-parked-labels.md): Actor model unreported; report only guesses inheritance from parent. |
@@ -196,7 +197,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [curate-unattended-fit](scenarios/curate-unattended-fit.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
