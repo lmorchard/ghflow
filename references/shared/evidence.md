@@ -44,7 +44,7 @@ Use the full SHA that the tool reports.
 
 ## Reports
 
-Report what you did, what you checked, and what remains. State which checks you executed and which you only inspected. Report completed, failed, and uncertain steps separately, with enough information to resume. Write a result into notes or a report only after the command has run; until then it is a next action. If you find a result that you wrote before running the command, correct it before you continue. A time or duration in a report or notes is a result too: read it from a clock command, such as `date`, run at that point, or from a recorded timestamp, and do not estimate it.
+Report what you did, what you checked, and what remains. State which checks you executed and which you only inspected. Report completed, failed, and uncertain steps separately, with enough information to resume. Write a result into notes or a report only after the command has run; until then it is a next action. If you find a result that you wrote before running the command, correct it before you continue. A time or duration in a report or notes is a result too: read it from a clock command, such as `date`, run at that point, or from a recorded timestamp, and do not estimate it. A claim about another task's behavior, such as the order the burndown will deliver issues in, comes from that task's reference; cite it or leave the claim out, rather than describing your own plan as what the other task will do.
 
 A partial result is useful when its limits are explicit. If you are blocked or interrupted, preserve the worktree and report the next useful action.
 

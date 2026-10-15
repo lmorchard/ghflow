@@ -54,7 +54,7 @@ Highlight sequencing logic (e.g., test guards before new feature tests). Confirm
 
 ## Advance status on the board
 
-Once approved, dispatch a subagent to make the board changes under the machine identity. Move each selected issue from `Backlog` to `Ready`:
+Make no board write, including Status, Priority, or Size, until the user approves the proposed table in this conversation. Your own recommendation is not approval, and a moved item cannot be taken back without a backward move. Once approved, dispatch a subagent to make the board changes under the machine identity. Move each selected issue from `Backlog` to `Ready`:
 
 ```bash
 python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"
