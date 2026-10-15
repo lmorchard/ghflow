@@ -32,7 +32,7 @@ When the user curates for an unattended run, apply this criterion to the `P0` an
 - Its scope is settled: the decisions are recorded on the issue, and no open question or proposal awaits the user.
 - It is independent of the other selected issues and of open PRs.
 
-Size is a flag, not a condition. Estimate each fitting candidate's change, including tests; the default range is about 50 to 200 lines. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
+Size is a flag, not a condition. Estimate each fitting candidate's change, including tests and documentation, but not lockfiles, vendored files, or other generated output; the default range is about 50 to 200 lines. If the change regenerates a lockfile or vendored bundle, say so beside the estimate and treat it as likely to run long: in the third unattended run, an issue estimated at 120 to 200 lines changed 537 lines with its lockfiles and took three hours. Put a candidate whose estimate reaches past the range last in the proposed order and name the risk, because in the second unattended run an issue estimated at 150 to 240 lines took twice as long as the others. The user decides whether it goes in.
 
 The requested number of issues is a maximum. When fewer candidates fit within the size range, propose only those, say that the pool is thin, and recommend a [sweep-prioritize](sweep-prioritize.md) re-sweep of the lower tiers. Name at most one candidate past the range, as an optional last pick. Do not fill the batch with candidates past the range.
 
@@ -60,7 +60,7 @@ Once approved, dispatch a subagent to make the board changes under the machine i
 python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"
 ```
 
-A swap of a `Ready` item back to `Backlog` is a backward move. Pass `--allow-backward` with the user's decision as the reason, as [Board status](../shared/board-status.md#limits) requires. When the user decides a Size, set it with `board set-field` under [Other single-select fields](../shared/board-status.md#other-single-select-fields). Do not change Priority here. Confirm each read-back.
+A swap of a `Ready` item back to `Backlog` is a backward move. Pass `--allow-backward` with the user's decision as the reason, as [Board status](../shared/board-status.md#limits) requires. Propose a `Size` for each pick from your estimate, because the burndown runs smaller issues first within a priority. When the user decides a Size, set it with `board set-field` under [Other single-select fields](../shared/board-status.md#other-single-select-fields). Do not change Priority here. Confirm each read-back.
 
 ## Return and hand off
 
