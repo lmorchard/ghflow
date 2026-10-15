@@ -2,7 +2,7 @@
 
 Assess proposed changes against their issue and the current code. Report defects and missing evidence without modifying the implementation. The next task assesses and addresses the findings.
 
-Apply [Evidence](../shared/evidence.md) and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Read this reference and your handoff first. Read [Review](../shared/review.md) before you set up the reviewer and record model identities, and [Evidence](../shared/evidence.md) before you report findings and checks. Open [GitHub writes](../shared/github-writes.md) only before you change a GitHub record, which a review rarely does.
 
 Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 
