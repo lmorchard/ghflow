@@ -58,8 +58,9 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | b4ba72a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
-| [curate-p0-p1-only](scenarios/curate-p0-p1-only.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
-| [curate-p0-p1-only](scenarios/curate-p0-p1-only.md) | 2026-10-14 | 9a98ffb | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-sweep-prioritize.md](results/2026-10-14-sweep-prioritize.md) |
+| [curate-no-write-before-approval](scenarios/curate-no-write-before-approval.md) | 2026-10-15 | c8b0985 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass (2/2) | final text | [2026-10-15-curation-honesty.md](results/2026-10-15-curation-honesty.md) |
+| [curate-no-write-before-approval](scenarios/curate-no-write-before-approval.md) | 2026-10-15 | c8b0985 | claude | claude-sonnet-5-5 | Pass | final text | [2026-10-15-curation-honesty.md](results/2026-10-15-curation-honesty.md) |
+| [curate-p0-p1-only](scenarios/curate-p0-p1-only.md) | 2026-10-15 | 1309262 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-curation-honesty.md](results/2026-10-15-curation-honesty.md) |
 | [curate-size-excludes-lockfiles](scenarios/curate-size-excludes-lockfiles.md) | 2026-10-15 | c2d8103 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
 | [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-15 | c2d8103 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
@@ -194,9 +195,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [task-notes-resume](scenarios/task-notes-resume.md) | 2026-10-11 | unknown | OpenCode 1.19.0 | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | unknown | sample | [2026-10-11-local-context.md](results/2026-10-11-local-context.md): 180-second timeout without answer; temporary source commit bac47cb2d2ba2041ad19c80edba99f94fb597d4a; selected model matches endpoint inventory, runtime model unreported. |
 | [trace-helper-callers](scenarios/trace-helper-callers.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | changed skill | [2026-10-02-retro.md](results/2026-10-02-retro.md): Evaluated commit after revision not stated; pilot regression is not another baseline run. |
 | [unattended-hard-stop-identity](scenarios/unattended-hard-stop-identity.md) | 2026-10-12 | 96d3458 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-unattended-flow.md](results/2026-10-12-unattended-flow.md) |
-| [unattended-parks-on-uncertainty](scenarios/unattended-parks-on-uncertainty.md) | 2026-10-13 | 15d84e0 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-facts-refresh.md](results/2026-10-13-facts-refresh.md) |
-| [unattended-parks-on-uncertainty](scenarios/unattended-parks-on-uncertainty.md) | 2026-10-13 | f5f565b | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-notes-and-time-park.md](results/2026-10-13-notes-and-time-park.md) |
-| [unattended-takes-recommendation](scenarios/unattended-takes-recommendation.md) | 2026-10-13 | 15d84e0 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-facts-refresh.md](results/2026-10-13-facts-refresh.md) |
+| [unattended-parks-on-uncertainty](scenarios/unattended-parks-on-uncertainty.md) | 2026-10-15 | c8b0985 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-curation-honesty.md](results/2026-10-15-curation-honesty.md) |
+| [unattended-takes-recommendation](scenarios/unattended-takes-recommendation.md) | 2026-10-15 | c8b0985 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-curation-honesty.md](results/2026-10-15-curation-honesty.md) |
 | [unpublished-local-commit-mismatch](scenarios/unpublished-local-commit-mismatch.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
 | [unpublished-local-commit-missing](scenarios/unpublished-local-commit-missing.md) | 2026-10-08 | 2340bd70386020fa7bab70f7285e727a50ddf320 | unknown | gpt-6-luna | Pass | sample | [2026-10-08-unpublished-commit-handoffs.md](results/2026-10-08-unpublished-commit-handoffs.md): Parent dispatch selection only. Runner tool not named in the report. |
 | [unpublished-local-review](scenarios/unpublished-local-review.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
@@ -211,7 +211,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [curate-no-write-before-approval](scenarios/curate-no-write-before-approval.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
