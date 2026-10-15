@@ -25,7 +25,7 @@ Use the selection criterion that the user states, such as size, language, verifi
 
 ## Unattended fit
 
-When the user curates for an unattended run, apply this criterion to the `P0` and `P1` candidates. The user's request can change any part of it, such as the size range or the number of issues. A candidate fits when all of these hold:
+When the user curates for an unattended run, apply this criterion to the `P0` and `P1` candidates. Curation itself is attended: "unattended" describes the later burndown, not this conversation. [Decide in an unattended flow](../shared/decisions.md#decide-in-an-unattended-flow) does not apply to curation, so wait for the user's approval of the table even when the request mentions an unattended run. The user's request can change any part of it, such as the size range or the number of issues. A candidate fits when all of these hold:
 
 - Its acceptance criteria are checked by the project's gate commands, which the project facts file names. A criterion that needs a person, a running dev server, a browser, or a live external service disqualifies the issue, even when unit tests also exist.
 - Verifying it needs no new service, credential, or account.
@@ -54,7 +54,7 @@ Highlight sequencing logic (e.g., test guards before new feature tests). Confirm
 
 ## Advance status on the board
 
-Once approved, dispatch a subagent to make the board changes under the machine identity. Move each selected issue from `Backlog` to `Ready`:
+Make no board write, including Status, Priority, or Size, until the user approves the proposed table in this conversation. Your own recommendation is not approval, and a moved item cannot be taken back without a backward move. Once approved, dispatch a subagent to make the board changes under the machine identity. Move each selected issue from `Backlog` to `Ready`:
 
 ```bash
 python3 "$GHFLOW_CLI" board set-status ISSUE_URL --owner OWNER --project NUMBER --status "Ready"
