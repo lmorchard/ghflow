@@ -27,6 +27,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [burndown-conditional-reads](scenarios/burndown-conditional-reads.md) | 2026-10-13 | 7bca605 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | final text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-no-code-research](scenarios/burndown-no-code-research.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [burndown-no-code-research](scenarios/burndown-no-code-research.md) | 2026-10-13 | 836c20e | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
+| [burndown-orders-by-size](scenarios/burndown-orders-by-size.md) | 2026-10-15 | c2d8103 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
+| [burndown-orders-by-size](scenarios/burndown-orders-by-size.md) | 2026-10-15 | c2d8103 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
 | [burndown-refreshes-stale-facts](scenarios/burndown-refreshes-stale-facts.md) | 2026-10-14 | 9176ab6 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-base-ci-stale.md](results/2026-10-14-base-ci-stale.md) |
 | [capacity-limit](scenarios/capacity-limit.md) | 2026-10-11 | 1058e20 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-ceremony-reduction.md](results/2026-10-11-ceremony-reduction.md) |
 | [capacity-limit](scenarios/capacity-limit.md) | 2026-10-11 | 6185cc33ae7c652f8e15fee9b57cd94ddb0835a1 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | changed skill | [2026-10-11-coordinator-preparation-followup.md](results/2026-10-11-coordinator-preparation-followup.md): Regression check for the deliver-parent-issue change. Selected and runtime-reported model match. |
@@ -58,9 +60,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [curate-for-unattended-run](scenarios/curate-for-unattended-run.md) | 2026-10-14 | b4ba72a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
 | [curate-p0-p1-only](scenarios/curate-p0-p1-only.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-p0-p1-only](scenarios/curate-p0-p1-only.md) | 2026-10-14 | 9a98ffb | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-sweep-prioritize.md](results/2026-10-14-sweep-prioritize.md) |
-| [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
-| [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | 64bee90 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md): Right decision; described the table without rendering it. |
-| [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass | new text | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
+| [curate-size-excludes-lockfiles](scenarios/curate-size-excludes-lockfiles.md) | 2026-10-15 | c2d8103 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
+| [curate-thin-pool](scenarios/curate-thin-pool.md) | 2026-10-15 | c2d8103 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-size-and-order.md](results/2026-10-15-size-and-order.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | 64bee90 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-curate-thin-pool.md](results/2026-10-14-curate-thin-pool.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | e4e7ef1 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
@@ -208,8 +209,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [burndown-orders-by-size](scenarios/burndown-orders-by-size.md)
-- [curate-size-excludes-lockfiles](scenarios/curate-size-excludes-lockfiles.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
