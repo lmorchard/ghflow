@@ -1,0 +1,217 @@
+Scenario: burndown-orders-by-size
+Session ID: 9ff61a2f-c11d-4cad-927c-bc8c5f1b4ad1
+
+**Next step:** I record the selection as #600, #930, #947, in that order. I record it before the first dispatch, and then I move on to the preparation checks.
+
+**Why:** The rule is in "Audit the Ready queue": *"Sort actionable Ready issues by priority (`P0` before `P1`), then by ascending issue number within a priority. The board's card order is not read."*
+
+- All three issues are P1, so priority doesn't separate them. The tie-break is ascending issue number, which gives 600, then 930, then 947.
+- Size isn't a sort key. Putting #947 (S) ahead of #930 (M), or putting the smallest first to fit more in the budget, would go against the skill. The XS on #600 is a coincidence. It is first because of its number.
+- The eight-hour budget doesn't change the order. It only affects whether I start an issue. Under the disruption step, I don't start a new issue after the deadline. I park any issue still in progress at the deadline and record its state. Before each dispatch I estimate the time from durations measured in this run.
+- The selection is then fixed: #600, #930 and #947. A later arrival joins only if the user explicitly expands the scope. The Ready queue is not re-read as a new selection.
+
+**What happens after that:**
+1. I confirm the delivery endpoint. If the user hasn't chosen one, the default is through review follow-up. An unattended run never merges.
+2. I run `git fetch origin` and then `facts`. If the facts are stale, I dispatch prepare-project-facts first. I also check `base_ci`. If the base branch's CI is red, I halt.
+3. I dispatch express-issue for #600 first. If an issue hits a blocker, I park it and continue with the next one. I halt only if the failure would affect every later issue.
+
+I'd also note in the summary that the board traversal isn't an atomic snapshot.
+
+Scenario: burndown-orders-by-size
+Session ID: fc11eb4d-c7b6-4a53-98cd-12b6d111448b
+
+**Next step:** I record the selection as the ordered list **#600 (XS), #947 (S), #930 (M)**. This is the selection for the whole task. I record it before any dispatch, then run the project-facts check, then dispatch express-issue for #600 first.
+
+**Why:** The rule is the sort rule in "Audit the Ready queue". Actionable Ready issues are sorted by priority (P0 before P1), then by Size from smallest to largest (XS, S, M, L, XL, unset), then by ascending issue number. All three issues are P1, so Size decides the order. That puts XS (#600) first, then S (#947), then M (#930). The issue numbers only break ties between equal sizes, so #930 does not go ahead of #947 just because its number is lower. Board card order is not read.
+
+The skill gives this reason: smaller issues run first, so the deadline is most likely to fall on the largest one. That fits the eight-hour budget.
+
+**Other rules that apply:**
+- **Fixed selection:** The three IDs stay fixed. Later arrivals are added only if the user explicitly expands the scope. Backlog items are never drawn in.
+- **Unattended run:** An issue that hits a disruption is parked and the queue continues. The exceptions are failures that would hit every later issue, such as an identity or token failure, red base CI, or the same environment failure parking two issues in a row.
+- **Deadline:** I don't start an issue after the eight-hour deadline. An issue still in progress at the deadline is parked with its state recorded.
+- **Preparation before the first dispatch:** I run `git fetch origin` and then `facts`. I also check identity and prepare the review plan.
+- **Endpoint:** The default is through review follow-up, since the user selected no other. A merge endpoint never runs unattended.
+- **Caveat:** The traversal is not an atomic snapshot, so I would note that limit in the summary.
+
+Scenario: burndown-orders-by-size
+Session ID: 172349f9-e256-4262-98b2-61c90282210a
+
+**Next step:** I record the selection as the fixed order **#600 (XS), then #947 (S), then #930 (M)**. After that I do the preparation steps and make the first dispatch, which is #600.
+
+**Why:** The rule is in "Audit the Ready queue" in `burndown-ready-queue.md`. Actionable Ready issues sort by priority, then by `Size` from smallest to largest (`XS`, `S`, `M`, `L`, `XL`, then unset), then by ascending issue number.
+
+- All three issues are P1, so priority doesn't separate them.
+- Size decides the order, so #947 (S) runs before #930 (M). The issue numbers don't matter here, even though #930 is the lower number.
+- The skill gives the reason for smallest first: "the deadline is most likely to fall on the largest one." With an eight-hour budget, that means #930 is the issue most likely to be parked or cut off.
+- The board's card order is not read.
+
+**Selection is fixed:** The three IDs become this task's selection. Later arrivals are added only if the user explicitly expands the scope. Backlog is never drawn from.
+
+**Before the first dispatch:**
+- Confirm the endpoint. The user's selected endpoint applies. If none is set, the default is through review follow-up, and the skill says to confirm it with the user.
+- Run `git fetch origin`, then `facts`, to check for stale project facts and red base CI.
+- Prepare the review plan, run the identity check, and read the Handoffs reference.
+- Then dispatch express-issue for #600.
+
+**Unattended run:** An issue that hits a disruption is parked and the queue continues. The queue halts only if the failure would affect every later issue: the identity check or token fails, base CI is red, or the same environment failure parks two issues in a row. No new issue is started after the eight-hour deadline. Work already dispatched before the deadline may finish its writes after it.
+
+**Limit to report:** The board traversal is not an atomic snapshot, so the summary should say so if the board could change during retrieval.
+
+Scenario: burndown-orders-by-size
+Session ID: ses_ebfe74895ffei9D4MIteUnbi3z
+
+I record the selection in this order: **#600 → #930 → #947**, then proceed to the pre‑dispatch steps (identity check, then `facts`) and dispatch #600 first.
+
+**Why.** All three Ready issues are P1, so the primary sort key (priority) is a tie. The tie is broken by **ascending issue number** within that priority: 600 < 930 < 947. The Size values (XS, M, S) are not part of the sort key and do not reorder the queue, and the board's card order is never read.
+
+**Deciding rule.** The sort rule in **`Audit the Ready queue`** (line 64 of `burndown-ready-queue.md`):
+
+> "Sort actionable Ready issues by priority (`P0` before `P1`), then by ascending issue number within a priority. The board's card order is not read."
+
+The selection is fixed for the task (line 3: "The selection stays fixed during this task"), so later arrivals are not added and the order does not change between dispatches.
+
+Scenario: burndown-orders-by-size
+Session ID: ses_ebfe62948ffe8X91V8A9VuWrk3
+
+## Next action
+
+Record the task's fixed selection in this order: **1) #600 (Size XS), 2) #947 (Size S), 3) #930 (Size M)**. This order is then locked in — the selection stays fixed for the whole task, and later arrivals are only added if the user explicitly expands scope.
+
+## Why
+
+All three issues are the same priority (P1), so the priority term does not discriminate. The tie is broken by **Size, smallest to largest**: XS → S → M. (The ascending-issue-number tiebreaker never engages, since all three sizes differ.) The rule's stated rationale fits this run directly: with an eight-hour budget, smaller issues run first so the deadline is most likely to fall on the largest one (#930, M) — which can then be parked at the deadline with state recorded — rather than cutting off a smaller issue mid-flight.
+
+## Deciding rule
+
+**[Burndown the ready queue](references/tasks/burndown-ready-queue.md) → "Audit the Ready queue", the sort rule:** *"Sort actionable Ready issues by priority (`P0` before `P1`), then by `Size` from smallest to largest (`XS`, `S`, `M`, `L`, `XL`, then unset), then by ascending issue number."* No linked reference is needed to decide this; the rule is self-contained.
+
+## What follows (before the first dispatch)
+
+Recording the selection is not the final preparation step. Before dispatching issue #600 I still owe, per the same skill:
+1. The **identity check** (shared `identity.md`) before the first issue.
+2. Reading **express-issue** and **Handoffs** — express-issue is my own per-issue procedure, not a worker's.
+3. **Check the project facts**: `git fetch origin` then `python3 "$GHFLOW_CLI" facts`; if `stale_sources` is non-empty, dispatch the prepare-project-facts refresh before the first issue (the queue request authorizes it, and it runs unattended).
+
+And at dispatch time I honor the budget rule: no new issue starts after the deadline, and any issue in progress at the deadline is parked with its state recorded.
+
+Scenario: curate-size-excludes-lockfiles
+Session ID: 633d296b-080a-44c8-82ce-c70c0e5980a6
+
+The skill has no rule that excludes lockfile churn from the size estimate. Here is what I'd do next and why.
+
+**Next step: the board audit.**
+- I'd read every board item with the validated traversal in `burndown-ready-queue.md#audit-the-ready-queue`. That comes first under "Audit current board WIP" in `curate-ready-queue.md`.
+- I'd count the items in `Ready`, `In progress` and `In review`, and recommend whether each current `Ready` item stays or goes back to `Backlog`.
+- I'd compute the open slots against the WIP limit.
+- I'd also read the body and comments of each P1 candidate, because labels don't show that an issue is settled.
+
+**Deciding rule: "Unattended fit", the size-is-a-flag paragraph and the thin-pool paragraph.**
+- Size is a flag, not a condition. I estimate the whole change, including tests. The default range is about 50 to 200 lines.
+- The pinning issue's 150 hand-written lines are only part of that change. It also regenerates two `package-lock.json` files, and those diffs are usually large. I'd count them, or at least flag them. The total likely passes 200, and the skill doesn't say to exclude generated lines. I'm inferring that from "estimate the change". I couldn't find a rule saying lockfiles count or don't.
+- A candidate past the range goes last in the proposed order, with the risk named. The skill cites a run where an issue of 150 to 240 lines took twice as long as the others.
+- The user decides whether it goes in. I'd name at most one such candidate, as an optional last pick.
+
+**Proposal.** I'd present the "Unattended fit" table, with one row per candidate and the rejected ones included:
+1. The 60-line test guard is a pick. It is settled and gate-verified.
+2. The 30-line config test is a pick. It is settled and gate-verified.
+3. The pinning issue is an optional last pick, with the lockfile-churn risk named.
+
+I'd also check the pinning issue against the other conditions:
+- Do the gates verify its acceptance criteria?
+- Does it need a new service or credential?
+- Is its scope settled?
+- Is it independent of the other picks and of open PRs?
+
+If it fails any of these, its Result is the first condition it fails instead.
+
+Two picks is within the "two or three" request. The requested number is a maximum, so I wouldn't pad the batch. I'd say the pool is thin and suggest a `sweep-prioritize` re-sweep of the lower tiers.
+
+I'd then wait for the user to confirm. After that, a subagent would move the approved issues to `Ready` under the machine identity and confirm each read-back. I wouldn't change any priorities.
+
+Scenario: curate-size-excludes-lockfiles
+Session ID: a829885a-f6bd-4cb2-930f-fda693ba99a9
+
+**Next step:** I propose all three issues, with the dependency-pinning issue last and flagged as likely to run long. The user decides whether it goes in.
+
+**Rule that decides it:** the size paragraph of "Unattended fit" in `curate-ready-queue.md`.
+
+- **Size estimate:** it counts hand-written change, including tests and docs, but not lockfiles or other generated output. The pinning issue is about 150 lines, which is inside the default 50–200 range. It is not a "past the range" candidate, so the optional-last-pick cap doesn't apply. The pool isn't thin either, so there is no sweep-prioritize re-sweep to recommend.
+- **Lockfile flag:** the rule says that if a change regenerates a lockfile, I must say so beside the estimate and treat it as likely to run long. The pinning issue regenerates both `package-lock.json` files. The skill's precedent is the third unattended run, where an estimate of 120–200 lines became 537 lines with lockfiles and took three hours.
+- **Order:** the 60-line test guard and the 30-line config test go first. Both are settled and gate-verified. The pinning issue goes last, with the risk named in the table.
+
+**Table notes for the pinning issue:**
+- Its size cell reads "~150 lines, regenerates two lockfiles, likely to run long."
+- Its Result is "pick" or "optional last pick", depending on the other checks below.
+
+**Before presenting, I would still need to:**
+- Run the validated board traversal from "Audit the Ready queue". That gives the Ready, In progress and In review counts, and a stay-or-return recommendation for each item already in Ready.
+- Read each candidate's body and comments. That confirms the gates verify acceptance, no new service or credential is needed, the scope is settled, and the issue is independent of the others and of open PRs.
+- Check the pinning issue's policy check script and docs page against the gate-commands criterion. If any criterion needs more than the gates, the issue fails that condition and drops out.
+
+I can't run commands or ask questions in this session, so those checks are still to do. No board changes happen until the user approves the batch. After approval, a subagent moves the issues to Ready under the machine identity, and I propose a Size for each.
+
+Scenario: curate-size-excludes-lockfiles
+Session ID: e8e1c57d-44ee-4433-a0ae-a7dc977e5e13
+
+**Next step:** I'd present the unattended-fit table and a proposed batch, and wait for the user to confirm before any board change. Before that, I'd audit the board's current WIP and read each candidate's body and comments. I can't run those reads here, so the table below rests on your description and not on verified issue text.
+
+**Proposed batch, in order:**
+1. The 30-line config test: settled and gate-verified.
+2. The 60-line test guard: settled and gate-verified.
+3. The dependency-pinning issue, last, flagged as likely to run long. It is the only one of the three that regenerates lockfiles.
+
+| Issue | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size estimate | Result |
+|---|:---:|:---:|:---:|:---:|:---:|---|
+| 30-line config test | yes | yes | yes | yes | ~30 | pick |
+| 60-line test guard | yes | yes | yes | yes | ~60 | pick |
+| Pin direct npm dependencies | yes, to confirm | yes, to confirm | to confirm | to confirm | ~150, regenerates both `package-lock.json` files | pick, last, with risk named |
+
+**Why this order:** the rule is in "Unattended fit" in `curate-ready-queue.md`. Size is a flag, not a condition. The ~150-line estimate counts hand-written code, tests and docs, and excludes lockfiles. That puts it inside the default 50–200 range, so the pinning issue isn't disqualified. The same rule says that if a change regenerates a lockfile, I must say so beside the estimate and treat it as likely to run long. The skill's example is the third unattended run, where an estimate of 120–200 lines became 537 lines with lockfiles and took three hours.
+
+The skill also puts a candidate that runs past the range last and names the risk, and it leaves the decision to the user. The pinning issue is a borderline case of that, so I'd apply the same treatment. Placing it last means a long run can't block the two small, settled issues.
+
+**Still to check on the pinning issue:**
+- That its body and comments show the scope is settled, with no open question awaiting the user.
+- That it is independent of open PRs.
+- That its acceptance is checked by the project's gate commands.
+
+If any of these fails, I'd mark it with the first condition it fails and drop it from the batch. The user then has two issues, and I'd say the pool is thin and recommend a `sweep-prioritize` re-sweep of the lower tiers. I wouldn't fill the third slot with something past the range.
+
+**After approval:** a subagent moves the picks to `Ready`. I'd propose a Size for each, and I wouldn't change Priority.
+
+Scenario: curate-thin-pool
+Session ID: c5ecbdb9-2693-4f37-9e1c-c9d79f0935f3
+
+**What I do next:** I stop at the review step and present the unattended-fit table to the user. I make no board changes until they approve the batch. The Ready audit is already done: Ready is empty, so there are 0 items and 3 slots open.
+
+**Rule that decides it:** "Unattended fit" in `curate-ready-queue.md`. A candidate fits only if all four conditions hold:
+- The project's gate commands verify its acceptance.
+- It needs no new service or credential.
+- Its scope is settled.
+- It is independent of the other picks and of open PRs.
+
+Size is a flag, not a condition. The requested count is a maximum. At most one candidate past the 50–200 line range may be named, as an optional last pick, and the batch is not padded with others.
+
+| Issue | Gates verify acceptance | No new service or credential | Scope settled | Independent | Size | Result |
+|---|:---:|:---:|:---:|:---:|---|---|
+| E, file-operation ledger | yes (unit tests, `make test`) | yes | yes | yes | 200–300 | Within the range only at the low end. Past the range at the top, so a candidate for the optional last pick. |
+| F, persist tool intent | yes (crash-injection test, `make test`) | yes | yes | yes | 200–350 | Past the range. It competes with E for the one optional last slot. |
+| G, lifecycle-script policy and pinning | yes (`make check` runs the dependency lint) | yes | yes | yes | 100–250 | In range at the low end. Pinning probably regenerates a lockfile, so I flag it as likely to run long, which is the third-run lesson. Order it last. |
+| H, autouse asyncio-marker guard | yes | yes | yes | yes | 40–80 | **Pick** |
+| I, config-file load test | yes | yes | yes | yes | 20–40 | **Pick**. It's below the range, but size is only a flag and it fits. |
+| K, logging cleanup | yes | yes | yes | yes | 30 | Fits, but it's P3. The criterion applies to P0/P1 only, and curation doesn't change priorities, so it's excluded. |
+| J, Mattermost thread fix | no (needs a live Mattermost server) | no | – | – | 80 | Rejected on the first failed condition: the gates don't verify acceptance. |
+
+**Proposal:**
+1. H first. It's a test guard, so it goes before new tests that might trip over the leaked marker.
+2. I second.
+3. Optionally G third, as the one flagged past-range or lockfile-risk pick. I'd name the risk and leave the decision to the user. It is the smallest of the oversized candidates and its gate is the cheapest.
+
+E and F stay in Backlog. I wouldn't fill the third slot with either, because each runs up to 300–350 lines.
+
+I'd say the pool is thin: only two candidates fit cleanly. I'd recommend a sweep-prioritize re-sweep of the lower tiers for more small, gate-checkable work.
+
+After the user approves, a subagent moves the picks to Ready under the machine identity and proposes a Size for each. Priority stays unchanged, and each move gets a read-back.
+
+One caveat: I'm relying on the stated facts that Ready is empty and there are no open PRs. If the burndown audit traversal (`gh api graphql --paginate --slurp`) hasn't actually been run to completion, the subagent should run it before any write.
