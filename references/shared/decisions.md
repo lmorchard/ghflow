@@ -20,7 +20,7 @@ Follow [Coordination](coordination.md#roles) for who receives and discusses the 
 
 ## Decide in an unattended flow
 
-An unattended request, which the user states, changes what happens to a decision that would otherwise go to the user. It does not change which decisions those are, and it does not widen the endpoint or the permissions.
+An unattended request, which the user states, changes what happens to a decision that would otherwise go to the user. It applies to the task that the request runs unattended, such as a burndown, not to a task that prepares one, such as curating the Ready column for tonight's run. It does not change which decisions those are, and it does not widen the endpoint or the permissions.
 
 When the evidence supports a recommended answer, take it and continue. Record the question, the answer, the evidence, and the tradeoff in the task notes and in the PR description under a heading such as "Decisions taken unattended", so that the user can reverse it at review. Do not call an interactive question tool: nobody will answer, and the call waits until it times out.
 
