@@ -10,12 +10,28 @@ ROOT = Path(__file__).resolve().parent.parent
 SCRIPT = ROOT / "scripts/export-opencode-sessions.py"
 
 FAKE_OPENCODE = """#!/bin/sh
+# FAKE_VERSION=1 accepts only `export ID`; FAKE_VERSION=2 accepts only `session export ID`.
 case "$1 $2" in
   "session list") cat "$FAKE_DIR/list.json" ;;
-  "export "*) f="$FAKE_DIR/$2.json"; [ -f "$f" ] || { echo "no session $2" >&2; exit 1; }; cat "$f" ;;
+  "session export")
+    [ "$FAKE_VERSION" = 2 ] || { echo "unknown subcommand" >&2; exit 2; }
+    f="$FAKE_DIR/$3.json"; [ -f "$f" ] || { echo "no session $3" >&2; exit 1; }; cat "$f" ;;
+  "export "*)
+    [ "$FAKE_VERSION" = 2 ] && { echo "Unexpected positional argument" >&2; exit 2; }
+    f="$FAKE_DIR/$2.json"; [ -f "$f" ] || { echo "no session $2" >&2; exit 1; }; cat "$f" ;;
   *) echo "unexpected: $*" >&2; exit 2 ;;
 esac
 """
+
+
+def v2_session(session_id, title, parent=None, calls=()):
+    """A session in the OpenCode 2.x export shape: content parts, `name`, and `subagent`."""
+    parts = [{"type": "tool", "name": "subagent",
+              "state": {"input": {"description": description}, "metadata": {"sessionID": child}}}
+             for description, child in calls]
+    return {"info": {"id": session_id, "title": title, "parentID": parent,
+                     "time": {"created": 1791829787355, "updated": 1791845517555}},
+            "messages": [{"type": "assistant", "content": parts}]}
 
 
 def task_part(description, child):
@@ -60,8 +76,8 @@ class ExportSessionsTest(unittest.TestCase):
     def write(self, name, data):
         (self.fake / name).write_text(json.dumps(data))
 
-    def run_script(self, *args):
-        env = dict(os.environ, PATH=f"{self.fake}:{os.environ['PATH']}", FAKE_DIR=str(self.fake))
+    def run_script(self, *args, version="1"):
+        env = dict(os.environ, PATH=f"{self.fake}:{os.environ['PATH']}", FAKE_DIR=str(self.fake), FAKE_VERSION=version)
         return subprocess.run([str(SCRIPT), *args, "--out", str(self.out)],
                               text=True, capture_output=True, env=env)
 
@@ -76,6 +92,17 @@ class ExportSessionsTest(unittest.TestCase):
         self.assertIn("| `ses_worker` | `ses_root` | Implement |", index)
         self.assertIn("- Corrections → `ses_worker`", index)
         self.assertEqual(result.stdout.count("ses_worker"), 1)
+
+    def test_exports_an_opencode_2_tree(self):
+        self.write("ses_root.json", v2_session("ses_root", "Unattended burndown 1",
+                                               calls=[("Implement", "ses_worker"), ("Review", "ses_reviewer")]))
+        self.write("ses_worker.json", v2_session("ses_worker", "Implement", "ses_root"))
+        self.write("ses_reviewer.json", v2_session("ses_reviewer", "Review", "ses_root"))
+        result = self.run_script("ses_root", version="2")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        files = sorted(p.name for p in self.out.iterdir())
+        self.assertEqual(files, ["index.md", "session-ses_reviewer.json", "session-ses_root.json", "session-ses_worker.json"])
+        self.assertIn("- Review → `ses_reviewer`", (self.out / "index.md").read_text())
 
     def test_resolves_a_unique_title(self):
         result = self.run_script("burndown 1")

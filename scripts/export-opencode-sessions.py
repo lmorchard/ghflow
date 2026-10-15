@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Export an OpenCode session and every subagent session it dispatched.
 
-`opencode export SESSION_ID` writes one session as JSON. A coordinator's task
-calls name their child sessions in the tool part metadata, so this script
-follows them and writes the whole tree into one directory with an index.
-Run it from the project checkout the sessions belong to.
+OpenCode 1.x writes one session with `opencode export SESSION_ID`; 2.x with
+`opencode session export SESSION_ID`. A coordinator's dispatch calls (`task` in
+1.x, `subagent` in 2.x) name their child sessions in the tool part metadata, so
+this script follows them and writes the whole tree into one directory with an
+index. Run it from the project checkout the sessions belong to.
 """
 
 import argparse
@@ -35,15 +36,26 @@ def run_opencode(args, stdout=None):
     return result.stdout
 
 
+EXPORT_COMMANDS = (["session", "export"], ["export"])
+
+
 def export_session(session_id, out_dir):
-    """Write one session export to disk and return the parsed JSON."""
+    """Write one session export to disk and return the parsed JSON.
+
+    Tries the 2.x command first and falls back to the 1.x command.
+    """
     path = out_dir / f"session-{session_id}.json"
-    try:
-        with path.open("w") as handle:
-            run_opencode(["export", session_id], stdout=handle)
-    except ExportError:
+    last_error = None
+    for command in EXPORT_COMMANDS:
+        try:
+            with path.open("w") as handle:
+                run_opencode([*command, session_id], stdout=handle)
+            break
+        except ExportError as error:
+            last_error = error
+    else:
         path.unlink(missing_ok=True)
-        raise
+        raise last_error
     try:
         data = json.loads(path.read_text())
     except json.JSONDecodeError as error:
@@ -53,32 +65,39 @@ def export_session(session_id, out_dir):
     return data
 
 
-def child_session_ids(data):
-    """Return the child session IDs named by task tool calls, in first-seen order."""
-    children = []
-    for message in data.get("messages", []):
-        for part in message.get("parts", []):
-            if part.get("type") != "tool" or str(part.get("tool", "")).lower() != "task":
-                continue
-            metadata = (part.get("state") or {}).get("metadata") or {}
-            child = metadata.get("sessionId") or metadata.get("sessionID")
-            if child and child not in children:
-                children.append(child)
-    return children
+DISPATCH_TOOLS = ("task", "subagent")
+
+
+def message_parts(message):
+    """Return a message's parts: `parts` in OpenCode 1.x, `content` in 2.x."""
+    parts = message.get("parts")
+    if parts is None:
+        parts = message.get("content")
+    return parts if isinstance(parts, list) else []
 
 
 def task_calls(data):
-    """Return (description, child_id) for each task tool call."""
+    """Return (description, child_id) for each dispatch tool call."""
     calls = []
     for message in data.get("messages", []):
-        for part in message.get("parts", []):
-            if part.get("type") != "tool" or str(part.get("tool", "")).lower() != "task":
+        for part in message_parts(message):
+            name = str(part.get("tool") or part.get("name") or "").lower()
+            if part.get("type") != "tool" or name not in DISPATCH_TOOLS:
                 continue
             state = part.get("state") or {}
             metadata = state.get("metadata") or {}
             description = (state.get("input") or {}).get("description", "")
             calls.append((description, metadata.get("sessionId") or metadata.get("sessionID")))
     return calls
+
+
+def child_session_ids(data):
+    """Return the child session IDs named by dispatch tool calls, in first-seen order."""
+    children = []
+    for _, child in task_calls(data):
+        if child and child not in children:
+            children.append(child)
+    return children
 
 
 def pick_session(sessions, query):
