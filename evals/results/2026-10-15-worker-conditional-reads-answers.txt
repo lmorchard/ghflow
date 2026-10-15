@@ -1,0 +1,154 @@
+Scenario: worker-conditional-reads
+Session ID: 9fcbd73f-02e2-4b14-8418-3543c8f7f739
+
+I wouldn't read all ten references up front. I'd read only the ones the skill says apply from the start, then go on to the workspace setup.
+
+**Rule that decides it:** your instruction says to follow a linked reference only when its condition applies or you need its rule to decide. `implement-issue.md` sets the conditions for each reference:
+
+- **Apply from the start (lines 5, 7, 45):**
+  - Authorization and Evidence apply "throughout".
+  - Working context and tool output (`context.md`) governs selective reads and concise output.
+  - Task notes apply "throughout execution", and the handoff already gives the notes path.
+  - I'll read these four now, before I touch anything.
+- **Apply later:**
+  - Board status applies "when implementation starts" (line 35), which comes after the worktree and baseline.
+  - GitHub writes applies "before changing GitHub records", so it waits until I move the issue to In progress.
+  - Draft PRs and readiness (`pr-lifecycle.md`) and `submit-pr.md` apply at the first significant change, once there is a committed checkpoint (lines 63–65).
+  - The CLI reference applies when I run `gh` or similar.
+  - Decisions applies only when a fact or choice is missing (line 15). Nothing is missing yet, because the handoff already carries the confirmed decisions.
+  - Identity matters only for the model ID in the return (line 84), and my runtime already states that ID.
+
+**What I do next, in order:**
+1. Read the four always-on references listed above.
+2. Read the project facts file, the issue, and the relevant code and tests at the base commit (line 11). I'll check whether the JSON config-loading tests are already satisfied (line 13).
+3. Inspect status, branches, and existing worktrees, and preserve unrelated work (line 19). Then create the named worktree and branch from the handoff's base commit, without resetting or switching the shared checkout (line 23).
+4. Prepare dependencies as the project directs, run the baseline tests, and record any existing failures separately (lines 27–29).
+5. Move the issue to In progress. This is when I read board-status and github-writes (line 35).
+6. Write a short plan, then write the two tests. Each assertion must be specific, and I'll confirm each test fails when the behavior it covers is disabled (line 53).
+7. At the first coherent checkpoint, I commit, then read pr-lifecycle and submit-pr and publish a draft. The handoff authorizes this, and line 65 says to resume on the same branch afterward.
+
+Scenario: worker-conditional-reads
+Session ID: 29e9b710-2bff-4e4f-a393-c8b60eb03049
+
+**Next step: don't read all ten references now. Start the actual work and open each reference only when its condition applies.**
+
+The deciding rule is in `implement-issue.md:5`. It lists a trigger for each shared reference:
+
+- **identity:** read it before the first Git or `gh` command.
+- **board-status:** read it before moving the issue to In progress.
+- **task-notes:** read it when creating or resuming notes.
+- **decisions:** read it when a fact or choice is missing.
+- **evidence:** read it when recording a check or writing the report.
+- **authorization:** read it when a step's scope or permission is in question.
+- **github-writes:** read it before changing a GitHub record.
+
+The same paragraph ends with: "Reading them all before you start delays the work and changes no decision." That sentence rules out my plan to read board-status, pr-lifecycle, identity, github-writes, decisions, evidence, authorization, task-notes, the CLI reference and submit-pr up front.
+
+Line 65 gives the same answer for submit-pr. I only need it when I commit the first checkpoint and publish the draft, and the handoff authorizes that.
+
+**What I do now:**
+
+1. Read the project facts file, the issue body and comments, and the relevant code and tests at the base commit. This is "Read the issue and current code". I check whether anything in the issue is already satisfied, and the handoff's confirmed decisions settle the choices.
+2. Read **identity** before my first Git or `gh` command. Inspecting status, branches and worktrees is a Git command, so identity comes first, and that read is the CLI/identity one. Then inspect status, branches and existing worktrees, and refresh the base reference if access permits.
+3. Create the worktree and branch using the handoff's names, without touching the shared checkout.
+4. Run the baseline tests. Then read **board-status** and move the issue to In progress. If that update fails, I report it and keep going.
+5. Read **task-notes** when I create the notes file at the handoff's path.
+6. Write the two tests, then check that each one fails when the config-loading behavior it covers is disabled.
+7. When I reach the first significant change, read **pr-lifecycle** and **submit-pr**, then commit and publish the draft. I read **github-writes** before that push or PR write, and **evidence** when I record checks or write the report.
+
+I read the others only if their triggers fire.
+
+Scenario: worker-conditional-reads
+Session ID: 065dcabe-9c28-4809-a7b1-6b6a3b545de2
+
+**Next step: don't pre-read that whole list. Start the task and open each reference only when its condition applies.**
+
+The rule is in `implement-issue.md:5`. It says to read the task reference and the handoff first, then open the shared references "when their conditions apply." It ends with: "Reading them all before you start delays the work and changes no decision."
+
+Your plan to read ten references before creating the worktree is the pattern that line warns against. Each reference has its own trigger:
+
+- **identity**: before the first Git or `gh` command. Creating the worktree is a Git command, so read it now.
+- **board-status**: before moving the issue to In progress. That happens after the workspace and baseline, so read it then.
+- **task-notes**: when I create or resume notes. Read it when I first write to the notes path.
+- **decisions**: only if a fact or choice is missing. The handoff already has the confirmed decisions.
+- **evidence**: when I record a check or write the report.
+- **authorization**: only if a step's scope or permission is in doubt. Nothing is in doubt now.
+- **github-writes**: before changing a GitHub record. That comes at the board move or push.
+- **pr-lifecycle and submit-pr**: when I reach the draft checkpoint. The handoff authorizes continuing into submit-pr (`implement-issue.md:63-65`), so I read them when I commit the first coherent checkpoint, not before.
+- **CLI reference**: when I actually run a CLI command that needs it.
+
+**Concretely:**
+
+1. Read only the identity reference, since the next action is a Git command.
+2. Read the project facts file and the issue, and inspect the current code and tests. This is the "Read the issue and current code" step.
+3. Check status, branches and existing worktrees. Then create the worktree and branch from the handoff's base commit, without touching the shared checkout.
+4. Run the baseline, then read board-status and github-writes and move the issue to In progress.
+5. Write the two JSON-config tests. Confirm that each one fails when the behavior it covers is disabled.
+6. Commit a checkpoint, then read pr-lifecycle and submit-pr and publish the draft.
+
+I don't push, merge, or remove the worktree beyond what the handoff authorizes.
+
+Scenario: worker-conditional-reads
+Session ID: ses_ebfeddeb9ffekbNTESMcWfcme5
+
+**Next action:** Do **not** bulk-load those references. Next, follow the first section of `implement-issue.md`, **"Read the issue and current code"**: read the project facts file (`.ghflow/project.md`, before the long-form instructions), the issue body and relevant comments, and inspect the relevant code and tests at the base commit to confirm what the issue asks and whether it still remains. Only after that do you "Prepare an isolated workspace" (create the worktree/branch).
+
+**Why:** The skill's sections are ordered — reading the issue and current code comes before creating the worktree, and before marking the issue In progress or any publication step. The references on your plan each have named conditions that have not yet triggered: board-status applies when implementation starts; github-writes before changing GitHub records; pr-lifecycle/submit-pr at the first significant change when publishing the authorized draft; decisions when a fact or choice is missing; the implementation model/identity is only needed in the returned result.
+
+**Deciding rule:** `implement-issue.md`'s section ordering ("Read the issue and current code" precedes "Prepare an isolated workspace"), reinforced by `shared/context.md` — "Open a linked reference when its named condition applies, and read the section that owns the decision. A link is a route to relevant instructions, not a request to recursively load every linked document." So defer those references until their conditions arise, and start with the issue and the current code.
+
+Scenario: worker-conditional-reads
+Session ID: ses_ebfebbaefffeLmVEfgqORIPPSx
+
+**Do not pre‑read those ten references now. Proceed to the next step of the implement‑issue flow — prepare the isolated workspace** (inspect current status/branches/existing worktrees, confirm the base, create the worktree and task branch), and open each shared reference only at the moment its own condition is triggered:
+
+- **Agent identity** — immediately before my first Git/`gh` command (the `git status` / worktree inspection and creation).
+- **Task notes** — when I create or resume the notes.
+- **Board status** — only when I move the issue to *In progress*.
+- **Decisions** — only if a fact or choice is missing.
+- **Evidence** — only when I record a check or write the report.
+- **Authorization** — only if a step's scope/permission is in question.
+- **GitHub writes** — only before I change a GitHub record.
+- **pr‑lifecycle / submit‑pr** — only at the first significant change, when I commit the checkpoint and publish the draft (the handoff's authorization to continue into submit‑pr is exercised then, not before the worktree exists).
+
+**Why:** reading all of them up front is exactly the pattern the skill rejects — it delays the work and changes no decision, because none of their conditions have fired yet. The only reference whose condition is met at this moment is *Agent identity* (first Git command); the rest become relevant later, at the specific steps named above.
+
+**Deciding skill rule:** the reference‑reading rule in `implement-issue.md` (line 5), per *Working context and tool output* (`context.md`): *"Open the shared references when their conditions apply … Reading them all before you start delays the work and changes no decision."*
+
+So next I open **Agent identity**, then run the first Git inspection and create the worktree — not read the batch.
+
+Scenario: worker-reports-own-model
+Session ID: 55e76d00-e772-4fa0-9270-7acd4b54b69a
+
+Next, I write `llama.cpp/llama` as the implementation model in both the return report and the task notes.
+
+**Rule that decides it:** the "Return the result" section of `implement-issue.md` says the implementation model is "the ID your runtime states to you, or 'unknown'. Do not record or mention a configured or default model as your identity, in the return or the notes. The parent uses it to choose a different model for review."
+
+**Why:**
+- My runtime states `llama.cpp/llama`, so that is the identity I report.
+- The `model` key in `~/.config/opencode/opencode.jsonc` (`ollama/qwen3-coder:30b`) is configuration, not what my runtime told me. The two values differ, and the skill says a configured value must not stand in for my identity. I leave it out of the report and the notes entirely, even as a comparison.
+- Because the config value is excluded, I don't try to reconcile the two or guess which is "really" running. I report the one ID I was given.
+- The user's same-model exception for implementation and review doesn't change this. It lets the parent reuse the same model for review, but only if the parent knows my actual model ID. An accurate ID is what lets the parent apply the exception correctly. Writing the config value or "unknown" instead would give the parent wrong or less useful information.
+- I can note in the report that the user approved the same-model exception, because that is a fact from the handoff and not a claim about my identity. The decision to use it stays with the parent.
+- The skill also says self-review is not independent review. So my report claims no independent verification, and the review that follows is a separate step.
+
+Scenario: notes-edit-without-amend
+Session ID: 2daf481c-ff67-454e-bb04-173affd03f47
+
+**What I do next:** I edit the notes file in the working tree and leave it uncommitted and unpushed. I add the CI run ID and the test reminder there. Then I return to the coordinator without waiting on CI for the notes.
+
+**Why:** The deciding rule is in `references/shared/task-notes.md`, under "Locate or create the notes". `submit-pr.md` points to the same rule for notes-only commits.
+
+- The project commits notes, so they go in with the code they describe or once at the end of an operation. Between those commits, notes edits stay in the working tree.
+- I must not amend the published commit or force-push just to change notes. Each push restarts hosted CI, so a markdown-only edit would trigger a new run.
+- A push that adds a notes-only commit also moves the head. The CI run I'm recording belongs to the current head, and that run would no longer cover the head.
+- The two lines I want to add are notes content. Nothing in the code or docs changes, so there is no reason to publish them now.
+
+**What I report to the coordinator:**
+
+- The draft PR head is unchanged, and hosted CI is still running on it. I name that run ID. I don't wait on CI for a notes-only change.
+- The notes file has local uncommitted edits: the CI run ID and the test reminder. I give its absolute path.
+- The remaining work is independent review of the published head, which the coordinator dispatches next.
+- If the review finds a correction, the notes edits can go in that correction commit. If it finds none, the notes stay at the reviewed head. After independent review, no notes-only commit is added, whether before or after the PR is marked ready. The ready PR description carries that result.
+
+Because the notes edits stay in the working tree, I also tell the coordinator the worktree is not clean.

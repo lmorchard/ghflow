@@ -2,7 +2,7 @@
 
 Publish committed progress as a draft PR, or submit completed work as ready for review. For a ready PR, move the issue to In review and arrange the selected review. Return a handoff without waiting for findings. Do not change code to address findings, merge, or enable automatic merge.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md). Apply [Agent identity](../shared/identity.md#running-commands-under-the-identity) to every Git and `gh` command.
+Read this reference and your handoff first. Read [Agent identity](../shared/identity.md#running-commands-under-the-identity) before your first Git or `gh` command, and apply it to every one. Open the other shared references when their conditions apply: [GitHub writes](../shared/github-writes.md) before you change a GitHub record; [Review](../shared/review.md) before you request review or mark a PR ready; [Evidence](../shared/evidence.md) when you write the description or report check results; [Authorization](../shared/authorization.md) when the endpoint or a limit is in question. Reading them all before you start delays the work and changes no decision.
 
 Apply [Draft PRs and readiness](../shared/pr-lifecycle.md) to choose draft publication or readiness. A draft checkpoint returns to implementation or local review; it does not start PR follow-up.
 

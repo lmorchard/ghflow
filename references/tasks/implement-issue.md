@@ -2,7 +2,7 @@
 
 Produce tested, committed changes for the requested issue, with enough evidence for another agent to prepare a PR. This skill ends with a local branch and a report. Do not push, open a PR, merge, or remove the worktree.
 
-Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Read this reference and your handoff first. Open the shared references when their conditions apply, as [Working context and tool output](../shared/context.md) states: [Agent identity](../shared/identity.md#running-commands-under-the-identity) before your first Git or `gh` command; [Board status](../shared/board-status.md) before you move the issue In progress; [Task notes](../shared/task-notes.md) when you create or resume notes; [Decisions](../shared/decisions.md) when a fact or choice is missing; [Evidence](../shared/evidence.md) when you record a check or write your report; [Authorization](../shared/authorization.md) when a step's scope or permission is in question; [GitHub writes](../shared/github-writes.md) before you change a GitHub record. Reading them all before you start delays the work and changes no decision.
 
 Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 
