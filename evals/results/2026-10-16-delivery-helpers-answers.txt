@@ -1,0 +1,86 @@
+Scenario: worker-handoff-file-prompt
+Session ID: 6f47af82-f103-4fba-85a3-1d27228130f3
+
+I can't do the next step, which is reading the handoff.
+
+The skill's opening rule decides it: "Read this reference and your handoff first." I've read the reference. The handoff is `/tmp/handoffs/929.md`, and the file tools refused it because it's outside the two directories I'm allowed to read, which are the session directory and the source directory. The prompt also bars commands, so I have no other way to read it.
+
+Without the handoff I don't have the base commit, branch name, confirmed decisions, review plan, flow limits, stopping point or return list. I won't guess any of them or start on the issue from the short prompt alone. The prompt says it isn't a placeholder, so the handoff is the real instruction set. Guessing would break the skill's rules on decisions and on not redefining the issue.
+
+I haven't touched Git, GitHub, the board, a worktree or any files.
+
+**What I need:** read access to `/tmp/handoffs/929.md`, or its contents placed in the session directory. This is a blocker to hand back to the parent, not a question for the user.
+
+**What I'll do once I have it:**
+1. Read the handoff and take its decisions and limits as given.
+2. Open the shared references only when their conditions apply. Agent identity comes before the first Git or `gh` command, and Board status before moving the issue to In progress.
+3. Read the issue and the current code to check whether the problem still exists.
+4. Check status, branches and worktrees. Create an isolated worktree and branch from the handoff's base, then run the baseline checks.
+5. Implement and test, review the diff and commit locally. I'll stop there, with no push, PR or worktree removal.
+6. Return the report the skill lists, including the implementation model ID `claude-sonnet-5-5`.
+
+Scenario: worker-handoff-file-prompt
+Session ID: 628872a9-0afc-4ed8-9d41-699c9f1b16ff
+
+Next I read the handoff file, `/tmp/handoffs/929.md`. I haven't read it yet, and the skill doesn't let me start work without it.
+
+The rule that decides this is the first line of the skill's second paragraph: "Read this reference and your handoff first." My dispatch prompt says the same thing. It states that the handoff is my complete instruction and that the short prompt is not a placeholder. The handoff holds the base commit, branch name, confirmed decisions, flow limits, stopping point and return list. Without it I would be guessing at all of those.
+
+After the handoff, I'd follow the skill's lazy-loading rule. That rule says to open a shared reference only when its condition applies, and that reading them all up front "delays the work and changes no decision." The conditions are:
+
+- **Identity:** I read it before my first Git or `gh` command.
+- **Board status:** I read it before I move the issue to In progress.
+- **Task notes:** I read it when I create or resume notes.
+- **Decisions:** I read it if a fact or choice is missing.
+- **Evidence:** I read it when I record a check or write the report.
+- **Authorization:** I read it if a step's scope or permission is in question.
+- **GitHub writes:** I read it before I change a GitHub record.
+
+Then I would work through the skill's steps in order:
+
+1. Read the issue and the current code.
+2. Inspect the status, branches and worktrees.
+3. Create or resume the worktree.
+4. Run the baseline checks.
+5. Plan the change and its evidence.
+6. Implement with tests.
+7. Review the full diff and commit.
+8. Return the report.
+
+I would not push, open a PR, merge or remove the worktree, because the skill ends at a local branch and a report. The handoff's stopping point and flow limits can narrow that further, but they can't widen it unless the handoff authorizes continuing into submit-pr.
+
+Scenario: worker-handoff-file-prompt
+Session ID: 7c546afd-7bd4-416f-b0b5-8bf41597bf4b
+
+I can't read the handoff, so I can't go further on issue 929 yet.
+
+**What happened:** I read `implement-issue.md`. Its line 5 says "Read this reference and your handoff first." My next step was therefore to read `/tmp/handoffs/929.md`. The read was denied because the session confines file tools to the session and source directories, and `/tmp/handoffs/` is outside both.
+
+**Why I'm stopping here:**
+- The handoff holds the base commit, branch name, confirmed decisions, review plan, flow limits, stopping point and return list. Without it I'd be guessing at all of those.
+- The skill's Decisions rule says to return a missing fact or choice instead of inventing it.
+- Searching elsewhere for a copy of the handoff or working around the restriction would go beyond what I've been authorized to do.
+- The skill also says to make no GitHub writes and no board changes just to report a blocker, so I'm not posting anything.
+
+**What I need from you or the parent:** Either copy the handoff into a readable location, such as the session directory, or lift the path restriction. I'll then continue with the skill's order:
+1. Read the issue and the current code.
+2. Prepare an isolated worktree with `worktree create`, using the branch and flags from the handoff.
+3. Run the baseline checks.
+4. Implement and test.
+5. Review and commit locally, with no push and no PR.
+6. Return the report the skill describes.
+
+Per the skill's return rules, I'd report the implementation model as `claude-sonnet-5-5`. Current status: **incomplete, awaiting the handoff file**. I've made no changes.
+
+Scenario: worker-placeholder-prompt
+Session ID: eccbef66-af4e-48cd-ab47-abd059576b4c
+
+**What I do next:** I reply with one line asking for the handoff, then I stop. I don't run commands, reread the task, restate my state, push, or touch PR #1064. I also don't guess at what the message might have meant.
+
+**Rule that decides it:** `references/shared/coordination.md`, under Roles. It says: "If a dispatch or a resume reaches a subagent with an empty or placeholder prompt, the subagent returns one line that asks for the handoff and stops; it does not reread its task, restate its state, or act on a guess."
+
+The message `placeholder` is a placeholder prompt, so that rule applies directly. `implement-issue.md` doesn't cover this case. It says only that the skill ends with a local branch and a report, and that I don't push, open a PR, merge or remove the worktree. My report is already delivered, so there's nothing left in that skill to do.
+
+The coordinator's side of this is in the Handoffs section of the same file. If a resume goes out with a placeholder prompt, the coordinator resumes the same session with the full handoff, not a new session. It also names the extra call in its report.
+
+**One-line reply:** "Your message contained only `placeholder`. Please resend the full handoff, or a handoff file path, for the next operation on issue #1053."

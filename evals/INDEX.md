@@ -204,7 +204,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [waiver-skips-config-reads](scenarios/waiver-skips-config-reads.md) | 2026-10-14 | b5e4e31 | claude | claude-sonnet-5-5 | Pass | new text | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
 | [worker-conditional-reads](scenarios/worker-conditional-reads.md) | 2026-10-15 | eadcca3 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-15-worker-conditional-reads.md](results/2026-10-15-worker-conditional-reads.md) |
 | [worker-conditional-reads](scenarios/worker-conditional-reads.md) | 2026-10-15 | eadcca3 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | new text | [2026-10-15-worker-conditional-reads.md](results/2026-10-15-worker-conditional-reads.md): One read. |
-| [worker-placeholder-prompt](scenarios/worker-placeholder-prompt.md) | 2026-10-12 | ceb0134 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-12-worker-placeholder.md](results/2026-10-12-worker-placeholder.md) |
+| [worker-handoff-file-prompt](scenarios/worker-handoff-file-prompt.md) | 2026-10-16 | 428269a | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-16-delivery-helpers.md](results/2026-10-16-delivery-helpers.md) |
+| [worker-placeholder-prompt](scenarios/worker-placeholder-prompt.md) | 2026-10-16 | 428269a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-16-delivery-helpers.md](results/2026-10-16-delivery-helpers.md) |
 | [worker-reports-own-model](scenarios/worker-reports-own-model.md) | 2026-10-15 | eadcca3 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-15-worker-conditional-reads.md](results/2026-10-15-worker-conditional-reads.md) |
 
 ## No recorded run

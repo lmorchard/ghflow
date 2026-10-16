@@ -64,3 +64,11 @@ Three parts describe the session rather than the project:
 - `skill_source` gives the skill checkout path, head, branch, dirty state, upstream, the upstream's remote head from `git ls-remote`, and `up_to_date`.
 
 The command reads only. A part it could not read is `null` with an entry in `errors`, and the command exits 2; outside a Git repository it exits 1. `local_default_behind` counts commits as of the last fetch, so check `fetch_head_age_seconds` before you rely on it.
+
+## Delivery helpers
+
+`worktree create ISSUE_URL --branch BRANCH` creates `.claude/worktrees/BRANCH` in the primary checkout from `origin/<default>`, copies each `--copy` file from the primary checkout, runs each `--setup` command in the worktree, and with `--notes` writes `docs/dev-sessions/STAMP-BRANCH/notes.md` with a Resume here skeleton. With `--owner` and `--project` it moves the issue In progress through `board set-status`. It exits 3 and writes nothing when the branch or path already exists, 2 when a setup command or the board move fails, and reports each setup command's exit status and output tail.
+
+`pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
+
+`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file.
