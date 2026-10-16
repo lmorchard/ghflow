@@ -144,6 +144,8 @@ In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and
 
 The log holds only the coordinator's event stream. To keep the transcripts, run `scripts/export-opencode-sessions.py "Unattended burndown"` from the project checkout after the session ends. It finds the coordinator session by that title, exports it with `opencode export`, follows each task call to its subagent session, and writes `session-ID.json` files with an `index.md` of titles, parents, times, and task calls into `opencode-sessions/` or the `--out` directory. Pass a session ID instead of a title when more than one session matches.
 
+`scripts/trial_stats.py DIR` summarizes those exports for a trial record. It reports each session's times, output tokens, largest context, reference reads before the worktree, other reads, shell commands by kind, amends, and force pushes, and the coordinator's dispatch timeline. `--watch TEXT` counts mentions of a string, such as the configured default model, and `--json` prints the raw figures. It reads OpenCode 1.x and 2.x exports.
+
 ## Machine account access
 
 The repository owner grants access before an agent works in the repository or project board:
