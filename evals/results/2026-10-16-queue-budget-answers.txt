@@ -1,0 +1,111 @@
+Scenario: budget-from-measured-marks
+Session ID: 6374e025-a002-4011-b3c0-19ebc402755f
+
+**Next step:** I'd close the `review:164` mark in `budget.jsonl` and read the clock. Then I'd decide whether to correct #164's two optional notes. The rule that decides it is step 4's time-budget bullet in `burndown-ready-queue.md`: "Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint."
+
+**Estimate.** The estimate has to come from durations measured in this run, not guesses:
+- The correction would take about as long as the last comparable implement worker. That is 95 minutes for #164, and 53 for #165 as a lower bound.
+- The re-review would take about 29 minutes.
+- The ready step would take about 19 minutes.
+- I'd add my own turn time between dispatches.
+
+That comes to roughly 48 minutes plus the correction time, and likely well over an hour once the 95-minute implement figure is used. I'll compare that with the time left until 20:40.
+
+**Decision:**
+- **Notes don't fit:** I decline both optional notes and record them, with the reason, in the PR description. I dispatch the ready step for #164 on the approved head, which takes about 19 minutes. Approval means there is no defect to fix, so skipping optional notes is allowed.
+- **Notes fit:** I dispatch the correction. This is unlikely given the numbers above.
+
+**#929 (Size M):** I start it only if the deadline hasn't passed when #164's ready step finishes. If it has passed, I don't dispatch it. I'd record it as not started because of the deadline. If #929 is already in progress at the deadline, I park it with its state recorded. A ready submission dispatched before the deadline may finish after it, but I dispatch no new work after it.
+
+**PR #1079 (#165):** `updatedAt` 15:52 is later than the ready worker's return at 14:37. Something touched the PR after the worker finished. That could be a push, a comment, a CI update or a board change. I wouldn't assume #165 is still as the worker reported. Before I mark it complete, I'd re-read the PR's head SHA and state and compare them with what the review approved. Any new commit or change would have to be accounted for. A harmless update would change nothing.
+
+Scenario: budget-from-measured-marks
+Session ID: 1bee3fc0-bf1d-4041-8890-de826e0960fa
+
+**Next step:** close the open review mark, then check the budget before deciding what to do with the two optional notes. I'd run `budget --end review:164`, then `budget --need correction,review,ready`, and add a few minutes for my own turns between dispatches.
+
+**Deciding rule:** the time-budget bullet in step 4 of "Deliver issues sequentially". It says to dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step all fit before the deadline.
+
+- **If it fits:** I'd dispatch the correction for #164, then re-review, then ready.
+- **If it doesn't fit, or `fits` is null:** I'd decline the notes and record them in the PR description with the reason. That lets the approved head go straight to the ready step.
+  - **Unmeasured kind:** `correction` has no finished mark, so `fits` will likely be null. I'd estimate from the closest measured kind and say so. That could be `implement:164` at 95 minutes, or something smaller. Because the correction's size is uncertain, I'd lean on the conservative estimate.
+- **Measured durations:** I'd use the figures from `budget.jsonl` (review 29, ready 19, implement 53 and 95), not guesses.
+
+**#929 (Size M):** I'd start it only if the deadline hasn't passed after #164's ready step, and only after `--need implement,review,ready` shows it fits. Otherwise I'd park it with its state recorded. I would not dispatch new work after 20:40. A ready submission I dispatched before the deadline may finish after it.
+
+**PR #1079's `updatedAt` of 15:52:** I'd ignore it for timing. The rule says not to take durations from PR or issue timestamps, because they change on any edit. The ready worker's return at 14:37 is already recorded in the budget marks.
+
+The 15:52 edit still isn't a duration question. When I verify that #165 reached its endpoint, I'd check the PR's head SHA and board status. That way I'd confirm the head is the one that was reviewed and that nothing unexpected changed it.
+
+Scenario: budget-from-measured-marks
+Session ID: 8f3c9f80-87db-4e52-917e-1a4cfc9f464b
+
+**Next step:** I'd close the `review:164` mark with `budget --end review:164`. Then I'd run `budget --need correction,review,ready` and let the result decide what happens to the two optional notes. I'd do this before dispatching anything.
+
+**Rule that decides it:** step 4 of "Deliver issues sequentially", the time-budget bullets. It says to dispatch a correction for an optional reviewer note only when the correction, its re-review and the ready step all fit before the deadline. Otherwise I decline the note and record it in the PR description with the reason, so the approved head reaches the endpoint.
+
+**Branches:**
+- **Everything fits:** I dispatch the correction. I add a few minutes for my own turns between dispatches.
+- **It doesn't fit:** I decline both notes and record them in the PR description with the reason. Then I dispatch the ready step for #164 on the approved head. A ready step dispatched before the deadline may finish after it.
+- **Estimates:** no `correction` duration is measured yet, so `fits` may come back null. I'd estimate from the closest measured kind, `implement` or `review`, and say that I did. Review took 29 minutes and ready took 19, so a correction, re-review and ready cycle is probably 60 minutes or more.
+- **Deadline already passed:** my session clock reads 2026-10-16 and the deadline was 2026-10-15 20:40. If the deadline has passed, I dispatch no new work, including correction or #929. I park what is in progress with its state recorded, and I finish only a write sequence dispatched before the deadline.
+
+**#929:**
+- It is Size M and comes after #164's ready step. I'd start it only if `--need implement,review,ready` fits.
+- With no M-sized measurement, I'd estimate from the #165 and #164 implement times (53 and 95 minutes) plus 29 for review and 19 for ready. That is roughly 100 to 145 minutes.
+- If it doesn't fit, or the deadline has passed, I don't start it. I park or skip it and report it in the summary.
+
+**PR #1079 `updatedAt` 15:52:** I ignore it for timing. The rule says not to take durations from PR or issue timestamps, because they change on any edit. The `budget` log is the only time source. The 15:52 timestamp is later than the 14:37 ready return, so before I report #165 as done I'd check that its head SHA and board status are unchanged. The summary reads them with `queue summary`.
+
+Scenario: ready-queue-later-page-failure
+Session ID: e4569f70-d450-4fb2-afe9-36cddf25d21c
+
+**What I do next:** I retry the `queue select` command once. I don't treat the first page as the whole board. If the retry also fails, I report that discovery was incomplete and stop. I dispatch no work and I don't report the queue as clear or empty.
+
+**Why:** The deciding rule is in "Audit the Ready queue". `queue select` reads every page and validates each one. A non-zero exit means incomplete discovery. It returns no selection, and any earlier output is void. The rule gives three instructions for that case:
+- Do not report a clear queue or dispatch work from a failed read.
+- Do not rebuild the traversal by hand to get around the failure.
+- Report the error and retry once. If it fails again, report discovery as incomplete.
+
+Here the first page had no `Ready` item, but `hasNextPage: true` with a non-empty cursor means `Ready` items could be on later pages. The 502 on the next page makes the read non-zero and incomplete. That makes the first page void, and the selection is not empty. I also don't hand-page with the cursor, because the rule forbids rebuilding the traversal by hand.
+
+The user's chosen endpoint, through review follow-up, doesn't change this. The endpoint only matters once a selection exists. If the retry succeeds, I continue with the normal flow and the review-follow-up endpoint. If it fails again, I report the error and that discovery is incomplete.
+
+Scenario: burndown-orders-by-size
+Session ID: 83d3d273-520e-460c-8e0e-5c9b954c36f1
+
+**Next step:** I record the selection as **#600 (XS) → #947 (S) → #930 (M)**. That is the fixed selection for this task. I don't reorder it by issue number or by board card position.
+
+**Why:** The "Audit the Ready queue" rule decides this. The `queue select` output lists `selection` in burndown order, and that order is the delivery order. All three issues are P1, so priority doesn't separate them. `Size` then runs from smallest to largest (XS, S, M, L, XL, unset), and issue number only breaks ties within the same size. Card order isn't read. Sorting by issue number alone would give #600, #930, #947, which is wrong here because #947 (S) comes before #930 (M).
+
+The skill gives the reason for smaller-first. With an eight-hour deadline, the deadline is most likely to fall on the largest issue, which is #930.
+
+**What follows, once the order is recorded:**
+- **Selection is fixed.** Later arrivals join only if the user explicitly expands the scope.
+- **Deadline.** Before the first dispatch I record the deadline once with `budget --deadline`. I wrap each dispatch in `--start` and `--end`, and I check `--need` before each dispatch. I start no new issue after the deadline and park any issue still in progress at that point.
+- **Pre-dispatch checks.** I run the identity check, then `git fetch origin` and `facts`. If `project_facts.origin` is stale, I dispatch prepare-project-facts first.
+- **Endpoint.** If the user hasn't chosen an endpoint, the default is through review follow-up. A merge endpoint never runs unattended.
+- **Disruption handling.** This run is unattended, so I park any disrupted issue and continue to the next one. I halt only if the failure would affect every later issue.
+
+Scenario: deadline-ready-step-finishes
+Session ID: c13a27ee-fd86-4f23-ab52-e100a2505325
+
+**What I do:** I don't dispatch anything new, and I don't park the issue. I keep waiting for the ready-submission worker I already dispatched. When it returns, I verify the result and then conclude the queue.
+
+**Rule:** Deliver issues sequentially, step 4 (Disruption), the time-budget bullet in `burndown-ready-queue.md`:
+- "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+- The same bullet says to park an issue that is "in progress at the deadline". That applies to implementation or review work still underway. It doesn't apply here, because the review was approved at 03:39 and the ready write sequence was dispatched before 04:09.
+
+**Why:**
+- Parking, re-dispatching a second ready worker, or marking the PR ready myself could leave the PR half-written or collide with the running worker's writes. The rule exists to prevent that.
+- The deadline only blocks new dispatches. It doesn't cancel the one already in flight.
+- No other selected issue remains, so there is nothing to start anyway.
+
+**After the worker returns:**
+- I read its report as evidence, and I check the PR's actual state rather than trusting the report alone.
+- I confirm the PR is out of draft and the board status is `In review`.
+- I apply PR follow-up ownership. If I'm a delegated coordinator, I relay the handoff and stop. Otherwise the endpoint is "through review follow-up", with the PR left open for the user.
+- I record the worker's end time with `budget --end ready:ISSUE`.
+- In the delivery summary, I state the actual end time and say that the ready step finished after the 04:09 deadline.
+
+**If it never returns:** I don't invent a result. I report the PR as still draft with the ready step unconfirmed, using the PR state I can read. I list the issue as not having reached the endpoint, and I say that no new work was dispatched after the deadline.

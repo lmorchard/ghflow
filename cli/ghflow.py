@@ -14,6 +14,9 @@ board set-field exits 1 when the field, value, or board item is missing, and 2
 when the write's read-back does not match.
 pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
+queue select exits 1 on incomplete discovery and then returns no selection.
+queue summary exits 2 when an issue could not be read. budget exits 1 for an
+end mark without a start.
 """
 
 import argparse
@@ -1747,6 +1750,264 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
     return result, 2 if result["errors"] else 0
 
 
+PRIORITY_ORDER = ("P0", "P1")
+SIZE_ORDER = ("XS", "S", "M", "L", "XL")
+
+BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
+  node(id: $project_id) {
+    ... on ProjectV2 {
+      id
+      items(first: 100, after: $page) {
+        nodes {
+          id
+          content {
+            __typename
+            ... on Issue { url number title state repository { nameWithOwner } }
+            ... on PullRequest { url repository { nameWithOwner } }
+          }
+          status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          priority: fieldValueByName(name: "Priority") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          size: fieldValueByName(name: "Size") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+        }
+        pageInfo { hasNextPage endCursor }
+      }
+    }
+  }
+}"""
+
+
+def board_items(owner, project, gh=run_gh):
+    """Read every item on a board, page by page, and validate each page.
+
+    Raises ValueError on any malformed page, so a partial read is never returned.
+    """
+    board = response_type(gh(["project", "view", str(project), "--owner", owner, "--format", "json"]), dict, "The project response")
+    project_id = response_string(board["id"], "The project id")
+    items, cursor, pages = [], None, 0
+    while True:
+        args = ["api", "graphql", "-f", f"query={BOARD_ITEMS_QUERY}", "-f", f"project_id={project_id}"]
+        if cursor:
+            args += ["-f", f"page={cursor}"]
+        data = response_type(gh(args), dict, "The board page")
+        if data.get("errors"):
+            raise ValueError(f"The board page has GraphQL errors: {data['errors']}")
+        node = response_type(response_type(data.get("data"), dict, "The board data").get("node"), dict, "The project node")
+        if node.get("id") != project_id:
+            raise ValueError("A board page is for a different project.")
+        page = response_type(node.get("items"), dict, "The board items")
+        for item in response_type(page.get("nodes"), list, "The board item nodes"):
+            response_type(item, dict, "A board item")
+            response_string(item.get("id"), "A board item id")
+            for key in ("status", "priority", "size"):
+                if key not in item:
+                    raise ValueError(f"A board item has no {key} key.")
+                if item[key] is not None:
+                    response_string(response_type(item[key], dict, f"A board item {key}").get("name"), f"A board item {key} name", nullable=True)
+            items.append(item)
+        pages += 1
+        info = response_type(page.get("pageInfo"), dict, "The board pageInfo")
+        has_next = info.get("hasNextPage")
+        if not isinstance(has_next, bool):
+            raise ValueError("A board page has no boolean hasNextPage.")
+        if not has_next:
+            return project_id, items, pages
+        cursor = info.get("endCursor")
+        if not isinstance(cursor, str) or not cursor:
+            raise ValueError("A board page claims a next page without a cursor.")
+
+
+def field_name(item, key):
+    value = item.get(key)
+    return value.get("name") if isinstance(value, dict) else None
+
+
+def queue_select(owner, project, status="Ready", gh=run_gh):
+    """Read the whole board and return the issues in one Status column in burndown order:
+    priority (P0, P1, other, unset), then Size (XS to XL, then unset), then issue number.
+
+    Exits 1 on incomplete discovery and returns no selection then.
+    """
+    result = {"project": f"{owner}/{project}", "status": status, "complete": False, "errors": []}
+    try:
+        _, items, pages = board_items(owner, project, gh)
+    except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+        result["errors"].append({"part": "board", "error": str(error)})
+        return result, 1
+    selection, unresolved = [], []
+    for item in items:
+        if (field_name(item, "status") or "").lower() != status.lower():
+            continue
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        repo = (content.get("repository") or {}).get("nameWithOwner")
+        if content.get("__typename") != "Issue" or not content.get("url") or not repo or not isinstance(content.get("number"), int):
+            unresolved.append({"item_id": item["id"], "type": content.get("__typename"), "url": content.get("url")})
+            continue
+        priority, size = field_name(item, "priority"), field_name(item, "size")
+        selection.append({"issue": f"{repo}#{content['number']}", "url": content["url"], "repo": repo, "number": content["number"],
+                          "title": content.get("title"), "state": content.get("state"), "priority": priority, "size": size,
+                          "below_tier": priority not in PRIORITY_ORDER})
+
+    def rank(entry):
+        p = entry["priority"]
+        p_rank = PRIORITY_ORDER.index(p) if p in PRIORITY_ORDER else (len(PRIORITY_ORDER) if p else len(PRIORITY_ORDER) + 1)
+        s = (entry["size"] or "").upper()
+        s_rank = SIZE_ORDER.index(s) if s in SIZE_ORDER else len(SIZE_ORDER)
+        return (p_rank, s_rank, entry["number"])
+
+    selection.sort(key=rank)
+    counts = {}
+    for item in items:
+        name = field_name(item, "status") or "(no status)"
+        counts[name] = counts.get(name, 0) + 1
+    result.update(complete=True, pages=pages, item_count=len(items), status_counts=counts, selection=selection, unresolved=unresolved,
+                  below_tier=[e["issue"] for e in selection if e["below_tier"]],
+                  limit="The traversal is not an atomic snapshot; the board could change while it was read.")
+    return result, 0
+
+
+SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      url title state
+      labels(first: 50) { nodes { name } }
+      closedByPullRequestsReferences(first: 10, includeClosedPrs: true) {
+        nodes { url number state isDraft headRefOid }
+      }
+      projectItems(first: 20) {
+        nodes { project { number owner { ... on User { login } ... on Organization { login } } }
+                fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } } }
+      }
+    }
+  }
+}"""
+
+
+def queue_summary(issues, owner, project, gh=run_gh):
+    """Read each delivered issue's linked PR, head, draft state, board Status, and parked label.
+
+    Review evidence and unattended decisions are not GitHub facts; the coordinator adds them.
+    """
+    rows, errors = [], []
+    for repo, number in issues:
+        repo_owner, name = repo.split("/")
+        row = {"issue": f"{repo}#{number}"}
+        try:
+            data = response_type(gh(["api", "graphql", "-f", f"query={SUMMARY_QUERY}", "-f", f"owner={repo_owner}",
+                                     "-f", f"name={name}", "-F", f"number={number}"]), dict, "The issue response")
+            issue = response_type(data["data"]["repository"]["issue"], dict, "The issue")
+        except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+            errors.append({"part": row["issue"], "error": str(error)})
+            rows.append(row)
+            continue
+        labels = [label.get("name") for label in issue["labels"]["nodes"] if isinstance(label, dict)]
+        prs = [pr for pr in issue["closedByPullRequestsReferences"]["nodes"] if isinstance(pr, dict)]
+        open_prs = [pr for pr in prs if pr.get("state") == "OPEN"] or prs
+        pr = open_prs[-1] if open_prs else None
+        board_status = None
+        for item in issue["projectItems"]["nodes"]:
+            proj = item.get("project") or {}
+            if str(proj.get("number")) == str(project) and (proj.get("owner") or {}).get("login") == owner:
+                board_status = field_name({"s": item.get("fieldValueByName")}, "s")
+        row.update(title=issue.get("title"), state=issue.get("state"), labels=labels, board_status=board_status,
+                   parked="triage:needs-input" in labels,
+                   pr=pr and {"url": pr.get("url"), "state": pr.get("state"), "draft": pr.get("isDraft"),
+                              "head": pr.get("headRefOid")},
+                   other_prs=[p.get("url") for p in prs if p is not pr])
+        rows.append(row)
+    lines = ["| Issue | Pull request | Head | PR state | Board |", "| --- | --- | --- | --- | --- |"]
+    for row in rows:
+        if "title" not in row:
+            lines.append(f"| {row['issue']} | unread | | | |")
+            continue
+        pr = row["pr"] or {}
+        pr_state_text = ("draft" if pr.get("draft") else (pr.get("state") or "").lower()) if pr else "none"
+        board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-input)" if row["parked"] else "")
+        lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | {pr_state_text} | {board_text} |")
+    result = {"rows": rows, "table": "\n".join(lines) + "\n", "errors": errors,
+              "not_included": "Review evidence and decisions taken unattended; add them from the workers' reports."}
+    return result, (2 if errors else 0)
+
+
+DEADLINE_FORMATS = ("%Y-%m-%d %H:%M", "%Y-%m-%dT%H:%M", "%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S")
+
+
+def parse_deadline(text):
+    """Parse an ISO 8601 time or the launcher's "YYYY-MM-DD HH:MM ZONE" as local time."""
+    try:
+        value = datetime.fromisoformat(text)
+        return value if value.tzinfo else value.astimezone()
+    except ValueError:
+        pass
+    stripped = re.sub(r"\s+[A-Za-z]{2,5}$", "", text.strip())
+    for fmt in DEADLINE_FORMATS:
+        try:
+            return datetime.strptime(stripped, fmt).astimezone()
+        except ValueError:
+            continue
+    raise ValueError(f"Unrecognized deadline {text!r}; use ISO 8601 or YYYY-MM-DD HH:MM.")
+
+
+def budget(log, deadline=None, start=None, end=None, need=(), now=None):
+    """Read the clock, record task start and end marks in a JSON-lines log, and report the
+    time left, measured durations by kind, and whether the needed kinds fit before the deadline.
+
+    A label's kind is the part before the colon, as in "review:164". The estimate for a kind
+    is the longest measured duration of that kind in this log.
+    """
+    now = now or datetime.now().astimezone()
+    path = Path(log).expanduser()
+    result = {"now": now.isoformat(timespec="seconds"), "log": str(path), "errors": []}
+    events = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8").splitlines():
+            if line.strip():
+                events.append(json.loads(line))
+    new = []
+    if deadline:
+        new.append({"event": "deadline", "at": parse_deadline(deadline).isoformat(timespec="seconds")})
+    if start:
+        new.append({"event": "start", "label": start, "at": result["now"]})
+    if end:
+        if not any(e.get("event") == "start" and e.get("label") == end for e in events):
+            result["errors"].append({"part": "end", "error": f"No start mark for {end!r}."})
+            return result, 1
+        new.append({"event": "end", "label": end, "at": result["now"]})
+    if new:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with path.open("a", encoding="utf-8") as handle:
+            for event in new:
+                handle.write(json.dumps(event) + "\n")
+        events += new
+    deadlines = [e for e in events if e.get("event") == "deadline"]
+    starts, spans, open_spans = {}, [], []
+    for event in events:
+        if event.get("event") == "start":
+            starts[event["label"]] = datetime.fromisoformat(event["at"])
+        elif event.get("event") == "end" and event["label"] in starts:
+            began = starts.pop(event["label"])
+            minutes = round((datetime.fromisoformat(event["at"]) - began).total_seconds() / 60, 1)
+            spans.append({"label": event["label"], "kind": event["label"].split(":")[0], "minutes": minutes})
+    for label, began in starts.items():
+        open_spans.append({"label": label, "elapsed_minutes": round((now - began).total_seconds() / 60, 1)})
+    kinds = {}
+    for span in spans:
+        entry = kinds.setdefault(span["kind"], {"count": 0, "last_minutes": None, "max_minutes": 0})
+        entry["count"] += 1
+        entry["last_minutes"] = span["minutes"]
+        entry["max_minutes"] = max(entry["max_minutes"], span["minutes"])
+    result.update(spans=spans, open=open_spans, kinds=kinds)
+    if deadlines:
+        end_at = datetime.fromisoformat(deadlines[-1]["at"])
+        remaining = round((end_at - now).total_seconds() / 60, 1)
+        result.update(deadline=deadlines[-1]["at"], remaining_minutes=remaining, past_deadline=remaining <= 0)
+    if need:
+        unmeasured = [kind for kind in need if kind not in kinds]
+        estimate = sum(kinds[kind]["max_minutes"] for kind in need if kind in kinds)
+        result["need"] = {"kinds": list(need), "estimate_minutes": round(estimate, 1), "unmeasured": unmeasured,
+                          "fits": (None if unmeasured or not deadlines else estimate <= result["remaining_minutes"])}
+    return result, 0
+
+
 def identity_config_paths(cwd=None):
     """Return identity config paths in project, primary-checkout, then home order."""
     current = Path.cwd() if cwd is None else Path(cwd)
@@ -1976,6 +2237,24 @@ def main(argv=None):
     park.add_argument("--kind", required=True, choices=("time", "question", "blocker"), help="why the delivery is parked")
     park.add_argument("--text", required=True, metavar="FILE", help="Markdown with the question or blocker, or the remaining steps for a time park")
 
+    queue_group = commands.add_parser("queue", help="Ready-queue reads for a burndown.")
+    queue_commands = queue_group.add_subparsers(dest="queue_command", required=True)
+    q_select = queue_commands.add_parser("select", help="Read the whole board, validate every page, and list one column's issues in burndown order.")
+    q_select.add_argument("--owner", required=True, help="project owner login")
+    q_select.add_argument("--project", required=True, type=int, help="project number")
+    q_select.add_argument("--status", default="Ready", help="Status column to select (default Ready)")
+    q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, and parked label, as a table.")
+    q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers with --repo")
+    q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
+    q_summary.add_argument("--owner", required=True, help="project owner login")
+    q_summary.add_argument("--project", required=True, type=int, help="project number")
+    budget_cmd = commands.add_parser("budget", help="Read the clock, mark task starts and ends in a log, and report time left and measured durations.")
+    budget_cmd.add_argument("--log", required=True, metavar="FILE", help="JSON-lines log, such as budget.jsonl in the coordinator notes directory")
+    budget_cmd.add_argument("--deadline", help="record the deadline: ISO 8601 or YYYY-MM-DD HH:MM [ZONE], read as local time")
+    budget_cmd.add_argument("--start", metavar="KIND:ID", help="mark the start of a task, such as implement:164")
+    budget_cmd.add_argument("--end", metavar="KIND:ID", help="mark the end of a started task")
+    budget_cmd.add_argument("--need", metavar="KIND,KIND", help="kinds to fit before the deadline, such as review,ready")
+
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
     facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
@@ -2013,6 +2292,16 @@ def main(argv=None):
         issue_repo, issue_number = parse_issue(args.issue, None)
         pr_repo, pr_number = parse_pr(args.pr, None)
         result, status = park_delivery(issue_repo, issue_number, pr_repo, pr_number, args.kind, args.text)
+    elif args.command == "queue" and args.queue_command == "select":
+        result, status = queue_select(args.owner, args.project, args.status)
+    elif args.command == "queue":
+        result, status = queue_summary([parse_issue(ref, args.repo) for ref in args.issues], args.owner, args.project)
+    elif args.command == "budget":
+        need = tuple(k.strip() for k in args.need.split(",") if k.strip()) if args.need else ()
+        try:
+            result, status = budget(args.log, args.deadline, args.start, args.end, need)
+        except (OSError, ValueError) as error:
+            result, status = {"errors": [{"part": "budget", "error": str(error)}]}, 1
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
                                        args.notes, args.branch, args.extra, args.facts_path)
