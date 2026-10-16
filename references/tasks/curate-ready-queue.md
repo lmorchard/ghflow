@@ -6,7 +6,7 @@ Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence
 
 ## Audit current board WIP
 
-Read every board item with the validated traversal in [Audit the Ready queue](burndown-ready-queue.md#audit-the-ready-queue), and use partial output for nothing. From that inventory:
+Read the whole board with `python3 "$GHFLOW_CLI" queue select --owner OWNER --project NUMBER`, as [Audit the Ready queue](burndown-ready-queue.md#audit-the-ready-queue) describes, and use the output of a failed read for nothing. `status_counts` gives the column counts. Run it again with `--status Backlog` for the candidates. From that inventory:
 
 - Count items currently in `Ready`, `In progress`, and `In review`.
 - For each item already in `Ready`, recommend that it stay or move back to `Backlog`, with a one-line reason, against the same criteria you use for candidates.

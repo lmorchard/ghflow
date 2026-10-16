@@ -76,3 +76,11 @@ The command reads only. A part it could not read is `null` with an entry in `err
 `review prepare PR_URL` fetches the PR's base and head, creates a detached worktree at the current head in `.claude/worktrees/review-NUMBER` of the primary checkout, and reports the merge base, the changed files with line counts, and the diff command. It exits 3 when the path exists. `review cleanup PR_URL` removes that worktree and exits 3 instead when it has local changes.
 
 `park ISSUE_URL --pr PR_URL --kind time|question|blocker --text FILE` confirms the write identity, replaces `triage:ready` with `triage:needs-input`, posts the file as an issue comment under a "Parked" heading, adds a "## Parked" section to the PR description once, and reads each back. It leaves the PR draft state and the board unchanged, and writes nothing when the PR is not open.
+
+## Queue helpers
+
+`queue select --owner OWNER --project NUMBER [--status Ready]` reads every board page and validates each one: no GraphQL errors, the selected project, every item with `status`, `priority`, and `size` keys, and a cursor on every page that claims a next page. It lists that column's issues under `selection` in burndown order, with `below_tier` for issues below `P1`, `unresolved` for items that are not issues, and `status_counts` for every column. It exits 1 on incomplete discovery and then returns no selection.
+
+`queue summary ISSUE_URL... --owner OWNER --project NUMBER` reads each issue's linked PR, preferring an open one, with its head, draft state, board Status, and `triage:needs-input` label, and prints them as a Markdown `table`. Review evidence and unattended decisions are not GitHub facts and are not included. It exits 2 when an issue could not be read.
+
+`budget --log FILE` reads the clock and reports `remaining_minutes` to the recorded deadline, finished spans, open spans, and the last and longest duration of each kind. `--deadline T` records the deadline, as ISO 8601 or the launcher's `YYYY-MM-DD HH:MM ZONE`, read as local time. `--start KIND:ID` and `--end KIND:ID` mark a task, such as `review:164`. `--need review,ready` adds the sum of each kind's longest duration and `fits`, which is null when a kind is not measured yet or no deadline is recorded. It exits 1 for an end without a start.

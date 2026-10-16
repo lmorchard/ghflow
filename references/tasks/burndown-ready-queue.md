@@ -10,59 +10,18 @@ When interrupted or handing off, carry the selected issue IDs, endpoint, and aut
 
 ## Audit the Ready queue
 
-Resolve the selected project to its node ID:
+Read the whole board with one command:
 
 ```bash
-gh project view NUMBER --owner OWNER --format json
+python3 "$GHFLOW_CLI" queue select --owner OWNER --project NUMBER
 ```
 
-Read the returned `id`. Read the `Status` and `Priority` item values by name in the query below.
+It reads every page, validates each one, and lists the `Ready` issues in burndown order under `selection`. A non-zero exit means incomplete discovery: it returns no selection, and any earlier output is void. Do not report a clear queue or dispatch work from a failed read, and do not rebuild the traversal by hand to get around the failure. Report the error and retry the command once; if it fails again, report discovery as incomplete.
 
-Use `gh api graphql --paginate --slurp` to read every project item:
-
-```bash
-gh api graphql --paginate --slurp \
-  -F project_id=PROJECT_NODE_ID \
-  -f query='query($project_id: ID!, $endCursor: String) {
-    node(id: $project_id) {
-      ... on ProjectV2 {
-        id
-        items(first: 100, after: $endCursor) {
-          nodes {
-            id
-            content {
-              __typename
-              ... on Issue { url repository { nameWithOwner } }
-              ... on PullRequest { url repository { nameWithOwner } }
-            }
-            status: fieldValueByName(name: "Status") {
-              ... on ProjectV2ItemFieldSingleSelectValue { name }
-            }
-            priority: fieldValueByName(name: "Priority") {
-              ... on ProjectV2ItemFieldSingleSelectValue { name }
-            }
-          }
-          pageInfo { hasNextPage endCursor }
-        }
-      }
-    }
-  }'
-```
-
-`--paginate` follows `endCursor` until `hasNextPage` is false. `--slurp` returns each page in one JSON array.
-Check every page before you use any item. Require valid JSON, no GraphQL `errors`, the selected project ID, an item array, and valid `pageInfo` on every page.
-Require each item to have an ID and `status` and `priority` keys. A `null` value means that field is unset.
-Treat a missing key or unexpected value shape as incomplete discovery.
-Require a non-empty `endCursor` when `hasNextPage` is true. Require the final returned page to set `hasNextPage` to false.
-Require every earlier returned page to set `hasNextPage` to true.
-Treat a command failure, missing project, malformed page, or failed validation as incomplete discovery.
-Discard all output after a command failure, because earlier pages can still appear in that output.
-Do not use partial output to report a clear queue or dispatch work.
-
-For a new task, after the full traversal succeeds, identify every item whose named `Status` value is `Ready`. Record the issue IDs in that initial Ready queue as this task's selection. A later board read can refresh issue state, but it does not replace the selection. Add a later arrival only after the user explicitly expands the scope. On resumption, use the recorded selection and the procedure in [Resume an interrupted queue](#resume-an-interrupted-queue); do not create a new selection.
-If a Ready item has no actionable issue URL and repository identity, report it as unresolved and do not report the queue as empty.
-Sort actionable Ready issues by priority (`P0` before `P1`), then by `Size` from smallest to largest (`XS`, `S`, `M`, `L`, `XL`, then unset), then by ascending issue number. Smaller issues run first, so the deadline is most likely to fall on the largest one. The board's card order is not read. If a Ready issue is below `P1`, it breaks [Priority tiers](../shared/board-status.md#priority-tiers): deliver it with the selection, and name it in the summary so the user can reprioritize it through sweep-prioritize or remove it.
-For a new task only, if the complete inventory contains no Ready items, report that the initial selection is empty and the selected delivery is complete.
+For a new task, record the issue IDs in `selection` as this task's selection, in that order. A later board read can refresh issue state, but it does not replace the selection. Add a later arrival only after the user explicitly expands the scope. On resumption, use the recorded selection and the procedure in [Resume an interrupted queue](#resume-an-interrupted-queue); do not create a new selection.
+If `unresolved` lists a Ready item with no actionable issue URL and repository identity, report it as unresolved and do not report the queue as empty.
+The `selection` order is the delivery order: priority (`P0` before `P1`), then `Size` from smallest to largest (`XS`, `S`, `M`, `L`, `XL`, then unset), then ascending issue number. Smaller issues run first, so the deadline is most likely to fall on the largest one. The board's card order is not read. An issue in `below_tier` is below `P1` and breaks [Priority tiers](../shared/board-status.md#priority-tiers): deliver it with the selection, and name it in the summary so the user can reprioritize it through sweep-prioritize or remove it.
+For a new task only, if `selection` and `unresolved` are both empty, report that the initial selection is empty and the selected delivery is complete.
 This traversal is not an atomic snapshot. Report that limit if the board could change during retrieval.
 
 Use the delivery endpoint the user already selected. If none is set, confirm it with the user:
@@ -93,7 +52,7 @@ Process one issue at a time:
    - In an interactive run, **halt the burndown immediately.** Do not advance to the next issue. Preserve the worktree and branch. Return the blocker, error logs, and proposed remediation to the user.
    - In an unattended run, which the user's request states, park the issue under [Park an issue in an unattended flow](express-issue.md#park-an-issue-in-an-unattended-flow), record it for the summary, and continue with the next selected issue. Halt even when unattended if the failure would affect every later issue: the identity check or token fails, the base branch's CI is red, or the same environment failure parks two issues in a row. A merge endpoint never runs unattended.
    - When the request gives a time budget, do not start an issue after the budget's deadline. Park an issue that is in progress at the deadline with its state recorded. A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline.
-   - Before you dispatch work under a time budget, estimate it from durations measured in this run: the worker's last comparable task, a review, and your own recent turns between dispatches. CI time alone is not an estimate. Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint.
+   - Under a time budget, keep measured durations with `budget` in your notes directory. Record the deadline once before the first dispatch with `python3 "$GHFLOW_CLI" budget --log NOTES_DIR/budget.jsonl --deadline "DEADLINE"`. Run it with `--start KIND:ISSUE` just before each dispatch and `--end KIND:ISSUE` when the worker returns. Use the kinds `implement`, `review`, `correction`, `ready`, and `park`. Before you dispatch work, run it with `--need` for the kinds that must still fit, such as `--need review,ready`, and add a few minutes for your own turns between dispatches. `remaining_minutes` and `need.fits` are the estimate. When `fits` is null because a kind is not measured yet, estimate from the closest measured kind and say so. Do not take durations from PR or issue timestamps such as `updatedAt`, which change on any edit. CI time alone is not an estimate. Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline. Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint.
 5. For a merge endpoint, obtain CI on the base branch's merge commit through the responsible worker before you start the next issue. If it fails, treat it as a disruption and halt. After each merge, run `facts` again; if a source became stale, apply [Check the project facts](#check-the-project-facts) before the next issue.
 6. If the issue successfully completes to the authorized endpoint, proceed to the next selected issue that has not reached that endpoint.
 
@@ -101,7 +60,7 @@ Process one issue at a time:
 
 When all selected issues have reached the agreed endpoint:
 
-1. Read the time with a clock command, and state the actual end time and any step that finished after the deadline. Then present a delivery summary table:
+1. Read the time with a clock command or `budget`, and state the actual end time and any step that finished after the deadline. Then present a delivery summary table. `python3 "$GHFLOW_CLI" queue summary ISSUE_URL... --owner OWNER --project NUMBER` reads the PR, head, draft state, board status, and parked label for each selected issue and prints them as a table; add the review evidence and decisions from the workers' reports. The table holds:
    - Issue number and title.
    - Pull request URL and head commit SHA.
    - Review evidence (local reviewer model or Copilot).

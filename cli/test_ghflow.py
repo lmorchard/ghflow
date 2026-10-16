@@ -2,6 +2,7 @@ import io
 import json
 import os
 import shlex
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -12,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2836,3 +2837,152 @@ class ParkTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def board_item(number, status, priority=None, size=None, kind="Issue"):
+    content = {"__typename": kind, "url": f"https://github.com/o/r/issues/{number}", "repository": {"nameWithOwner": "o/r"}}
+    if kind == "Issue":
+        content.update(number=number, title=f"Issue {number}", state="OPEN")
+    named = lambda value: {"name": value} if value else None
+    return {"id": f"I{number}", "content": content, "status": named(status), "priority": named(priority), "size": named(size)}
+
+
+class FakeQueueBoard:
+    def __init__(self, pages, project_id="PVT_1"):
+        self.pages = pages
+        self.project_id = project_id
+        self.calls = []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        if args[:2] == ["project", "view"]:
+            return {"id": "PVT_1"}
+        cursor = next((a.split("=", 1)[1] for a in args if a.startswith("page=")), None)
+        index = int(cursor) if cursor else 0
+        page = self.pages[index]
+        if isinstance(page, Exception):
+            raise page
+        if "errors" in page:
+            return page
+        info = page.get("info", {"hasNextPage": index + 1 < len(self.pages), "endCursor": str(index + 1)})
+        return {"data": {"node": {"id": self.project_id, "items": {"nodes": page["nodes"], "pageInfo": info}}}}
+
+
+class QueueSelectTests(unittest.TestCase):
+    def test_sorts_by_priority_then_size_then_number_across_pages(self):
+        board = FakeQueueBoard([
+            {"nodes": [board_item(9, "Ready", "P1", "XS"), board_item(3, "Ready", "P1", None), board_item(4, "Backlog", "P0", "XS")]},
+            {"nodes": [board_item(7, "Ready", "P0", "L"), board_item(2, "Ready", "P1", "M"), board_item(5, "Ready", "P1", "XS"),
+                       board_item(6, "Ready", "P2", "XS")]},
+        ])
+        result, status = queue_select("o", 6, gh=board)
+        self.assertEqual(status, 0)
+        self.assertEqual([e["number"] for e in result["selection"]], [7, 5, 9, 2, 3, 6])
+        self.assertEqual(result["below_tier"], ["o/r#6"])
+        self.assertEqual((result["pages"], result["item_count"]), (2, 7))
+        self.assertEqual(result["status_counts"], {"Ready": 6, "Backlog": 1})
+
+    def test_missing_cursor_is_incomplete_and_returns_no_selection(self):
+        board = FakeQueueBoard([{"nodes": [board_item(1, "Ready", "P1")], "info": {"hasNextPage": True, "endCursor": ""}}])
+        result, status = queue_select("o", 6, gh=board)
+        self.assertEqual(status, 1)
+        self.assertNotIn("selection", result)
+
+    def test_graphql_errors_and_missing_keys_are_incomplete(self):
+        result, status = queue_select("o", 6, gh=FakeQueueBoard([{"errors": [{"message": "boom"}]}]))
+        self.assertEqual(status, 1)
+        item = board_item(1, "Ready", "P1")
+        del item["size"]
+        result, status = queue_select("o", 6, gh=FakeQueueBoard([{"nodes": [item]}]))
+        self.assertEqual(status, 1)
+        self.assertIn("size", result["errors"][0]["error"])
+
+    def test_failure_on_a_later_page_discards_earlier_pages(self):
+        board = FakeQueueBoard([{"nodes": [board_item(1, "Ready", "P1")]}, GhError("network")])
+        result, status = queue_select("o", 6, gh=board)
+        self.assertEqual(status, 1)
+        self.assertNotIn("selection", result)
+
+    def test_wrong_project_page_is_incomplete(self):
+        result, status = queue_select("o", 6, gh=FakeQueueBoard([{"nodes": []}], project_id="PVT_other"))
+        self.assertEqual(status, 1)
+
+    def test_ready_item_without_an_issue_is_unresolved(self):
+        board = FakeQueueBoard([{"nodes": [board_item(1, "Ready", "P1", kind="DraftIssue")]}])
+        result, status = queue_select("o", 6, gh=board)
+        self.assertEqual((status, result["selection"]), (0, []))
+        self.assertEqual(len(result["unresolved"]), 1)
+
+
+def summary_issue(labels=(), prs=(), status="In review", project=6):
+    return {"data": {"repository": {"issue": {
+        "url": "u", "title": "T", "state": "OPEN",
+        "labels": {"nodes": [{"name": n} for n in labels]},
+        "closedByPullRequestsReferences": {"nodes": list(prs)},
+        "projectItems": {"nodes": [{"project": {"number": project, "owner": {"login": "o"}}, "fieldValueByName": {"name": status}}]},
+    }}}}
+
+
+class QueueSummaryTests(unittest.TestCase):
+    def test_reports_open_pr_head_board_and_parked_label(self):
+        responses = {
+            "1": summary_issue(prs=[{"url": "pr/9", "number": 9, "state": "CLOSED", "isDraft": False, "headRefOid": "aaaaaaa1"},
+                                    {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": "bbbbbbb2"}]),
+            "2": summary_issue(labels=["triage:needs-input"], status="In progress",
+                               prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "ccccccc3"}]),
+        }
+        gh = lambda args: responses[next(a.split("=")[1] for a in args if a.startswith("number="))]
+        result, status = queue_summary([("o/r", 1), ("o/r", 2)], "o", 6, gh=gh)
+        self.assertEqual(status, 0)
+        first, second = result["rows"]
+        self.assertEqual((first["pr"]["url"], first["other_prs"]), ("pr/10", ["pr/9"]))
+        self.assertTrue(second["parked"])
+        self.assertIn("| pr/10 | bbbbbbb | open | In review |", result["table"])
+        self.assertIn("| draft | In progress, parked (triage:needs-input) |", result["table"])
+
+    def test_unread_issue_is_reported_with_exit_2(self):
+        def gh(args):
+            raise GhError("not found")
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh)
+        self.assertEqual(status, 2)
+        self.assertIn("unread", result["table"])
+
+
+class BudgetTests(unittest.TestCase):
+    def setUp(self):
+        self.log = Path(tempfile.mkdtemp()) / "budget.jsonl"
+        self.addCleanup(shutil.rmtree, self.log.parent)
+
+    def at(self, hhmm):
+        return datetime.fromisoformat(f"2026-10-15T{hhmm}:00-07:00")
+
+    def test_measures_spans_and_fits_needed_kinds(self):
+        budget(self.log, deadline="2026-10-15T20:40:00-07:00", start="implement:1", now=self.at("12:50"))
+        budget(self.log, end="implement:1", now=self.at("13:45"))
+        budget(self.log, start="review:1", now=self.at("13:46"))
+        budget(self.log, end="review:1", now=self.at("14:16"))
+        budget(self.log, start="ready:1", now=self.at("14:17"))
+        budget(self.log, end="ready:1", now=self.at("14:37"))
+        result, status = budget(self.log, need=("review", "ready"), now=self.at("20:00"))
+        self.assertEqual(status, 0)
+        self.assertEqual(result["kinds"]["implement"]["max_minutes"], 55.0)
+        self.assertEqual(result["remaining_minutes"], 40.0)
+        self.assertEqual(result["need"]["estimate_minutes"], 50.0)
+        self.assertFalse(result["need"]["fits"])
+
+    def test_unmeasured_kind_gives_no_verdict(self):
+        budget(self.log, deadline="2026-10-15 20:40 PDT", now=self.at("12:40"))
+        result, _ = budget(self.log, need=("review",), now=self.at("12:41"))
+        self.assertIsNone(result["need"]["fits"])
+        self.assertEqual(result["need"]["unmeasured"], ["review"])
+
+    def test_launcher_deadline_format_and_past_deadline(self):
+        budget(self.log, deadline="2026-10-15 20:40 PDT", now=self.at("12:40"))
+        result, _ = budget(self.log, start="implement:2", now=self.at("20:45"))
+        self.assertTrue(result["past_deadline"])
+        self.assertEqual(result["open"][0]["label"], "implement:2")
+
+    def test_end_without_start_is_refused(self):
+        result, status = budget(self.log, end="review:9", now=self.at("12:00"))
+        self.assertEqual(status, 1)
+        self.assertFalse(self.log.exists())
