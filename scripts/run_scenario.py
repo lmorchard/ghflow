@@ -456,6 +456,9 @@ def opencode_config(model, endpoint, snapshot, context_window, output_tokens=409
         # OpenCode 1.19.0 matches read paths relative to context.worktree.
         # These snapshots have no Git repository, so its worktree is "/".
         permission["read"][absolute.relative_to(Path("/")).as_posix()] = "allow"
+        # OpenCode 2.0.29 matches read paths relative to the session's working
+        # directory, which is the snapshot; absolute patterns do not match there.
+        permission["read"][absolute.relative_to(snapshot.resolve()).as_posix()] = "allow"
     selected = "scenario-local/" + model
     return {
         "model": selected, "small_model": selected,
@@ -503,7 +506,8 @@ def parse_opencode_events(stdout, snapshot=None):
                 tool_errors += 1
             if name == "read":
                 inputs = state.get("input", {})
-                file_path = inputs.get("filePath") if isinstance(inputs, dict) else None
+                # OpenCode 1.x names the read input filePath; 2.x names it path.
+                file_path = (inputs.get("filePath") or inputs.get("path")) if isinstance(inputs, dict) else None
                 relative = None
                 if isinstance(file_path, str) and file_path and snapshot:
                     candidate = Path(file_path)
@@ -532,7 +536,24 @@ def parse_opencode_events(stdout, snapshot=None):
     }
 
 
-def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout=300, output_tokens=4096):
+def opencode_major(version):
+    """Return the OpenCode major version from its --version text, or 1 when unreadable."""
+    match = re.search(r"(\d+)\.\d+", version or "")
+    return int(match.group(1)) if match else 1
+
+
+def opencode_command(model, snapshot, major):
+    """Build the run command. 2.x dropped --pure and --dir and talks to a shared
+    background service unless --standalone starts a private one that inherits the
+    isolated environment; it reads the message from stdin when stdin is not a TTY."""
+    common = ["--model", "scenario-local/" + model, "--agent", "scenario", "--format", "json",
+              "--title", "Decision scenario"]
+    if major >= 2:
+        return ["opencode", "run", "--standalone", *common]
+    return ["opencode", "run", "--pure", *common[:6], "--dir", str(snapshot), *common[6:]]
+
+
+def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout=300, output_tokens=4096, major=1):
     # Managed configuration takes precedence over all runtime overrides.
     managed_paths = [Path("/Library/Application Support/opencode"), Path("/etc/opencode"),
                      Path("/Library/Managed Preferences/ai.opencode.managed.plist"),
@@ -542,9 +563,7 @@ def run_opencode(prompt, model, endpoint, snapshot, env, context_window, timeout
     guard = guard_local_model(endpoint, model)
     runtime_env = {**env, "OPENCODE_CONFIG_CONTENT": json.dumps(
         opencode_config(model, endpoint, snapshot, context_window, output_tokens))}
-    command = ["opencode", "run", "--pure", "--model", "scenario-local/" + model,
-               "--agent", "scenario", "--format", "json", "--dir", str(snapshot),
-               "--title", "Decision scenario"]
+    command = opencode_command(model, snapshot, major)
     try:
         process = subprocess.Popen(command, stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                    stderr=subprocess.PIPE, text=True, cwd=snapshot,
@@ -728,7 +747,7 @@ def main(argv=None):
                 elif args.runner == "opencode":
                     code, session, runtime_model, answer, diagnostic, metrics = run_opencode(
                         prompt, args.model, args.endpoint, snapshot, env, args.context_window, args.timeout,
-                        args.output_tokens,
+                        args.output_tokens, major=opencode_major(version),
                     )
                 else:
                     code, session, runtime_model, answer, diagnostic = run_claude(

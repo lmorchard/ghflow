@@ -1115,7 +1115,9 @@ def strip_jsonc(text):
 
 
 # Runtime limits verified by a live test; a runtime that is absent here has unknown limits.
-# OpenCode, 2026-10-13: a general subagent's tool list has no task tool (session ses_ec9b77f53ffeX1TqIr6FDOLQUI).
+# OpenCode 1.19, 2026-10-13: a general subagent's tool list has no task tool (session ses_ec9b77f53ffeX1TqIr6FDOLQUI).
+# OpenCode 2.0.29, 2026-10-16: a general subagent's tools are edit, glob, grep, read, shell, skill,
+# webfetch, websearch, write, execute, with no subagent tool (session ses_ebc62aafcffevq7BLcAcJeTk66).
 RUNTIME_NESTED_DISPATCH = {"opencode": False}
 # OpenCode, 2026-10-12/13: every subagent ran the session's --model value, not the configured default.
 OPENCODE_SUBAGENT_MODEL_RULE = ("A subagent without its own agent model runs the model of the session that dispatched it. "
@@ -1125,8 +1127,11 @@ OPENCODE_SUBAGENT_MODEL_RULE = ("A subagent without its own agent model runs the
 
 def read_runtime(root, env, home):
     """Detect the agent runtime from its environment and report what its configuration files state."""
-    if env.get("OPENCODE") or env.get("OPENCODE_PID"):
-        agent, signal = "opencode", "OPENCODE" if env.get("OPENCODE") else "OPENCODE_PID"
+    # OpenCode 1.x sets OPENCODE and OPENCODE_PID; 2.x sets OPENCODE and OPENCODE_SESSION_ID.
+    # Check OpenCode first: a session started from Claude Code inherits CLAUDECODE.
+    opencode_signal = next((name for name in ("OPENCODE", "OPENCODE_SESSION_ID", "OPENCODE_PID") if env.get(name)), None)
+    if opencode_signal:
+        agent, signal = "opencode", opencode_signal
     elif env.get("CLAUDECODE"):
         agent, signal = "claude", "CLAUDECODE"
     else:
@@ -1317,6 +1322,38 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
                 "stale_sources": stale, "lines": len(text.splitlines())}
 
     facts_file = part("project_facts", read_facts_file)
+
+    def read_origin_facts():
+        """Check the facts file as workers will see it: on origin's default branch, against origin's sources."""
+        ref = f"origin/{repository['default_branch']}"
+
+        def blob_at(path, depth=0):
+            # Follow a symlink inside the tree, as `git hash-object PATH` follows it on disk.
+            entry = git(["ls-tree", ref, "--", path], root).strip()
+            if not entry:
+                return None
+            mode, _, rest = entry.partition(" ")
+            object_id = rest.split()[1]
+            if mode == "120000" and depth < 5:
+                target = git(["cat-file", "blob", object_id], root).strip()
+                return blob_at(str(Path(path).parent / target).removeprefix("./"), depth + 1)
+            return object_id
+
+        if blob_at(str(PROJECT_FACTS_PATH)) is None:
+            return {"ref": ref, "present": False}
+        text = git(["show", f"{ref}:{PROJECT_FACTS_PATH}"], root)
+        written, sources = parse_facts_sources(text)
+        stale = []
+        for source, recorded in sources:
+            current = blob_at(source)
+            if current is None:
+                stale.append({"path": source, "reason": "missing"})
+            elif current != recorded:
+                stale.append({"path": source, "reason": "changed", "recorded": recorded, "current": current})
+        return {"ref": ref, "present": True, "written": written, "stale_sources": stale}
+
+    if facts_file is not None and repository and repository.get("default_branch"):
+        facts_file["origin"] = part("project_facts_origin", read_origin_facts)
 
     def read_identity():
         config = identity if identity is not None else resolve_identity()

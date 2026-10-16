@@ -2325,6 +2325,7 @@ class RuntimeFactsTests(unittest.TestCase):
     def test_opencode_config_variable_is_read_first(self):
         custom = self.tmp / "custom.json"
         custom.write_text('{"model": "d/custom", "agent": {"general": {"model": "e/general"}}}')
+        self.assertEqual(read_runtime(self.root, {"OPENCODE_SESSION_ID": "ses_x", "CLAUDECODE": "1"}, self.home)["agent"], "opencode")
         info = read_runtime(self.root, {"OPENCODE_PID": "7", "OPENCODE_CONFIG": str(custom)}, self.home)
         self.assertEqual(info["detected_by"], "OPENCODE_PID")
         self.assertEqual(info["config_files"][0], {"scope": "env", "path": str(custom)})
@@ -2495,7 +2496,8 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertIsNone(files["pr_template"])
         self.assertEqual(result["required_checks"], ["lint", "test"])
         self.assertEqual(result["identity"], {"login": "bot", "configured": True, "ready": True, "source": "env"})
-        self.assertEqual(result["project_facts"], {"path": ".ghflow/project.md", "present": False})
+        self.assertEqual(result["project_facts"], {"path": ".ghflow/project.md", "present": False,
+                                                   "origin": {"ref": "origin/main", "present": False}})
         self.assertIsNone(result["issue"])
 
     def test_local_default_behind_origin_is_counted(self):
@@ -2545,6 +2547,35 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual(facts["sources"], 3)
         self.assertEqual([(s["path"], s["reason"]) for s in facts["stale_sources"]], [("Makefile", "changed"), ("docs/gone.md", "missing")])
         self.assertEqual(facts["stale_sources"][0]["current"], self.blob("Makefile"))
+
+    def test_origin_facts_staleness_follows_origin_and_symlinks(self):
+        self.write("CLAUDE.md", "# Claude\n")
+        os.remove(os.path.join(self.clone, "AGENTS.md"))
+        os.symlink("CLAUDE.md", os.path.join(self.clone, "AGENTS.md"))
+        agents = self.blob("AGENTS.md")
+        self.assertEqual(agents, self.blob("CLAUDE.md"))
+        self.write(".ghflow/project.md", f"---\nghflow_project_facts: 1\nwritten: 2026-10-15\nsources:\n  - AGENTS.md {agents}\n  - Makefile {self.blob('Makefile')}\n---\n# Facts\n")
+        git(["add", "-A"], self.clone)
+        git(["commit", "-q", "-m", "docs: facts"], self.clone)
+        git(["push", "-q", "origin", "main"], self.clone)
+        git(["fetch", "-q", self.origin, "main:refs/remotes/origin/main"], self.clone)
+        result, _ = self.facts()
+        origin = result["project_facts"]["origin"]
+        self.assertEqual((origin["ref"], origin["present"], origin["stale_sources"]), ("origin/main", True, []))
+
+        other = os.path.join(self.tmp, "other")
+        subprocess.run(["git", "clone", "-q", self.origin, other], check=True, capture_output=True)
+        git(["config", "user.email", "t@example.com"], other)
+        git(["config", "user.name", "t"], other)
+        with open(os.path.join(other, "Makefile"), "a", encoding="utf-8") as out:
+            out.write("policy:\n\ttrue\n")
+        git(["commit", "-q", "-am", "build: add policy gate"], other)
+        git(["push", "-q", "origin", "main"], other)
+        git(["fetch", "-q", self.origin, "main:refs/remotes/origin/main"], self.clone)
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["project_facts"]["stale_sources"], [])
+        self.assertEqual([(s["path"], s["reason"]) for s in result["project_facts"]["origin"]["stale_sources"]], [("Makefile", "changed")])
 
     def test_missing_origin_head_falls_back_to_gh_default_branch(self):
         os.remove(os.path.join(self.clone, ".git", "refs", "remotes", "origin", "HEAD"))

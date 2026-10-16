@@ -78,6 +78,8 @@ fi
 case "$PROMPT" in -*) echo "composed prompt starts with '-'; refusing to launch" >&2; exit 1 ;; esac
 echo "launching $AGENT at $(date); log $LOG; deadline $DEADLINE"
 status=0
-"$@" > "$LOG" 2>&1 || status=$?
+# OpenCode 2.x reads the message from stdin when stdin is not a terminal, so close it:
+# otherwise a launch from cron or a non-interactive shell waits forever.
+"$@" < /dev/null > "$LOG" 2>&1 || status=$?
 echo "finished at $(date); exit $status"
 if [ "$status" -ne 0 ]; then echo "$AGENT exited with status $status; see $LOG" >&2; exit "$status"; fi

@@ -419,6 +419,7 @@ else:
         self.assertEqual(config["permission"], {"*": "deny", "read": {
             "*": "deny", str(source.resolve()): "allow",
             source.resolve().relative_to(Path("/")).as_posix(): "allow",
+            "task.md": "allow",
         }})
         self.assertEqual(config["agent"]["scenario"]["permission"], config["permission"])
         self.assertEqual(config["plugin"], [])
@@ -516,11 +517,24 @@ else:
         self.assertEqual(code, 1)
         self.assertNotIn("synthetic-secret", diagnostic)
         args = launch.call_args.args[0]
-        self.assertIn("--pure", args)
+        self.assertTrue("--pure" in args or "--standalone" in args)
         self.assertEqual(args[args.index("--agent") + 1], "scenario")
         self.assertEqual(process.communicate.call_args.args[0], "prompt")
 
 
+
+    def test_opencode_command_matches_the_major_version(self):
+        snapshot = self.temp_path / "snap"
+        v1 = run_scenario.opencode_command("m", snapshot, 1)
+        v2 = run_scenario.opencode_command("m", snapshot, 2)
+        self.assertEqual(v1[:3], ["opencode", "run", "--pure"])
+        self.assertEqual(v1[v1.index("--dir") + 1], str(snapshot))
+        self.assertEqual(v2[:3], ["opencode", "run", "--standalone"])
+        self.assertNotIn("--pure", v2)
+        self.assertNotIn("--dir", v2)
+        for args in (v1, v2):
+            self.assertEqual(args[args.index("--agent") + 1], "scenario")
+            self.assertEqual(args[args.index("--model") + 1], "scenario-local/m")
 
     def test_opencode_timeout_terminates_group_and_preserves_partial_events(self):
         with patch("run_scenario.guard_local_model", return_value={}), \
