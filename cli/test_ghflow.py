@@ -7,11 +7,12 @@ import sys
 import tempfile
 import time
 import unittest
+from datetime import datetime
 from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2034,9 +2035,6 @@ class BoardSetStatusSubprocessTests(unittest.TestCase):
         self.assertEqual(out.get("options"), BOARD_OPTIONS)
 
 
-if __name__ == "__main__":
-    unittest.main()
-
 
 class FakePr:
     """A PR with a body and draft flag; writes are recorded and read-backs see them."""
@@ -2623,3 +2621,117 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(captured["issue"], ("o/r", 5))
         self.assertTrue(json.loads(out.getvalue())["ok"])
+
+
+class WorktreeCreateTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.origin = os.path.join(self.tmp, "origin.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", self.origin], check=True)
+        self.clone = os.path.join(self.tmp, "clone")
+        subprocess.run(["git", "clone", "-q", self.origin, self.clone], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"], ["checkout", "-q", "-b", "main"],
+                     ["commit", "-q", "--allow-empty", "-m", "one"], ["push", "-q", "-u", "origin", "main"],
+                     ["remote", "set-head", "origin", "main"]):
+            git(args, self.clone)
+        with open(os.path.join(self.clone, ".env"), "w") as out:
+            out.write("PORT=1\n")
+        self.moves = []
+
+    def board(self, repo, number, owner, project, status):
+        self.moves.append((repo, number, owner, project, status))
+        return {"before": "Ready", "after": status, "readback_matches": True, "action": "set"}, 0
+
+    def create(self, **kwargs):
+        return worktree_create("https://github.com/o/r/issues/5", "issue-5-fix", cwd=self.clone,
+                               board_write=self.board, now=lambda: datetime(2026, 10, 16, 9, 30), **kwargs)
+
+    def test_creates_copies_runs_setup_notes_and_moves_board(self):
+        result, status = self.create(copy=[".env"], setup=["touch made.txt"], notes=True, board=("o", 6))
+        self.assertEqual(status, 0, result["errors"])
+        path = Path(result["path"])
+        self.assertEqual(path, Path(self.clone).resolve() / ".claude" / "worktrees" / "issue-5-fix")
+        self.assertEqual((path / ".env").read_text(), "PORT=1\n")
+        self.assertTrue((path / "made.txt").exists())
+        self.assertEqual(result["setup"][0]["exit"], 0)
+        notes = Path(result["notes"])
+        self.assertEqual(notes.parent.name, "2026-10-16-0930-issue-5-fix")
+        self.assertIn("## Resume here", notes.read_text())
+        self.assertEqual(self.moves, [("o/r", 5, "o", 6, "In progress")])
+        self.assertEqual(result["base"], "origin/main")
+
+    def test_existing_branch_is_refused_without_changes(self):
+        self.create()
+        result, status = self.create(setup=["touch second.txt"])
+        self.assertEqual((status, result["action"]), (3, "exists"))
+        self.assertFalse((Path(result["path"]) / "second.txt").exists())
+
+    def test_failed_setup_stops_and_exits_2(self):
+        result, status = self.create(setup=["exit 4", "touch later.txt"], board=("o", 6))
+        self.assertEqual(status, 2)
+        self.assertEqual(result["setup"][0]["exit"], 4)
+        self.assertFalse((Path(result["path"]) / "later.txt").exists())
+        self.assertEqual(self.moves, [])
+
+
+class PrBodyTests(unittest.TestCase):
+    def test_body_wraps_model_sections_around_commits_checks_and_closes(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "summary.md").write_text("Adds the guard.\n")
+        (tmp / "review.md").write_text("Approved in a fresh context.\n")
+        (tmp / "decisions.md").write_text("- Used the private call.\n")
+
+        def gh(args):
+            return {"headRefOid": "a" * 40, "commits": [{"oid": "b" * 40, "messageHeadline": "test: guard"}]}
+
+        def state(repo, number):
+            return {"ci": "green", "checks": [{"name": "lint", "state": "passed", "required": True}]}, 0
+
+        result, status = pr_body("o/r", 7, tmp / "body.md", 5, tmp / "summary.md", tmp / "review.md", tmp / "decisions.md",
+                                 gh=gh, state=state)
+        self.assertEqual(status, 0)
+        text = (tmp / "body.md").read_text()
+        self.assertTrue(text.startswith("Adds the guard."))
+        self.assertIn("- `bbbbbbb` test: guard", text)
+        self.assertIn("## Checks at `aaaaaaa`", text)
+        self.assertIn("CI summary: green", text)
+        self.assertIn("| lint | yes | passed |", text)
+        self.assertIn("## Decisions taken unattended", text)
+        self.assertTrue(text.rstrip().endswith("Closes #5"))
+        self.assertEqual((result["commits"], result["checks"]), (1, 1))
+
+
+class HandoffTests(unittest.TestCase):
+    def facts(self, issue=None):
+        return {"skill_source": {"path": "/skills/ghflow", "head": "c" * 40},
+                "checkout": {"primary_root": "/work/repo"},
+                "repository": {"default_branch": "main", "origin_default_head": "d" * 40},
+                "project_files": {"instructions": ["AGENTS.md"]},
+                "project_facts": {"path": ".ghflow/project.md", "present": True},
+                "issue": {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "branches": [], "worktrees": [], "prs": []},
+                "errors": []}, 0
+
+    def test_handoff_file_and_short_prompt(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "decisions.md").write_text("- Keep the message wording.\n")
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5", tmp / "h" / "handoff.md",
+                                       decisions=tmp / "decisions.md", review_plan="same-model under the approved exception",
+                                       limits="unattended, no merge", notes="/notes/n.md", branch="issue-5-fix", facts=self.facts)
+        self.assertEqual(status, 0)
+        text = (tmp / "h" / "handoff.md").read_text()
+        self.assertIn("Read /skills/ghflow/SKILL.md and /skills/ghflow/references/tasks/implement-issue.md", text)
+        self.assertIn("at " + "c" * 40, text)
+        self.assertIn("origin/main at " + "d" * 40, text)
+        self.assertIn("- Keep the message wording.", text)
+        self.assertIn("Do not mark the PR ready", text)
+        self.assertIn("model ID your runtime states to you", text)
+        self.assertIn(str(tmp / "h" / "handoff.md"), result["dispatch_prompt"])
+        self.assertLess(len(result["dispatch_prompt"]), 300)
+
+    def test_unknown_operation_is_refused(self):
+        result, status = write_handoff("merge-pr", "https://github.com/o/r/issues/5", "/tmp/x.md", facts=self.facts)
+        self.assertEqual(status, 1)
+
+
+if __name__ == "__main__":
+    unittest.main()

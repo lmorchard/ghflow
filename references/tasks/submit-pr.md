@@ -26,7 +26,7 @@ Write a title and body that explain the problem, the resulting behavior, the tes
 
 Use a closing reference such as `Closes #N` only when the PR completes that issue. A child PR does not close its broader parent.
 
-Write the body to a UTF-8 file outside the task diff, such as the task notes directory or a temporary directory, and pass it with `--body-file`. Report the file path. For a preparation-only request, the prepared body is the result. Do not push or create a PR without publication authorization.
+Write the body to a UTF-8 file outside the task diff, such as the task notes directory or a temporary directory, and pass it with `--body-file`. `python3 "$GHFLOW_CLI" pr body PR_URL --out FILE --issue-number N` writes the commits, the checks on the current head, and the closing line; write only the summary, the review section, and any decisions taken unattended yourself, as short files passed with `--summary`, `--review`, and `--decisions`. Report the file path. For a preparation-only request, the prepared body is the result. Do not push or create a PR without publication authorization.
 
 ## Publish and confirm
 

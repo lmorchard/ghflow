@@ -22,8 +22,10 @@ import os
 import re
 import shlex
 import subprocess
+import shutil
 import sys
 import time
+from datetime import datetime
 from pathlib import Path
 
 CHECK_RUN_STATES = {
@@ -1430,6 +1432,188 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
     return result, 2 if errors else 0
 
 
+DELIVERY_STAMP_FORMAT = "%Y-%m-%d-%H%M"
+
+
+def primary_checkout(start, git=run_git):
+    """Return the primary (non-bare, first) worktree of the repository containing start."""
+    listing = git(["worktree", "list", "--porcelain"], start)
+    for block in listing.strip().split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+        if "bare" not in fields and fields.get("worktree"):
+            return Path(fields["worktree"])
+    return Path(git(["rev-parse", "--show-toplevel"], start).strip())
+
+
+def default_branch(root, git=run_git):
+    return git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).strip().removeprefix("origin/")
+
+
+def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), notes=False, board=None,
+                    git=run_git, shell=None, board_write=None, now=None):
+    """Create an issue worktree from origin's default branch and prepare it.
+
+    ``board`` is ``(owner, project)`` or ``None``. Refuses, writing nothing, when the
+    branch or path already exists, so a resumed task reuses existing work.
+    """
+    shell = shell or (lambda command, where: subprocess.run(command, shell=True, cwd=where, capture_output=True, text=True))
+    board_write = board_write or board_set_status
+    start = Path.cwd() if cwd is None else Path(cwd)
+    result = {"issue": issue_url, "branch": branch, "errors": []}
+    try:
+        root = primary_checkout(start, git)
+        base_name = default_branch(root, git)
+    except (GhError, OSError, ValueError) as error:
+        result["errors"].append({"part": "checkout", "error": str(error)})
+        return result, 1
+    target = Path(path) if path else root / ".claude" / "worktrees" / branch
+    result.update(path=str(target), base=f"origin/{base_name}")
+    existing = git(["branch", "--list", "--all", branch, f"origin/{branch}"], root).strip()
+    if target.exists() or existing:
+        result.update(action="exists", reason="The branch or path already exists; resume from it instead of creating another.")
+        return result, 3
+    try:
+        git(["fetch", "--quiet", "origin", base_name], root)
+        git(["worktree", "add", "--quiet", "-b", branch, str(target), f"origin/{base_name}"], root)
+        result["base_commit"] = git(["rev-parse", "HEAD"], target).strip()
+    except GhError as error:
+        result["errors"].append({"part": "worktree", "error": str(error)})
+        return result, 1
+    result["action"] = "created"
+    result["copied"] = []
+    for name in copy:
+        source = root / name
+        if source.is_file():
+            destination = target / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            result["copied"].append(name)
+        else:
+            result["errors"].append({"part": "copy", "error": f"{name} is not a file in the primary checkout."})
+    result["setup"] = []
+    for command in setup:
+        run = shell(command, target)
+        tail = "\n".join(((run.stdout or "") + (run.stderr or "")).strip().splitlines()[-15:])
+        result["setup"].append({"command": command, "exit": run.returncode, "output_tail": tail})
+        if run.returncode != 0:
+            result["errors"].append({"part": "setup", "error": f"{command!r} exited {run.returncode}."})
+            return result, 2
+    if notes:
+        stamp = (now or datetime.now)().strftime(DELIVERY_STAMP_FORMAT)
+        notes_path = target / "docs" / "dev-sessions" / f"{stamp}-{branch}" / "notes.md"
+        notes_path.parent.mkdir(parents=True, exist_ok=True)
+        notes_path.write_text(
+            f"# {branch}\n\n## Resume here\n\n- Issue: {issue_url}\n- Worktree: {target}\n- Branch: {branch}\n"
+            f"- Base: {result['base']} at {result['base_commit']}\n- Next action: read the issue and start.\n\n## Log\n",
+            encoding="utf-8")
+        result["notes"] = str(notes_path)
+    if board:
+        repo, number = parse_issue(issue_url, None)
+        board_result, board_status = board_write(repo, number, board[0], board[1], "In progress")
+        result["board"] = {key: board_result.get(key) for key in ("before", "after", "readback_matches", "action")}
+        if board_status != 0:
+            result["errors"].append({"part": "board", "error": f"board set-status exited {board_status}."})
+            return result, 2
+    return result, 2 if result["errors"] else 0
+
+
+def pr_body(repo, number, out, issue_number=None, summary=None, review=None, decisions=None,
+            gh=run_gh, state=pr_state):
+    """Write a PR description: the model's summary, review, and decisions files around
+    deterministic sections for commits, checks on the current head, and the closing line."""
+    def read(path):
+        return Path(path).read_text(encoding="utf-8").strip() if path else ""
+
+    data = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", "commits,headRefOid"]), dict, "The PR response")
+    head = response_string(data["headRefOid"], "The PR head")
+    commits = [f"- `{c.get('oid', '')[:7]}` {c.get('messageHeadline', '')}" for c in data.get("commits") or [] if isinstance(c, dict)]
+    pr_result, _ = state(repo, number)
+    checks = pr_result.get("checks") if isinstance(pr_result.get("checks"), list) else None
+    lines = []
+    if summary:
+        lines += [read(summary), ""]
+    lines += ["## Commits", "", *(commits or ["- none"]), ""]
+    lines += [f"## Checks at `{head[:7]}`", "", f"CI summary: {pr_result.get('ci') or 'unread'}", ""]
+    if checks:
+        lines += ["| Check | Required | State |", "| --- | :---: | --- |",
+                  *[f"| {c.get('name')} | {'yes' if c.get('required') else 'no'} | {c.get('state')} |" for c in checks]]
+    lines += ["", "## Review", "", read(review) or "Review not yet recorded.", ""]
+    if decisions:
+        lines += ["## Decisions taken unattended", "", read(decisions), ""]
+    if issue_number:
+        lines += [f"Closes #{issue_number}"]
+    text = "\n".join(lines).rstrip() + "\n"
+    Path(out).write_text(text, encoding="utf-8")
+    return {"pr": f"{repo}#{number}", "head": head, "out": str(out), "chars": len(text),
+            "commits": len(commits), "checks": len(checks or [])}, 0
+
+
+HANDOFF_SCOPE = {
+    "implement-issue": "Implement the issue, then publish it as a draft through submit-pr in the same session. "
+                       "Publish the first significant committed checkpoint as a draft and keep working on the same branch. "
+                       "Do not mark the PR ready or request review.",
+    "review-changes": "Review the published head in this fresh context and return findings and notes separately. "
+                      "Do not change the code or the PR.",
+    "submit-pr": "Mark the reviewed head ready with `pr ready --expect-head`, with the final description, and move the issue In review. "
+                 "Do not push new commits.",
+    "address-pr-review": "Address the named findings on the same branch, run the affected checks, and publish the commits to the same PR.",
+}
+HANDOFF_RETURN = ("Return the PR URL, the published head, the check results with their commits, evidence limits, "
+                  "remaining work, and the model ID your runtime states to you, not a configured or default model.")
+
+
+def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
+                  branch=None, extra=None, facts_path=None, facts=project_facts):
+    """Write a handoff file for one dispatch from live facts plus the coordinator's
+    decisions, and return the one-line dispatch prompt that points to it."""
+    if operation not in HANDOFF_SCOPE:
+        return {"errors": [{"part": "operation", "error": f"Unknown operation {operation!r}."}]}, 1
+    repo, number = parse_issue(issue_url, None)
+    info, status = facts(issue=(repo, number))
+    if status == 1:
+        return {"errors": info.get("errors", [])}, 1
+    skill = info.get("skill_source") or {}
+    checkout = info.get("checkout") or {}
+    repository = info.get("repository") or {}
+    project = info.get("project_facts") or {}
+    issue = info.get("issue") or {}
+    skill_dir = Path(skill.get("path") or SKILL_ROOT)
+    def read(path):
+        return Path(path).read_text(encoding="utf-8").strip() if path else ""
+    facts_line = facts_path or (project.get("path") if project.get("present") else None)
+    lines = [
+        f"Operation: {operation}. Read {skill_dir / 'SKILL.md'} and {skill_dir / 'references' / 'tasks' / (operation + '.md')}; "
+        f"use CLI {skill_dir / 'cli' / 'ghflow.py'}.",
+        f"Source: {skill_dir} at {skill.get('head', 'unknown')}.",
+        f"Subject: {issue.get('url', issue_url)} ({issue.get('title', '')}) in {checkout.get('primary_root', checkout.get('root', ''))}; "
+        f"project instructions: {', '.join((info.get('project_files') or {}).get('instructions') or []) or 'none found'}.",
+        f"Project facts: {facts_line or 'no facts file'}; run `facts --issue {issue.get('url', issue_url)}` for live state.",
+        f"Base: origin/{repository.get('default_branch', '')} at {repository.get('origin_default_head', 'unknown')}.",
+        f"Existing work: branches {issue.get('branches') or []}, worktrees {issue.get('worktrees') or []}, "
+        f"PRs {[(p.get('number'), p.get('state'), p.get('head')) for p in issue.get('prs') or []]}.",
+    ]
+    if branch:
+        lines.append(f"Branch: {branch}.")
+    if decisions:
+        lines += ["Confirmed decisions:", read(decisions)]
+    if review_plan:
+        lines.append(f"Review plan: {review_plan}")
+    if limits:
+        lines.append(f"Flow and limits: {limits}")
+    lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
+    if notes:
+        lines.append(f"Notes: {notes}")
+    if extra:
+        lines += [read(extra)]
+    lines.append(HANDOFF_RETURN)
+    text = "\n".join(line for line in lines if line is not None).rstrip() + "\n"
+    Path(out).parent.mkdir(parents=True, exist_ok=True)
+    Path(out).write_text(text, encoding="utf-8")
+    prompt = (f"Operation: {operation} for {issue.get('url', issue_url)}. Your complete handoff is the file {out}; "
+              "read it first and follow it. This short prompt is not a placeholder.")
+    return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "errors": info.get("errors", [])}, 0
+
+
 def identity_config_paths(cwd=None):
     """Return identity config paths in project, primary-checkout, then home order."""
     current = Path.cwd() if cwd is None else Path(cwd)
@@ -1612,6 +1796,37 @@ def main(argv=None):
     ready.add_argument("--project", type=int, help="project board number")
     ready.add_argument("--status", default="In review", help='target Status option name (default "In review")')
 
+    wt_group = commands.add_parser("worktree", help="Issue worktree operations.")
+    wt_commands = wt_group.add_subparsers(dest="worktree_command", required=True)
+    wt_create = wt_commands.add_parser("create", help="Create an issue worktree from origin's default branch, copy files, run setup, and optionally start notes and move the board.")
+    wt_create.add_argument("issue", help="issue URL")
+    wt_create.add_argument("--branch", required=True, help="new branch name")
+    wt_create.add_argument("--path", help="worktree path (default .claude/worktrees/BRANCH in the primary checkout)")
+    wt_create.add_argument("--copy", action="append", default=[], metavar="FILE", help="file to copy from the primary checkout, such as .env; repeatable")
+    wt_create.add_argument("--setup", action="append", default=[], metavar="COMMAND", help="setup command to run in the worktree, such as 'uv sync'; repeatable")
+    wt_create.add_argument("--notes", action="store_true", help="create docs/dev-sessions/STAMP-BRANCH/notes.md with a Resume here skeleton")
+    wt_create.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
+    wt_create.add_argument("--project", type=int, help="board number")
+    body = pr_commands.add_parser("body", help="Write a PR description: your summary, review, and decisions files around commits, checks, and the closing line.")
+    body.add_argument("pr", help="PR URL, or PR number with --repo")
+    body.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    body.add_argument("--out", required=True, metavar="FILE", help="file to write; pass it to pr ready --body-file")
+    body.add_argument("--issue-number", type=int, help="issue number for the Closes line")
+    body.add_argument("--summary", metavar="FILE", help="Markdown summary of the change")
+    body.add_argument("--review", metavar="FILE", help="Markdown review section")
+    body.add_argument("--decisions", metavar="FILE", help="Markdown decisions taken unattended")
+    handoff_cmd = commands.add_parser("handoff", help="Write a dispatch handoff file from live facts and your decisions, and print the one-line prompt that points to it.")
+    handoff_cmd.add_argument("operation", choices=sorted(HANDOFF_SCOPE), help="the worker's task reference")
+    handoff_cmd.add_argument("issue", help="issue URL")
+    handoff_cmd.add_argument("--out", required=True, metavar="FILE", help="handoff file to write")
+    handoff_cmd.add_argument("--decisions", metavar="FILE", help="Markdown with the confirmed decisions and findings the worker must act on")
+    handoff_cmd.add_argument("--review-plan", help="review method, configuration, and exception")
+    handoff_cmd.add_argument("--limits", help="flow endpoint and limits, such as unattended, no merge, deadline")
+    handoff_cmd.add_argument("--notes", metavar="PATH", help="task notes path")
+    handoff_cmd.add_argument("--branch", help="branch name for the worker")
+    handoff_cmd.add_argument("--facts-path", metavar="PATH", help="project facts path to name, such as a refreshed copy")
+    handoff_cmd.add_argument("--extra", metavar="FILE", help="Markdown appended before the return requirements")
+
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
     facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
@@ -1633,6 +1848,21 @@ def main(argv=None):
             result, status = board_set_field(repo, number, args.owner, args.project, args.field, args.value)
         else:
             result, status = board_set_status(repo, number, args.owner, args.project, args.status, args.allow_backward)
+    elif args.command == "worktree":
+        board = (args.owner, args.project) if args.owner and args.project is not None else None
+        if (args.owner or args.project is not None) and board is None:
+            parser.error("--owner and --project are required together for a board move.")
+        result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
+                                         notes=args.notes, board=board)
+    elif args.command == "handoff":
+        result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
+                                       args.notes, args.branch, args.extra, args.facts_path)
+    elif args.command == "pr" and args.pr_command == "body":
+        repo, number = parse_pr(args.pr, args.repo)
+        try:
+            result, status = pr_body(repo, number, args.out, args.issue_number, args.summary, args.review, args.decisions)
+        except (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+            result, status = {"errors": [{"part": "body", "error": str(error)}]}, 1
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
         board = None
