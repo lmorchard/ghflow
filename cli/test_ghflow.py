@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2731,6 +2731,107 @@ class HandoffTests(unittest.TestCase):
     def test_unknown_operation_is_refused(self):
         result, status = write_handoff("merge-pr", "https://github.com/o/r/issues/5", "/tmp/x.md", facts=self.facts)
         self.assertEqual(status, 1)
+
+
+class ReviewPrepareTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.origin = os.path.join(self.tmp, "origin.git")
+        subprocess.run(["git", "init", "-q", "--bare", "-b", "main", self.origin], check=True)
+        self.clone = os.path.join(self.tmp, "clone")
+        subprocess.run(["git", "clone", "-q", self.origin, self.clone], check=True, capture_output=True)
+        for args in (["config", "user.email", "t@example.com"], ["config", "user.name", "t"], ["checkout", "-q", "-b", "main"],
+                     ["commit", "-q", "--allow-empty", "-m", "base"], ["push", "-q", "-u", "origin", "main"],
+                     ["checkout", "-q", "-b", "issue-5"]):
+            git(args, self.clone)
+        with open(os.path.join(self.clone, "new.py"), "w") as out:
+            out.write("x = 1\ny = 2\n")
+        git(["add", "new.py"], self.clone)
+        git(["commit", "-q", "-m", "feat: add new"], self.clone)
+        git(["push", "-q", "origin", "issue-5"], self.clone)
+        git(["checkout", "-q", "main"], self.clone)
+        self.head = subprocess.run(["git", "rev-parse", "issue-5"], cwd=self.clone, capture_output=True, text=True).stdout.strip()
+
+    def gh(self, args):
+        return {"headRefOid": self.head, "headRefName": "issue-5", "baseRefName": "main", "state": "OPEN",
+                "isDraft": True, "url": "https://github.com/o/r/pull/7"}
+
+    def test_prepare_creates_detached_worktree_and_lists_files_then_cleanup_removes_it(self):
+        result, status = review_prepare("o/r", 7, cwd=self.clone, gh=self.gh)
+        self.assertEqual(status, 0, result["errors"])
+        path = Path(result["path"])
+        self.assertEqual(path.name, "review-7")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=path, capture_output=True, text=True).stdout.strip()
+        self.assertEqual(head, self.head)
+        self.assertEqual(result["files"], [{"path": "new.py", "added": "2", "deleted": "0"}])
+        again, status = review_prepare("o/r", 7, cwd=self.clone, gh=self.gh)
+        self.assertEqual((status, again["action"]), (3, "exists"))
+        cleaned, status = review_cleanup(7, cwd=self.clone)
+        self.assertEqual((status, cleaned["action"]), (0, "removed"))
+        self.assertFalse(path.exists())
+
+    def test_cleanup_refuses_local_changes(self):
+        result, _ = review_prepare("o/r", 7, cwd=self.clone, gh=self.gh)
+        with open(os.path.join(result["path"], "scratch.txt"), "w") as out:
+            out.write("probe\n")
+        cleaned, status = review_cleanup(7, cwd=self.clone)
+        self.assertEqual((status, cleaned["action"]), (3, "refused"))
+
+
+class FakeParkGitHub:
+    def __init__(self, labels=("triage:ready", "enhancement"), body="Summary.", state="OPEN"):
+        self.labels, self.body, self.state, self.comments, self.writes = list(labels), body, state, [], []
+
+    def gh(self, args):
+        if args[:2] == ["issue", "view"]:
+            return {"url": "https://github.com/o/r/issues/5", "labels": [{"name": n} for n in self.labels],
+                    "comments": [{"body": c} for c in self.comments]}
+        if args[:2] == ["pr", "view"]:
+            return {"body": self.body, "isDraft": True, "state": self.state, "headRefOid": "a" * 40}
+        raise AssertionError(args)
+
+    def gh_text(self, args):
+        self.writes.append(args[:2])
+        if args[:2] == ["issue", "edit"]:
+            if "--remove-label" in args:
+                self.labels.remove(args[args.index("--remove-label") + 1])
+            self.labels.append(args[args.index("--add-label") + 1])
+        elif args[:2] == ["issue", "comment"]:
+            self.comments.append(Path(args[args.index("--body-file") + 1]).read_text())
+        elif args[:2] == ["pr", "edit"]:
+            self.body = Path(args[args.index("--body-file") + 1]).read_text()
+        return ""
+
+
+class ParkTests(unittest.TestCase):
+    def setUp(self):
+        self.text = Path(tempfile.mkdtemp()) / "remaining.md"
+        self.text.write_text("1. Re-review head aaaaaaa.\n2. Mark ready.\n")
+
+    def park(self, fake, kind="time"):
+        return park_delivery("o/r", 5, "o/r", 7, kind, self.text, gh=fake.gh, gh_text=fake.gh_text, confirm=lambda: None)
+
+    def test_time_park_swaps_label_comments_and_adds_section(self):
+        fake = FakeParkGitHub()
+        result, status = self.park(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertIn("triage:needs-input", fake.labels)
+        self.assertNotIn("triage:ready", fake.labels)
+        self.assertIn("**Parked (time budget)**", fake.comments[-1])
+        self.assertIn("## Parked (time budget)", fake.body)
+        self.assertTrue(fake.body.startswith("Summary."))
+        self.assertEqual(result["readback"], {"labels": True, "comment": True, "pr_body": True})
+
+    def test_second_park_does_not_duplicate_the_section(self):
+        fake = FakeParkGitHub()
+        self.park(fake)
+        self.park(fake)
+        self.assertEqual(fake.body.count("## Parked"), 1)
+
+    def test_closed_pr_is_refused_without_writes(self):
+        fake = FakeParkGitHub(state="MERGED")
+        result, status = self.park(fake)
+        self.assertEqual((status, fake.writes), (3, []))
 
 
 if __name__ == "__main__":

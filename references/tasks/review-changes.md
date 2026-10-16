@@ -20,7 +20,7 @@ Read the issue, project instructions, and the diff between the supplied commits.
 
 Treat the implementation report as claims, not as your conclusion. Examine tests before you accept their stated coverage.
 
-Keep the implementation checkout unchanged. If tests generate files or modify data, use an isolated temporary copy. Do not change expected results to make the reviewed code pass.
+Keep the implementation checkout unchanged. For a published PR, run `python3 "$GHFLOW_CLI" review prepare PR_URL`: it fetches the base and head, creates a detached worktree at the PR's current head, and lists the changed files with the merge base and the diff command. Review and run checks there, and remove it with `review cleanup PR_URL` when you finish. If tests generate files or modify data, use an isolated temporary copy. Do not change expected results to make the reviewed code pass.
 
 For a published PR, read its current head, reviews, and top-level comments with `pr-state`, described in [CLI results](../cli.md#reading-pr-state). Read the comment and review bodies. A `null` part is unread, not empty; read it again or report incomplete retrieval. Do not report that a PR has no comments or reviews unless a read returned an empty list.
 

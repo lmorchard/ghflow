@@ -24,6 +24,7 @@ import shlex
 import subprocess
 import shutil
 import sys
+import tempfile
 import time
 from datetime import datetime
 from pathlib import Path
@@ -1614,6 +1615,138 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "errors": info.get("errors", [])}, 0
 
 
+def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
+    """Create a detached review worktree at a PR's current head and report what changed.
+
+    Refuses, writing nothing, when the path already exists.
+    """
+    start = Path.cwd() if cwd is None else Path(cwd)
+    result = {"pr": f"{repo}#{number}", "errors": []}
+    read_errors = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError)
+    try:
+        pr = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", "headRefOid,headRefName,baseRefName,state,isDraft,url"]),
+                           dict, "The PR response")
+        head = response_string(pr["headRefOid"], "The PR head")
+        base = response_string(pr["baseRefName"], "The PR base")
+        root = primary_checkout(start, git)
+    except read_errors as error:
+        result["errors"].append({"part": "pr", "error": str(error)})
+        return result, 1
+    target = Path(path) if path else root / ".claude" / "worktrees" / f"review-{number}"
+    result.update(url=pr.get("url"), state=pr.get("state"), is_draft=pr.get("isDraft"), head=head,
+                  head_branch=pr.get("headRefName"), base=f"origin/{base}", path=str(target))
+    if target.exists():
+        result.update(action="exists", reason="The review path already exists; remove it with review cleanup or pass --path.")
+        return result, 3
+    try:
+        git(["fetch", "--quiet", "origin", base, pr["headRefName"]], root)
+        if git(["rev-parse", "--verify", f"{head}^{{commit}}"], root).strip() != head:
+            raise ValueError("The fetched head does not match the PR head.")
+        git(["worktree", "add", "--quiet", "--detach", str(target), head], root)
+        merge_base = git(["merge-base", f"origin/{base}", head], root).strip()
+        files = [line.split("\t") for line in git(["diff", "--numstat", f"{merge_base}..{head}"], root).strip().splitlines() if line]
+    except read_errors as error:
+        result["errors"].append({"part": "worktree", "error": str(error)})
+        return result, 1
+    result.update(action="created", merge_base=merge_base,
+                  files=[{"path": f[2], "added": f[0], "deleted": f[1]} for f in files if len(f) == 3],
+                  diff_command=f"git -C {target} diff {merge_base}..{head}")
+    return result, 0
+
+
+def review_cleanup(number, cwd=None, path=None, git=run_git):
+    """Remove a review worktree created by review prepare, refusing one with local changes."""
+    start = Path.cwd() if cwd is None else Path(cwd)
+    root = primary_checkout(start, git)
+    target = Path(path) if path else root / ".claude" / "worktrees" / f"review-{number}"
+    result = {"path": str(target), "errors": []}
+    if not target.exists():
+        result["action"] = "absent"
+        return result, 0
+    if git(["status", "--porcelain"], target).strip():
+        result.update(action="refused", reason="The review worktree has local changes; inspect it before removing.")
+        return result, 3
+    git(["worktree", "remove", str(target)], root)
+    result["action"] = "removed"
+    return result, 0
+
+
+PARK_MARKER = "## Parked"
+
+
+def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file, gh=run_gh, gh_text=run_gh_text,
+                  confirm=confirm_write_identity):
+    """Record a parked unattended delivery: swap triage:ready for triage:needs-input, post the
+    question or remaining steps on the issue, and add a Parked section to the PR, each read back.
+
+    ``kind`` is "time", "question", or "blocker". The PR stays a draft and the board unchanged.
+    """
+    result = {"issue": f"{issue_repo}#{issue_number}", "pr": f"{pr_repo}#{pr_number}", "kind": kind, "writes": [], "errors": []}
+    read_errors = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError, UnicodeDecodeError)
+    titles = {"time": "Parked (time budget)", "question": "Parked (open question)", "blocker": "Parked (blocker)"}
+    if kind not in titles:
+        result["errors"].append({"part": "kind", "error": f"Unknown kind {kind!r}."})
+        return result, 1
+    try:
+        text = Path(text_file).read_text(encoding="utf-8").strip()
+        issue = response_type(gh(["issue", "view", str(issue_number), "--repo", issue_repo, "--json", "labels,url"]), dict, "The issue response")
+        pr = response_type(gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft,state,headRefOid"]), dict, "The PR response")
+    except read_errors as error:
+        result["errors"].append({"part": "read", "error": str(error)})
+        return result, 1
+    labels = [label.get("name") for label in issue.get("labels") or [] if isinstance(label, dict)]
+    result["before"] = {"labels": labels, "is_draft": pr.get("isDraft"), "state": pr.get("state"), "head": pr.get("headRefOid")}
+    if pr.get("state") != "OPEN":
+        result["errors"].append({"part": "pr", "error": f"The PR is {pr.get('state')}; nothing was written."})
+        return result, 3
+    try:
+        confirm()
+    except IdentityError as error:
+        result["errors"].append({"part": "identity", "error": str(error)})
+        return result, 1
+    heading = f"{PARK_MARKER} " + titles[kind].removeprefix("Parked ")
+    section = f"{heading}\n\n{text}\n"
+    tmp = Path(tempfile.mkdtemp(prefix="ghflow-park-"))
+    try:
+        if "triage:needs-input" not in labels:
+            edit = ["issue", "edit", str(issue_number), "--repo", issue_repo, "--add-label", "triage:needs-input"]
+            if "triage:ready" in labels:
+                edit += ["--remove-label", "triage:ready"]
+            gh_text(edit)
+            result["writes"].append("labels")
+        comment_file = tmp / "comment.md"
+        comment_file.write_text(f"**{titles[kind]}**\n\n{text}\n", encoding="utf-8")
+        gh_text(["issue", "comment", str(issue_number), "--repo", issue_repo, "--body-file", str(comment_file)])
+        result["writes"].append("comment")
+        body = pr.get("body") or ""
+        if PARK_MARKER not in body:
+            body_file = tmp / "body.md"
+            body_file.write_text(body.rstrip() + "\n\n" + section, encoding="utf-8")
+            gh_text(["pr", "edit", str(pr_number), "--repo", pr_repo, "--body-file", str(body_file)])
+            result["writes"].append("pr_body")
+    except read_errors as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        issue_after = gh(["issue", "view", str(issue_number), "--repo", issue_repo, "--json", "labels,comments"])
+        pr_after = gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft"])
+        after_labels = [label.get("name") for label in issue_after.get("labels") or [] if isinstance(label, dict)]
+        last = (issue_after.get("comments") or [{}])[-1]
+        result["after"] = {"labels": after_labels, "is_draft": pr_after.get("isDraft")}
+        result["readback"] = {
+            "labels": "triage:needs-input" in after_labels and "triage:ready" not in after_labels,
+            "comment": titles[kind] in str(last.get("body", "")),
+            "pr_body": PARK_MARKER in str(pr_after.get("body", "")),
+        }
+    except read_errors as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    if not all(result["readback"].values()):
+        return result, 2
+    return result, 2 if result["errors"] else 0
+
+
 def identity_config_paths(cwd=None):
     """Return identity config paths in project, primary-checkout, then home order."""
     current = Path.cwd() if cwd is None else Path(cwd)
@@ -1827,6 +1960,22 @@ def main(argv=None):
     handoff_cmd.add_argument("--facts-path", metavar="PATH", help="project facts path to name, such as a refreshed copy")
     handoff_cmd.add_argument("--extra", metavar="FILE", help="Markdown appended before the return requirements")
 
+    review_group = commands.add_parser("review", help="Review worktree operations.")
+    review_commands = review_group.add_subparsers(dest="review_command", required=True)
+    rv_prepare = review_commands.add_parser("prepare", help="Create a detached review worktree at a PR's current head and list the changed files.")
+    rv_prepare.add_argument("pr", help="PR URL, or PR number with --repo")
+    rv_prepare.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    rv_prepare.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
+    rv_cleanup = review_commands.add_parser("cleanup", help="Remove a review worktree, refusing one with local changes.")
+    rv_cleanup.add_argument("pr", help="PR URL, or PR number with --repo")
+    rv_cleanup.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    rv_cleanup.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
+    park = commands.add_parser("park", help="Park an unattended delivery: label, issue comment, and a Parked section on the PR, each read back.")
+    park.add_argument("issue", help="issue URL")
+    park.add_argument("--pr", required=True, help="PR URL")
+    park.add_argument("--kind", required=True, choices=("time", "question", "blocker"), help="why the delivery is parked")
+    park.add_argument("--text", required=True, metavar="FILE", help="Markdown with the question or blocker, or the remaining steps for a time park")
+
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
     facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
@@ -1854,6 +2003,16 @@ def main(argv=None):
             parser.error("--owner and --project are required together for a board move.")
         result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
                                          notes=args.notes, board=board)
+    elif args.command == "review":
+        repo, number = parse_pr(args.pr, args.repo)
+        if args.review_command == "prepare":
+            result, status = review_prepare(repo, number, path=args.path)
+        else:
+            result, status = review_cleanup(number, path=args.path)
+    elif args.command == "park":
+        issue_repo, issue_number = parse_issue(args.issue, None)
+        pr_repo, pr_number = parse_pr(args.pr, None)
+        result, status = park_delivery(issue_repo, issue_number, pr_repo, pr_number, args.kind, args.text)
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
                                        args.notes, args.branch, args.extra, args.facts_path)
