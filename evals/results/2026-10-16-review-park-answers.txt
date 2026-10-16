@@ -1,0 +1,114 @@
+Scenario: park-uses-cli
+Session ID: 189fd17c-e4fd-4c3f-b649-8ca3be95f696
+
+**Next step: park the delivery for the time budget. Do not dispatch the fix, a re-review, or the ready submission.**
+
+**Rule that decides it.** The "Park an issue in an unattended flow" section of `express-issue.md` applies. Its last paragraph says "A park for the time budget records the remaining steps instead of a question." `burndown-ready-queue.md` agrees: do not dispatch new work after the deadline, and park an issue that is in progress at the deadline with its state recorded. The same file says to correct a reviewer finding only when the correction, its re-review and the ready step fit before the deadline. They don't fit here. `shared/triage-labels.md#parked-deliveries` covers the labels. It applies to a delivery that is in progress when its time budget ends.
+
+**Why not the alternatives.**
+- Marking PR #1078 ready would skip the open finding and the required fresh re-review.
+- Marking it ready would also publish unreviewed, vacuous-test work as finished.
+
+**What to do, per the park steps.**
+1. Resume the implementation worker only for a write sequence that was already dispatched before the deadline. It would publish any committed work to the draft and record the remaining steps. Everything is already committed and published at `f7cb4f2`, so this reduces to recording the remaining steps. Put them in the PR description under "Parked" and in the task notes. The remaining steps are:
+   - fix the vacuous test (the one actionable finding);
+   - run a fresh re-review of the corrected head;
+   - make the ready submission.
+2. Comment on issue #947 with the same remaining steps. Replace `triage:ready` with `triage:needs-input`. No question is open, so this is a time park. It is not a request for the user's input.
+3. Leave PR #1078 as a draft and the board at In progress. Preserve the worktree and branch.
+4. Return the issue as parked to the queue coordinator or the user. The report includes:
+   - the PR URL and head `f7cb4f2`;
+   - the review finding, still unresolved;
+   - the remaining steps.
+
+   Do not request review. Do not select the next issue.
+
+A later request resumes the delivery from the PR. Before it continues, it restores `triage:ready`.
+
+Scenario: park-uses-cli
+Session ID: 92e32bfe-5ccd-4a03-a5dc-3534e516198c
+
+**Next step: park the delivery for the time budget. Don't fix the test, re-review, or mark the PR ready.**
+
+**Deciding rule:** "Park an issue in an unattended flow" in `express-issue.md`. It applies when the run is unattended and a blocker persists, or when the time budget ends. `shared/triage-labels.md#parked-deliveries` says the same for an unattended delivery "in progress when its time budget ends."
+
+**Why:** The remaining steps are the vacuous-test fix, a fresh re-review, and the ready submission. Ready submission is only allowed once review is complete and actionable findings are resolved. The one finding is still open and the budget is gone, so marking the PR ready would skip the required review. Silently skipping that review is not allowed.
+
+**What I would do:**
+1. Write a file that records the remaining steps in order:
+   - fix the vacuous test
+   - run a fresh re-review of the corrected head
+   - run the ready submission
+
+   It would also record the head `f7cb4f2`, the one actionable finding, and that review is unmet.
+2. Run `python3 "$GHFLOW_CLI" park ISSUE_URL --pr 1078 --kind time --text FILE`. The work is already committed and published at `f7cb4f2`, so this one command does the park. It:
+   - records the parked state in the PR description under "Parked"
+   - comments on issue #947
+   - replaces `triage:ready` with `triage:needs-input`
+   - reads back each write
+3. Leave PR #1078 as a draft and the board at In progress. Keep the branch and worktree.
+4. Return the issue to the queue coordinator or user as parked. The report would give the PR URL, the head `f7cb4f2`, and the remaining steps. I would not mark the PR ready, request review, or pick the next issue.
+
+A time park has no question to resolve. A later request resumes from the PR, and the label goes back to `triage:ready` before the work continues.
+
+Scenario: park-uses-cli
+Session ID: 296659a2-788f-4364-a51c-ab1d3b4f0fa5
+
+**Next step: park the delivery for time. Don't fix the test, re-review, or mark the PR ready.**
+
+**Rule that decides it:** "Park an issue in an unattended flow" in `express-issue.md`. It applies when the Decisions rule parks the task or a blocker persists in an unattended run. `triage-labels.md#parked-deliveries` extends it to an unattended delivery that is "in progress when its time budget ends." The time budget has ended and the run is unattended, so the remaining steps are parked rather than finished.
+
+**What I do:**
+1. Write the remaining steps to a file. They are: fix the vacuous test, run a fresh re-review of the corrected head, and do the ready submission. I also record the actionable finding and the fact that its correction did not fit the budget.
+2. Run `python3 "$GHFLOW_CLI" park <issue #947 URL> --pr <PR #1078 URL> --kind time --text FILE`. The work is already committed and published at `f7cb4f2`, so this one command does the following, with read-backs:
+   - It records the parked state in the PR description under "Parked".
+   - It posts the remaining steps as a comment on issue #947.
+   - It replaces `triage:ready` with `triage:needs-input`.
+3. Leave PR #1078 a draft and leave the board at In progress. Preserve the worktree and branch.
+4. Return the issue to the queue coordinator or user as parked. The report includes the PR URL, the head `f7cb4f2`, and the one unresolved review finding. I don't select the next issue.
+
+**Why not the alternatives:**
+- **Marking ready now:** the review has an unresolved actionable finding and the test is vacuous. The ready step needs a completed review with its findings resolved.
+- **Squeezing in the fix:** the correction doesn't fit the time budget.
+- **Leaving `triage:ready` in place:** the label would hide the parked state. `triage:needs-input` puts the issue in the user's view.
+
+A time park has no question to answer. A later request resumes from the PR under "Resume from evidence". That resume first restores `triage:ready`, then continues with the fix, a fresh re-review, and the ready submission.
+
+Scenario: deadline-ready-step-finishes
+Session ID: faa750a5-9abc-4077-9f19-3a16fd998158
+
+**Next step: keep waiting for the ready-submission worker. Don't dispatch anything new, and don't park the PR yet.**
+
+The deciding rule is the time-budget bullet in Disruption, step 4 of "Deliver issues sequentially" in `burndown-ready-queue.md`. It says: "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+
+- **The dispatch was on time.** I dispatched the ready submission at 03:39, before the 04:09 deadline. The rule lets that write sequence finish after the deadline, so reaching 04:09 doesn't cancel it.
+- **No new work.** The deadline has passed, so I can't dispatch a second worker, a retry or a re-review. I also won't mark the PR ready myself or take over the worker's writes. Either would risk a half-written or duplicated submission.
+- **No parking.** The "park an issue in progress at the deadline" rule is for work that hasn't reached its ready submission. This issue already has an approved review and an in-flight submission. Parking it now would interrupt the write sequence the rule protects.
+- **Nothing else is queued.** No selected issue remains, so there is nothing to continue with.
+
+When the worker returns, I'll check its report against the evidence rules. I'll confirm the PR is ready, that the head SHA is the one the reviewer approved, and that the board status is `In review`. Then I'll read the clock and write the delivery summary. The summary will state the actual end time and say plainly that the ready step finished after the 04:09 deadline.
+
+If the worker never returns, I won't redispatch. I'll report the issue as unfinished, with the PR still a draft, and record the state for the user.
+
+Scenario: unattended-parks-on-uncertainty
+Session ID: f51c18f8-64c8-4bc2-9819-6b6efdf82bbd
+
+**Next step: park the issue. Don't pick a behavior, don't mark the PR ready, and don't dispatch the reviewer.**
+
+**Deciding rule:** "Decide in an unattended flow" in `shared/decisions.md`, with the procedure in `express-issue.md`, "Park an issue in an unattended flow".
+
+**Why:**
+- The rule says to take a recommended answer only when the evidence supports one. Here the issue text doesn't choose, the worker found no evidence either way, and it has no recommendation.
+- The two options (clear the status line at once, or clear it after the new schedule loads) look different to the user. The rule says to park when viable answers differ in user-visible behavior and the evidence doesn't separate them.
+- The run is unattended, so I must not call an interactive question tool or ask the user. I also shouldn't pick arbitrarily, because that would be a silent product decision.
+
+**What I do:**
+1. The worker's committed guards and tests are already published on draft PR #1070. I write the question, its evidence, and the two options with their tradeoffs to a file. I state that there is no recommendation, and I don't invent one.
+2. I run `park ISSUE_URL --pr PR_URL --kind question --text FILE`. It does these steps and reads each one back:
+   - It records the question under "Parked" in the PR description and in the task notes.
+   - It comments the question on issue #904.
+   - It replaces `triage:ready` with `triage:needs-input`, per Triage labels, "Parked deliveries".
+3. The PR stays a draft and the board stays In progress. I preserve the worktree and branch.
+4. I return the issue as parked to the queue coordinator or user, with the question, the PR URL and the head. I don't select the next issue.
+
+`sweep-needs-input` will settle the question with the user later. Delivery then resumes from the PR under "Resume from evidence".
