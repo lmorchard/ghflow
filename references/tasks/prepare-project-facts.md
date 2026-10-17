@@ -8,7 +8,7 @@ Apply [Authorization](../shared/authorization.md) before you write to the subjec
 
 Run `python3 "$GHFLOW_CLI" facts` from the subject checkout, as [CLI results](../cli.md#reading-project-facts) describes. If `project_facts.present` is false, write the file. If `stale_sources` is not empty, refresh the sections drawn from those sources and update their hashes. When a changed source alters no fact, update its hash alone and say so. If the file is present and no source is stale, report that and stop; a new session alone is no reason to rewrite it.
 
-A queue coordinator dispatches this task under [Check the project facts](burndown-ready-queue.md#check-the-project-facts) when `facts` reports stale sources before a burndown. That handoff authorizes the refresh and a ready PR for it. Publish the PR under [submit-pr](submit-pr.md), do not merge it, and return the worktree path of the refreshed file so the coordinator can point every worker at it.
+A queue coordinator dispatches this task under [Check the project facts](burndown-ready-queue.md#check-the-project-facts) when `facts` reports stale sources before a burndown. That handoff authorizes the refresh and a ready PR for it. Publish the PR ready, not as a draft, with the publication steps in [submit-pr](submit-pr.md). The facts file needs no independent agent review: the user reviews it in the PR, so submit-pr's review conditions do not apply, and you do not request or wait for a review. Do not merge it, and return the worktree path of the refreshed file so the coordinator can point every worker at it.
 
 ## Read the sources
 

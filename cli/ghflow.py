@@ -10,6 +10,8 @@ list means GitHub returned nothing. Exit status: 0 when every part was read,
 verify-commit exits 3 when the commit was read and an expectation is false.
 board set-status exits 3 when it refuses a backward move or a detected stale
 transition, and exits 1 when a membership read could not be read in full.
+board set-status also exits 3 when it refuses In review because every open linked
+PR is a draft.
 board set-field exits 1 when the field, value, or board item is missing, and 2
 when the write's read-back does not match.
 pr ready exits 3 when it refuses to write because the PR is not open or its head
@@ -813,6 +815,43 @@ query($owner: String!, $name: String!, $number: Int!, $field: String!, $page: St
 """
 
 
+DRAFT_GUARD_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      closedByPullRequestsReferences(first: 20) { nodes { number url state isDraft } }
+    }
+  }
+}
+"""
+
+
+def board_set_status_guarded(repo, number, owner, project, status, allow_backward=False, gh=run_gh,
+                             board_write=board_set_status):
+    """Run board set-status, but refuse In review while the issue's only open linked PRs are drafts.
+
+    In review means a PR is ready for review. pr ready moves the board itself after it marks
+    the PR ready, so it calls board_set_status directly and does not pass through this check.
+    """
+    if status.strip().lower() == "in review":
+        repo_owner, name = repo.split("/")
+        try:
+            data = gh(["api", "graphql", "-f", f"query={DRAFT_GUARD_QUERY}", "-f", f"owner={repo_owner}",
+                       "-f", f"name={name}", "-F", f"number={number}"])
+            prs = [pr for pr in data["data"]["repository"]["issue"]["closedByPullRequestsReferences"]["nodes"]
+                   if isinstance(pr, dict) and pr.get("state") == "OPEN"]
+        except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+            return {"issue": f"{repo}#{number}", "requested": status, "action": "refused",
+                    "errors": [{"part": "linked_prs", "error": str(error)}],
+                    "reason": "The linked PRs could not be read, so a draft could not be ruled out."}, 1
+        if prs and all(pr.get("isDraft") for pr in prs):
+            return {"issue": f"{repo}#{number}", "requested": status, "action": "refused", "errors": [],
+                    "draft_prs": [pr.get("url") for pr in prs],
+                    "reason": "In review means a PR is ready for review, and every open linked PR is a draft. "
+                              "Mark the PR ready with pr ready, which moves the board."}, 3
+    return board_write(repo, number, owner, project, status, allow_backward, gh=gh)
+
+
 def board_set_field(repo, number, owner, project, field_name, value, gh=run_gh, sleep=time.sleep):
     """Set one single-select field, such as Priority or Size, on an issue already on the board, and read it back.
 
@@ -1561,7 +1600,12 @@ HANDOFF_SCOPE = {
     "submit-pr": "Mark the reviewed head ready with `pr ready --expect-head`, with the final description, and move the issue In review. "
                  "Do not push new commits.",
     "address-pr-review": "Address the named findings on the same branch, run the affected checks, and publish the commits to the same PR.",
+    "prepare-project-facts": "Refresh `.ghflow/project.md` in its own worktree on a branch from origin's default branch, commit it, "
+                             "and publish it as a ready PR for the user's review. It needs no agent review: do not publish a draft, "
+                             "request a review, or wait for one. Do not merge. Return the refreshed file's worktree path.",
 }
+ISSUELESS_OPERATIONS = ("prepare-project-facts",)
+HANDOFF_DEFAULTS = "handoff-defaults.json"
 HANDOFF_RETURN = ("Return the PR URL, the published head, the check results with their commits, evidence limits, "
                   "remaining work, and the model ID your runtime states to you, not a configured or default model.")
 
@@ -1572,8 +1616,33 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     decisions, and return the one-line dispatch prompt that points to it."""
     if operation not in HANDOFF_SCOPE:
         return {"errors": [{"part": "operation", "error": f"Unknown operation {operation!r}."}]}, 1
-    repo, number = parse_issue(issue_url, None)
-    info, status = facts(issue=(repo, number))
+    if issue_url is None and operation not in ISSUELESS_OPERATIONS:
+        return {"errors": [{"part": "issue", "error": f"{operation} needs an issue URL."}]}, 1
+    # Settings that apply across the run's handoffs are kept beside them, so that a later
+    # handoff for the same issue or run does not lose the refreshed facts path or decisions.
+    defaults_file = Path(out).parent / HANDOFF_DEFAULTS
+    try:
+        defaults = json.loads(defaults_file.read_text(encoding="utf-8")) if defaults_file.exists() else {}
+    except (OSError, json.JSONDecodeError):
+        defaults = {}
+    reused = []
+    if facts_path:
+        defaults["facts_path"] = str(facts_path)
+    elif defaults.get("facts_path"):
+        facts_path = defaults["facts_path"]
+        reused.append("facts_path")
+    if issue_url:
+        saved = defaults.setdefault("decisions", {})
+        if decisions:
+            saved[issue_url] = str(decisions)
+        elif saved.get(issue_url):
+            decisions = saved[issue_url]
+            reused.append("decisions")
+    if issue_url:
+        repo, number = parse_issue(issue_url, None)
+        info, status = facts(issue=(repo, number))
+    else:
+        info, status = facts()
     if status == 1:
         return {"errors": info.get("errors", [])}, 1
     skill = info.get("skill_source") or {}
@@ -1581,6 +1650,7 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     repository = info.get("repository") or {}
     project = info.get("project_facts") or {}
     issue = info.get("issue") or {}
+    subject = issue.get("url", issue_url) if issue_url else (repository.get('remote') or 'the subject repository')
     skill_dir = Path(skill.get("path") or SKILL_ROOT)
     def read(path):
         return Path(path).read_text(encoding="utf-8").strip() if path else ""
@@ -1589,13 +1659,19 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         f"Operation: {operation}. Read {skill_dir / 'SKILL.md'} and {skill_dir / 'references' / 'tasks' / (operation + '.md')}; "
         f"use CLI {skill_dir / 'cli' / 'ghflow.py'}.",
         f"Source: {skill_dir} at {skill.get('head', 'unknown')}.",
-        f"Subject: {issue.get('url', issue_url)} ({issue.get('title', '')}) in {checkout.get('primary_root', checkout.get('root', ''))}; "
+        f"Subject: {subject}{' (' + issue.get('title', '') + ')' if issue_url else ''} in {checkout.get('primary_root', checkout.get('root', ''))}; "
         f"project instructions: {', '.join((info.get('project_files') or {}).get('instructions') or []) or 'none found'}.",
-        f"Project facts: {facts_line or 'no facts file'}; run `facts --issue {issue.get('url', issue_url)}` for live state.",
+        f"Project facts: {facts_line or 'no facts file'}; run `facts{' --issue ' + subject if issue_url else ''}` for live state.",
         f"Base: origin/{repository.get('default_branch', '')} at {repository.get('origin_default_head', 'unknown')}.",
-        f"Existing work: branches {issue.get('branches') or []}, worktrees {issue.get('worktrees') or []}, "
-        f"PRs {[(p.get('number'), p.get('state'), p.get('head')) for p in issue.get('prs') or []]}.",
     ]
+    if issue_url:
+        lines.append(f"Existing work: branches {issue.get('branches') or []}, worktrees {issue.get('worktrees') or []}, "
+                     f"PRs {[(p.get('number'), p.get('state'), p.get('head')) for p in issue.get('prs') or []]}.")
+    else:
+        origin = project.get("origin") or {}
+        stale = origin.get("stale_sources") or project.get("stale_sources") or []
+        names = ", ".join(entry.get("path", str(entry)) if isinstance(entry, dict) else str(entry) for entry in stale)
+        lines.append(f"Stale sources on {origin.get('ref', 'origin')}: {names or 'none reported'}.")
     if branch:
         lines.append(f"Branch: {branch}.")
     if decisions:
@@ -1613,9 +1689,11 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     text = "\n".join(line for line in lines if line is not None).rstrip() + "\n"
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(text, encoding="utf-8")
-    prompt = (f"Operation: {operation} for {issue.get('url', issue_url)}. Your complete handoff is the file {out}; "
+    defaults_file.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
+    prompt = (f"Operation: {operation} for {subject}. Your complete handoff is the file {out}; "
               "read it first and follow it. This short prompt is not a placeholder.")
-    return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "errors": info.get("errors", [])}, 0
+    return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "facts_path": facts_line,
+            "reused": reused, "errors": info.get("errors", [])}, 0
 
 
 def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
@@ -2211,7 +2289,7 @@ def main(argv=None):
     body.add_argument("--decisions", metavar="FILE", help="Markdown decisions taken unattended")
     handoff_cmd = commands.add_parser("handoff", help="Write a dispatch handoff file from live facts and your decisions, and print the one-line prompt that points to it.")
     handoff_cmd.add_argument("operation", choices=sorted(HANDOFF_SCOPE), help="the worker's task reference")
-    handoff_cmd.add_argument("issue", help="issue URL")
+    handoff_cmd.add_argument("issue", nargs="?", help="issue URL; prepare-project-facts takes none")
     handoff_cmd.add_argument("--out", required=True, metavar="FILE", help="handoff file to write")
     handoff_cmd.add_argument("--decisions", metavar="FILE", help="Markdown with the confirmed decisions and findings the worker must act on")
     handoff_cmd.add_argument("--review-plan", help="review method, configuration, and exception")
@@ -2275,7 +2353,7 @@ def main(argv=None):
         if args.board_command == "set-field":
             result, status = board_set_field(repo, number, args.owner, args.project, args.field, args.value)
         else:
-            result, status = board_set_status(repo, number, args.owner, args.project, args.status, args.allow_backward)
+            result, status = board_set_status_guarded(repo, number, args.owner, args.project, args.status, args.allow_backward)
     elif args.command == "worktree":
         board = (args.owner, args.project) if args.owner and args.project is not None else None
         if (args.owner or args.project is not None) and board is None:

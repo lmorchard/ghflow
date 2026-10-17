@@ -58,6 +58,8 @@ Change a test when the intended behavior requires it, and explain why. Do not re
 
 If a requirement needs human judgment, prepare the example or demonstration and state what the person must assess.
 
+The project's gates, as the facts file names them, decide whether the change is verified. A check outside the gates, such as an evaluation against a live model, adds evidence when it runs. If it fails because of the environment, such as an unreachable endpoint, a missing credential, or broken local configuration, report it as an evidence limit with the error and continue. Do not debug the environment to make it run. Do not switch the check to another model, a paid service, or an account the handoff does not name; that changes cost or permissions and needs authorization.
+
 ## Return useful progress for draft publication
 
 When the enclosing flow authorizes publication, apply [Draft PRs and readiness](../shared/pr-lifecycle.md). At the first significant change, inspect the intended diff, run appropriate targeted checks, and commit a coherent checkpoint. Full implementation checks and final self-review still apply before the completed implementation handoff.

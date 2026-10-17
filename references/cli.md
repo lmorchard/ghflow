@@ -71,7 +71,9 @@ The command reads only. A part it could not read is `null` with an entry in `err
 
 `pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
 
-`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file.
+`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
+
+`board set-status` refuses In review with exit 3 while every open PR linked to the issue is a draft. `pr ready` moves the board after it marks the PR ready and is not affected.
 
 `review prepare PR_URL` fetches the PR's base and head, creates a detached worktree at the current head in `.claude/worktrees/review-NUMBER` of the primary checkout, and reports the merge base, the changed files with line counts, and the diff command. It exits 3 when the path exists. `review cleanup PR_URL` removes that worktree and exits 3 instead when it has local changes.
 
