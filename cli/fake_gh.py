@@ -115,6 +115,7 @@ def handle_graphql(argv, board, board_path):
             "repository": {
                 "issue": {
                     "url": f"https://github.com/{owner}/{name}/issues/{number}",
+                    "closedByPullRequestsReferences": {"nodes": board.get("linked_prs", [])},
                     "projectItems": {
                         "nodes": nodes,
                         "pageInfo": {"hasNextPage": False},

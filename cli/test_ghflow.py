@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2731,6 +2731,80 @@ class HandoffTests(unittest.TestCase):
 
     def test_unknown_operation_is_refused(self):
         result, status = write_handoff("merge-pr", "https://github.com/o/r/issues/5", "/tmp/x.md", facts=self.facts)
+        self.assertEqual(status, 1)
+
+    def test_facts_refresh_needs_no_issue_and_says_ready_without_review(self):
+        def facts(issue=None):
+            info, _ = self.facts()
+            self.assertIsNone(issue)
+            info["repository"]["remote"] = "o/r"
+            info["project_facts"]["origin"] = {"ref": "origin/main", "stale_sources": [{"path": "Makefile"}]}
+            return info, 0
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("prepare-project-facts", None, tmp / "facts.md", facts=facts)
+        self.assertEqual(status, 0)
+        text = (tmp / "facts.md").read_text()
+        self.assertIn("ready PR for the user's review", text)
+        self.assertIn("do not publish a draft, request a review", text)
+        self.assertIn("Stale sources on origin/main: Makefile.", text)
+        self.assertNotIn("Existing work", text)
+        self.assertIn("for o/r.", result["dispatch_prompt"])
+
+    def test_other_operations_still_need_an_issue(self):
+        result, status = write_handoff("implement-issue", None, "/tmp/x.md", facts=self.facts)
+        self.assertEqual(status, 1)
+
+    def test_later_handoffs_reuse_the_facts_path_and_the_issue_decisions(self):
+        tmp = Path(tempfile.mkdtemp())
+        (tmp / "decisions.md").write_text("- Raw user message only.\n")
+        issue = "https://github.com/o/r/issues/5"
+        write_handoff("implement-issue", issue, tmp / "impl.md", decisions=tmp / "decisions.md",
+                      facts_path="/refresh/.ghflow/project.md", facts=self.facts)
+        result, status = write_handoff("review-changes", issue, tmp / "review.md", facts=self.facts)
+        self.assertEqual(status, 0)
+        self.assertEqual(sorted(result["reused"]), ["decisions", "facts_path"])
+        text = (tmp / "review.md").read_text()
+        self.assertIn("Project facts: /refresh/.ghflow/project.md", text)
+        self.assertIn("- Raw user message only.", text)
+        other, _ = write_handoff("implement-issue", "https://github.com/o/r/issues/6", tmp / "impl6.md", facts=self.facts)
+        self.assertEqual(other["reused"], ["facts_path"])
+        self.assertNotIn("Raw user message", (tmp / "impl6.md").read_text())
+
+
+class BoardDraftGuardTests(unittest.TestCase):
+    def gh(self, prs):
+        def call(args):
+            return {"data": {"repository": {"issue": {"closedByPullRequestsReferences": {"nodes": prs}}}}}
+        return call
+
+    def write(self, *args, **kwargs):
+        self.written = args
+        return {"action": "set"}, 0
+
+    def test_refuses_in_review_while_the_open_pr_is_a_draft(self):
+        self.written = None
+        result, status = board_set_status_guarded("o/r", 5, "o", 6, "In review",
+                                                  gh=self.gh([{"url": "pr/9", "state": "OPEN", "isDraft": True}]), board_write=self.write)
+        self.assertEqual((status, result["action"], result["draft_prs"]), (3, "refused", ["pr/9"]))
+        self.assertIsNone(self.written)
+
+    def test_allows_in_review_when_an_open_pr_is_ready_or_none_is_linked(self):
+        for prs in ([{"url": "pr/9", "state": "OPEN", "isDraft": False}], [], [{"url": "pr/8", "state": "MERGED", "isDraft": True}]):
+            self.written = None
+            _, status = board_set_status_guarded("o/r", 5, "o", 6, "in review", gh=self.gh(prs), board_write=self.write)
+            self.assertEqual(status, 0)
+            self.assertIsNotNone(self.written)
+
+    def test_other_statuses_skip_the_check(self):
+        def gh(args):
+            raise AssertionError("no linked-PR read for In progress")
+        _, status = board_set_status_guarded("o/r", 5, "o", 6, "In progress", gh=gh, board_write=self.write)
+        self.assertEqual(status, 0)
+
+    def test_unreadable_linked_prs_refuse(self):
+        def gh(args):
+            raise GhError("network")
+        result, status = board_set_status_guarded("o/r", 5, "o", 6, "In review", gh=gh, board_write=self.write)
         self.assertEqual(status, 1)
 
 
