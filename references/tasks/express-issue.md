@@ -49,7 +49,7 @@ When [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks the 
 3. Leave the PR a draft and the board In progress. Preserve the worktree and branch.
 4. Return the issue as parked, with the question, the PR URL, and the head, to the queue coordinator or the user. Do not mark the PR ready, request review, or select the next issue yourself.
 
-[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence). A park for the time budget records the remaining steps instead of a question, and a later request resumes it directly.
+[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence). A park for the time budget records the remaining steps instead of a question. The next burndown resumes it first, from the `parked` list of `queue select`, or a later request resumes it directly.
 
 ## Submit and hand off
 

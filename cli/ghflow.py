@@ -1610,8 +1610,13 @@ HANDOFF_RETURN = ("Return the PR URL, the published head, the check results with
                   "remaining work, and the model ID your runtime states to you, not a configured or default model.")
 
 
+HANDOFF_DEADLINE = ("Deadline: {deadline}. At the deadline, start nothing new: commit the work in progress, publish it to "
+                    "the draft PR, record the remaining steps in the task notes, and return them with the PR URL and head, "
+                    "so that the coordinator can park the delivery and a later run can resume it.")
+
+
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
-                  branch=None, extra=None, facts_path=None, facts=project_facts):
+                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
     decisions, and return the one-line dispatch prompt that points to it."""
     if operation not in HANDOFF_SCOPE:
@@ -1631,6 +1636,11 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     elif defaults.get("facts_path"):
         facts_path = defaults["facts_path"]
         reused.append("facts_path")
+    if deadline:
+        defaults["deadline"] = str(deadline)
+    elif defaults.get("deadline"):
+        deadline = defaults["deadline"]
+        reused.append("deadline")
     if issue_url:
         saved = defaults.setdefault("decisions", {})
         if decisions:
@@ -1681,6 +1691,8 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     if limits:
         lines.append(f"Flow and limits: {limits}")
     lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
+    if deadline and operation in ("implement-issue", "address-pr-review"):
+        lines.append(HANDOFF_DEADLINE.format(deadline=deadline))
     if notes:
         lines.append(f"Notes: {notes}")
     if extra:
@@ -1899,6 +1911,32 @@ def field_name(item, key):
     return value.get("name") if isinstance(value, dict) else None
 
 
+PARKED_QUERY = """
+query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      labels(first: 50) { nodes { name } }
+      closedByPullRequestsReferences(first: 10) { nodes { url number state isDraft headRefOid body } }
+    }
+  }
+}
+"""
+TIME_PARK_HEADING = "## Parked (time budget)"
+
+
+def time_parked(entry, gh):
+    """Return the open PR that records a time park for an In progress issue, or None."""
+    repo_owner, name = entry["repo"].split("/")
+    data = gh(["api", "graphql", "-f", f"query={PARKED_QUERY}", "-f", f"owner={repo_owner}", "-f", f"name={name}",
+               "-F", f"number={entry['number']}"])
+    issue = data["data"]["repository"]["issue"]
+    for pr in issue["closedByPullRequestsReferences"]["nodes"]:
+        if isinstance(pr, dict) and pr.get("state") == "OPEN" and TIME_PARK_HEADING in (pr.get("body") or ""):
+            return {"url": pr.get("url"), "number": pr.get("number"), "draft": pr.get("isDraft"), "head": pr.get("headRefOid"),
+                    "labels": [label.get("name") for label in issue["labels"]["nodes"] if isinstance(label, dict)]}
+    return None
+
+
 def queue_select(owner, project, status="Ready", gh=run_gh):
     """Read the whole board and return the issues in one Status column in burndown order:
     priority (P0, P1, other, unset), then Size (XS to XL, then unset), then issue number.
@@ -1911,9 +1949,12 @@ def queue_select(owner, project, status="Ready", gh=run_gh):
     except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
         result["errors"].append({"part": "board", "error": str(error)})
         return result, 1
-    selection, unresolved = [], []
+    selection, unresolved, in_progress = [], [], []
     for item in items:
-        if (field_name(item, "status") or "").lower() != status.lower():
+        item_status = (field_name(item, "status") or "").lower()
+        if item_status == "in progress":
+            in_progress.append(item)
+        if item_status != status.lower():
             continue
         content = item.get("content") if isinstance(item.get("content"), dict) else {}
         repo = (content.get("repository") or {}).get("nameWithOwner")
@@ -1933,14 +1974,31 @@ def queue_select(owner, project, status="Ready", gh=run_gh):
         return (p_rank, s_rank, entry["number"])
 
     selection.sort(key=rank)
+    parked = []
+    for item in in_progress:
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        repo = (content.get("repository") or {}).get("nameWithOwner")
+        if content.get("__typename") != "Issue" or not repo or not isinstance(content.get("number"), int):
+            continue
+        entry = {"issue": f"{repo}#{content['number']}", "url": content.get("url"), "repo": repo, "number": content["number"],
+                 "title": content.get("title"), "priority": field_name(item, "priority"), "size": field_name(item, "size")}
+        try:
+            pr = time_parked(entry, gh)
+        except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+            result["errors"].append({"part": f"parked {entry['issue']}", "error": str(error)})
+            continue
+        if pr:
+            parked.append({**entry, "pr": pr})
+    parked.sort(key=rank)
     counts = {}
     for item in items:
         name = field_name(item, "status") or "(no status)"
         counts[name] = counts.get(name, 0) + 1
-    result.update(complete=True, pages=pages, item_count=len(items), status_counts=counts, selection=selection, unresolved=unresolved,
+    result.update(complete=True, pages=pages, item_count=len(items), status_counts=counts, selection=selection, parked=parked,
+                  unresolved=unresolved,
                   below_tier=[e["issue"] for e in selection if e["below_tier"]],
                   limit="The traversal is not an atomic snapshot; the board could change while it was read.")
-    return result, 0
+    return result, (2 if result["errors"] else 0)
 
 
 SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
@@ -2298,6 +2356,7 @@ def main(argv=None):
     handoff_cmd.add_argument("--branch", help="branch name for the worker")
     handoff_cmd.add_argument("--facts-path", metavar="PATH", help="project facts path to name, such as a refreshed copy")
     handoff_cmd.add_argument("--extra", metavar="FILE", help="Markdown appended before the return requirements")
+    handoff_cmd.add_argument("--deadline", help="time budget deadline; implementation and correction handoffs tell the worker to stop and publish at it")
 
     review_group = commands.add_parser("review", help="Review worktree operations.")
     review_commands = review_group.add_subparsers(dest="review_command", required=True)
@@ -2382,7 +2441,7 @@ def main(argv=None):
             result, status = {"errors": [{"part": "budget", "error": str(error)}]}, 1
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
-                                       args.notes, args.branch, args.extra, args.facts_path)
+                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline)
     elif args.command == "pr" and args.pr_command == "body":
         repo, number = parse_pr(args.pr, args.repo)
         try:

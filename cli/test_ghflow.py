@@ -2771,6 +2771,21 @@ class HandoffTests(unittest.TestCase):
         self.assertNotIn("Raw user message", (tmp / "impl6.md").read_text())
 
 
+class HandoffDeadlineTests(unittest.TestCase):
+    facts = HandoffTests.facts
+
+    def test_deadline_goes_to_implementation_handoffs_and_is_reused(self):
+        tmp = Path(tempfile.mkdtemp())
+        issue = "https://github.com/o/r/issues/5"
+        write_handoff("implement-issue", issue, tmp / "impl.md", deadline="2026-10-18 22:31 PDT", facts=self.facts)
+        self.assertIn("Deadline: 2026-10-18 22:31 PDT. At the deadline, start nothing new", (tmp / "impl.md").read_text())
+        result, _ = write_handoff("address-pr-review", issue, tmp / "fix.md", facts=self.facts)
+        self.assertIn("deadline", result["reused"])
+        self.assertIn("publish it to the draft PR", (tmp / "fix.md").read_text())
+        write_handoff("review-changes", issue, tmp / "review.md", facts=self.facts)
+        self.assertNotIn("Deadline:", (tmp / "review.md").read_text())
+
+
 class BoardDraftGuardTests(unittest.TestCase):
     def gh(self, prs):
         def call(args):
@@ -2995,6 +3010,45 @@ def summary_issue(labels=(), prs=(), status="In review", project=6):
         "closedByPullRequestsReferences": {"nodes": list(prs)},
         "projectItems": {"nodes": [{"project": {"number": project, "owner": {"login": "o"}}, "fieldValueByName": {"name": status}}]},
     }}}}
+
+
+class FakeParkedBoard(FakeQueueBoard):
+    def __init__(self, pages, prs_by_number, fail=()):
+        super().__init__(pages)
+        self.prs_by_number = prs_by_number
+        self.fail = set(fail)
+
+    def __call__(self, args):
+        if args[:2] == ["api", "graphql"] and any("closedByPullRequestsReferences" in a for a in args):
+            number = int(next(a.split("=", 1)[1] for a in args if a.startswith("number=")))
+            if number in self.fail:
+                raise GhError("network")
+            return {"data": {"repository": {"issue": {"labels": {"nodes": [{"name": "triage:needs-input"}]},
+                                                       "closedByPullRequestsReferences": {"nodes": self.prs_by_number.get(number, [])}}}}}
+        return super().__call__(args)
+
+
+class QueueParkedTests(unittest.TestCase):
+    def pages(self):
+        return [{"nodes": [board_item(7, "Ready", "P1", "S"), board_item(947, "In progress", "P1", "S"),
+                           board_item(948, "In progress", "P1", "XS"), board_item(994, "In progress", "P1", "M")]}]
+
+    def test_lists_time_parked_deliveries_only(self):
+        prs = {947: [{"url": "pr/1078", "number": 1078, "state": "OPEN", "isDraft": True, "headRefOid": "f7cb4f2",
+                      "body": "Work.\n\n## Parked (time budget)\n\nRemaining: re-review."}],
+               948: [{"url": "pr/1090", "number": 1090, "state": "OPEN", "isDraft": True, "headRefOid": "abc",
+                      "body": "## Parked (open question)\n\nWhich default?"}],
+               994: []}
+        result, status = queue_select("o", 6, gh=FakeParkedBoard(self.pages(), prs))
+        self.assertEqual(status, 0)
+        self.assertEqual([e["number"] for e in result["selection"]], [7])
+        self.assertEqual([(e["number"], e["pr"]["url"]) for e in result["parked"]], [(947, "pr/1078")])
+
+    def test_unreadable_parked_check_is_reported_with_exit_2(self):
+        result, status = queue_select("o", 6, gh=FakeParkedBoard(self.pages(), {}, fail={947}))
+        self.assertEqual(status, 2)
+        self.assertIn("parked o/r#947", result["errors"][0]["part"])
+        self.assertEqual([e["number"] for e in result["selection"]], [7])
 
 
 class QueueSummaryTests(unittest.TestCase):
