@@ -1,0 +1,176 @@
+Scenario: burndown-resumes-time-parks
+Session ID: e8a331c5-f223-4344-8582-56f9693d4229
+
+**What I do next:** I record `selection` (#1101 only) as the fixed selection and deliver it. That means the identity check, `git fetch` and `facts`, recording the deadline with `budget`, and then express-issue for #1101. I leave #994 alone. I'd mention it in the summary as a pre-existing time park that this run did not pick up.
+
+**Why:**
+- **The selection is fixed.** In "Audit the Ready queue", `selection` is the recorded selection, and a later arrival is added only if the user explicitly expands the scope. #994 is under `parked`, not `selection`. It is In progress and no longer in Ready, and the queue holds Ready issues only. Nothing in this request expands the scope.
+- **The `triage:needs-input` label doesn't mean a question is open.** Triage-labels "Parked deliveries" says a delivery that was in progress when its time budget ended gets `triage:ready` replaced with `triage:needs-input`. The issue comment and PR #1090's "Parked (time budget)" section list the remaining steps, not a question. express-issue's "Park an issue in an unattended flow" says "A park for the time budget records the remaining steps instead of a question, and a later request resumes it directly." Nobody has made that request. A burndown over the Ready queue is not a request to resume #994.
+- **Resuming isn't blocked by the label.** If the user later asks for #994, "Resume from evidence" applies. It would reuse PR #1090 and restore `triage:ready` before dispatch, since no question remains open. Sweep-needs-input has nothing to resolve for it.
+
+**For #1101 under the time budget:** I record the deadline once before the first dispatch, and run `budget --start/--end` around each dispatch. I run `--need` for the remaining kinds, such as `review,ready`, before dispatching. I start nothing after the 8-hour deadline. If #1101 is still in progress then, I park it with the `park` command, kind `time`. The final summary lists #1101's result and #994 as parked (time budget, not touched this run), with the label state.
+
+Scenario: burndown-resumes-time-parks
+Session ID: 52ef6198-2a9a-49a8-9f25-2cc5c7197c6f
+
+**What I do next:** I resume #994 first and deliver it before #1101. #994 is on the `parked` list, and `parked` goes ahead of `selection`.
+
+**Steps:**
+1. Record the selection in this order: #994, then #1101. I confirm the endpoint (the default is through review follow-up). Then I do the usual preparation: the identity check, the `git fetch origin` and `facts` check, and recording the 8-hour deadline in `budget`.
+2. Resume #994 under express-issue's "Resume from evidence". I take its state from draft PR #1090, its worktree and the "Parked (time budget)" section. The remaining steps are to finish the tests and docs, run independent review, and run the ready step. The handoff carries the deadline through `handoff --deadline`. The worker does the research. I don't read the subject code to scope the handoff.
+3. After #994 reaches the endpoint, or is parked again at the deadline, I move to #1101 (P1, S). If the deadline passes, I start nothing new.
+
+**Rules that decide it:**
+- "Audit the Ready queue" says `parked` is issues In progress with an open PR that holds a "Parked (time budget)" section. They hold published progress, so each "goes first". The same section says to record `parked` before `selection`.
+- The `triage:needs-input` label doesn't change this. The skill excludes only parks for a question or blocker from `parked`, and sends those to sweep-needs-input. `queue select` listed #994 under `parked` because the PR has the time-budget section, so I treat it as a time-budget park. The label looks like a leftover. I wouldn't clear it by hand, because the skill says park manages labels. If the worker finds a real open question while resuming, the unattended-flow disruption rule applies. I park #994 again and continue with #1101.
+
+Scenario: burndown-resumes-time-parks
+Session ID: 8be996fb-f4ad-4264-a59a-b3d30938c945
+
+**Next step:** resume #994 first, before #1101. I'd record both IDs as this task's fixed selection, with `parked` first and `selection` second. Then I'd check the project facts and the identity, and set the 8-hour deadline in the budget log. After that I'd dispatch express-issue on #994 from its PR #1090.
+
+**Rule that decides it:** the "Audit the Ready queue" section of `burndown-ready-queue.md` (line 21). `parked` lists deliveries that an earlier unattended run parked for the time budget. It defines these as issues that are In progress with an open PR holding a "Parked (time budget)" section. The rule says "Each holds published progress, so it goes first, and you resume it under Resume from evidence from its PR, worktree, and remaining steps." #994 matches that definition. So it goes ahead of #1101, even though #1101 is smaller.
+
+**Resume details:**
+- The PR's remaining steps are to finish the tests and docs, review, and mark the PR ready. I'd hand those to the worker.
+- I'd also take the current state of the issue, PR and worktree into account, as Resume from evidence requires.
+- I'd pass the deadline with `handoff --deadline` and log the work with `budget`. If #994 hits the deadline, it gets parked again with `park --kind time`.
+
+**The `triage:needs-input` label doesn't change this.**
+- The same section says a park for a question or blocker is not listed in `parked`. Those go to sweep-needs-input.
+- `queue select` put #994 in `parked`, and the PR records a time-budget park, not a question. So I'd treat it as a time-budget park that is eligible to resume.
+- The label does make me check the issue for an unanswered question before I dispatch. I couldn't read the "Parked deliveries" rule in `triage-labels.md`, because that section was omitted from the source I had. I can't say from the source whether `park --kind time` normally leaves this label. If the issue carries a real open question, express-issue's unattended-flow rules (park it and continue) would apply. In that case I'd move on to #1101 and list #994 as parked in the summary.
+
+**After #994:**
+- #1101 (P1, S) runs next, as long as the deadline hasn't passed.
+- I wouldn't start a new issue after the deadline.
+- The selection stays fixed, and I add no later arrivals.
+
+Scenario: burndown-resumes-time-parks
+Session ID: 3e036ddd-d81b-40ed-ba2f-8ee7984befc4
+
+**Next step: take #994 first, ahead of #1101, and resume it from its PR.**
+
+**Deciding rule:** the "Audit the Ready queue" section of `burndown-ready-queue.md`. `parked` holds deliveries that an earlier unattended run parked for the time budget. #994 matches that definition. It is In progress, and its open PR #1090 has a "Parked (time budget)" section. The skill says such an issue "holds published progress, so it goes first." The selection order is therefore #994, then #1101. The P1/S versus P1/M size ordering applies only within `selection`, so it doesn't put #1101 first.
+
+**What I do, in order:**
+1. Record the task's selection as #994 (from `parked`), then #1101 (from `selection`). This selection stays fixed unless the user expands the scope.
+2. Confirm the delivery endpoint. I use the one the user already set. If none is set, I'd have to confirm it, and the skill's default is through review follow-up. I'd also run the agent identity check before the first issue.
+3. Run `git fetch origin` and `facts`. If `project_facts.origin.stale_sources` isn't empty, I dispatch prepare-project-facts before the first issue. I also read `base_ci` for the red-base halt.
+4. Record the eight-hour deadline once with `budget --deadline`, before the first dispatch.
+5. Replace `triage:needs-input` on #994 with `triage:ready` using `gh issue edit`, before its first dispatch. That label is the time park's marker, not an open question, so I don't send #994 to sweep-needs-input or treat it as blocked. The skill points to Parked deliveries in `triage-labels.md` for this rule. I haven't read that section, so the label swap rests on `burndown-ready-queue.md` alone.
+6. Dispatch express-issue for #994 under "Resume from evidence". It works from PR #1090, its worktree, and the remaining steps listed there: finish the tests and docs, review, and the ready step. I don't start from scratch or reopen the scope. I pass `handoff --deadline` on implementation and correction handoffs.
+7. When #994 reaches the endpoint, I verify the board status and move on to #1101. I park any issue still in progress at the deadline with `park --kind time`, and I start no new issue after the deadline.
+
+Scenario: burndown-resumes-time-parks
+Session ID: 49b7044d-8cbf-42e3-b986-9eba6e7d49c5
+
+**Next step:** I resume #994 first, ahead of #1101. Before dispatching it, I swap its `triage:needs-input` label for `triage:ready`.
+
+**The rule:** it's in "Audit the Ready queue" of `burndown-ready-queue.md`, in the paragraph on `parked`. That paragraph says `parked` lists deliveries an earlier unattended run parked for the time budget. These are issues In progress with an open PR that holds a "Parked (time budget)" section. #994 matches: In progress, open draft PR #1090, and that section. Each such issue "holds published progress, so it goes first." The paragraph also says its `triage:needs-input` label "is the time park's, not an open question." So I replace it with `triage:ready` using `gh issue edit` before the first dispatch, per `shared/triage-labels.md#parked-deliveries`. I haven't opened that file. The queue skill states the rule, and I'd read the anchor before editing the label by hand.
+
+**Order of work:**
+1. **Record the selection.** I record #994 and then #1101 as this task's fixed selection, in that order. The P1/S-before-P1/M ordering applies only within `selection`, so it doesn't put #1101 ahead of #994. Later arrivals are not added unless the user expands the scope.
+2. **Preparation.** I do the identity check and confirm the endpoint, using the default (through review follow-up) if none is set. Then I run `git fetch origin` and `facts`, which also gives the base CI state, `runtime.nested_dispatch` and `skill_source`. If the facts file on `origin` has stale sources, I dispatch the project-facts refresh first.
+3. **Time budget.** I record the eight-hour deadline once with `budget --deadline`. I pass `handoff --deadline` on every implementation and correction handoff.
+4. **Resume #994.** I follow [Resume from evidence](express-issue.md#resume-from-evidence), using PR #1090, its worktree and the remaining steps. Those are finishing the tests and docs, review, and the ready step. I dispatch express-issue for it.
+5. **Then #1101.** I move on to #1101 (P1, S) once #994 reaches the endpoint. If a disruption comes up, I park that issue and continue, since the run is unattended.
+
+I don't treat #994's label as an open question, and I don't use sweep-needs-input. That path is for question or blocker parks, which `parked` doesn't list.
+
+Scenario: start-and-park-when-it-will-not-fit
+Session ID: 24126e5b-1b9f-484f-a8b5-af25e292713c
+
+**Next step: start #994 anyway. Don't skip it, reorder the queue, or stop early.**
+
+The rule that decides this is step 4 of "Deliver issues sequentially", the time-budget bullets in the Disruption step.
+
+- **What the rule forbids:** it says "do not start an issue after the budget's deadline." It is 20:40 and the deadline is 22:31, so 111 minutes remain and the deadline hasn't passed. Nothing bars the start.
+- **What the estimate is for:** the `budget --need` result is an estimate. The skill only turns `fits: false` into a decline for one case, an optional reviewer-note correction. It has no rule that skips a whole issue because the estimate is too long.
+- **The queue is fixed:** the selection and its order (priority, then size, then number) don't change. I can't jump past #994 to something smaller or pull in a later arrival.
+- **This outcome is expected:** the skill says smaller issues run first "so the deadline is most likely to fall on the largest one."
+
+**Order of actions**
+1. Verify #24's endpoint under step 3. That means confirming it reached the agreed endpoint and that the board shows `In review` or `Done`. If I'm a delegated coordinator, I relay the handoff to the parent instead.
+2. Run `budget --start implement:994` and dispatch express-issue for #994. First I apply the prepare-required-review step, and I give the worker a handoff that names the issue and the facts file without scoping the code myself.
+3. If #994 is still in progress at 22:31, park it with its state recorded, using "Park an issue in an unattended flow". I dispatch no new work after the deadline.
+4. A ready submission I dispatched before 22:31 may finish after it, so no PR is left half-written. I state any step that ran past the deadline in the summary.
+
+In the summary I'll note that the budget estimate (266 minutes against 111) predicted the shortfall. I'll also say that `fits` was false when I dispatched, so #994 may be parked at the deadline.
+
+Scenario: start-and-park-when-it-will-not-fit
+Session ID: b2fa035e-eaf8-433c-a8bd-5c234a448876
+
+**Next step:** start #994 now. Don't skip it, and don't wait.
+
+**Rule that decides it:** step 4 (Disruption), the time-budget bullet in `burndown-ready-queue.md`. It says: "Before the deadline, start the next issue even when `budget --need implement,review,ready` says it will not fit, and record the estimate." Only a start after the deadline is forbidden. It is 20:40 and the deadline is 22:31, so starting is allowed. `fits: false` (266 minutes needed, 111 remaining) is not a reason to skip.
+
+**What I do:**
+1. Keep the selection fixed. #994 is the top unblocked issue, so it is next under step 1. I don't reorder the queue or swap in a smaller issue to make the budget fit.
+2. Record the estimate (266 min needed vs 111 min remaining, `fits` false) in my notes and in the summary. I also add a few minutes for my own turns between dispatches.
+3. Run `budget --start implement:994` just before dispatching. Then dispatch express-issue for #994 with `handoff --deadline 22:31`, passing the deadline once per run. This makes the worker stop, commit, and publish its progress at the deadline. I can't interrupt it once it is running.
+4. When the worker returns at the deadline, run `park --kind time` on #994 with the remaining steps listed. The published progress then survives, and a later run picks it up first through `parked`.
+5. Dispatch nothing new after 22:31. A ready submission or other write sequence dispatched before the deadline may finish after it, so no PR is left half-written. I state any step that finished late in the conclusion.
+
+**Why:** the rule favors preserving partial progress over leaving the time idle. Size ordering already puts the largest issue last, so the deadline is expected to fall on it.
+
+Scenario: start-and-park-when-it-will-not-fit
+Session ID: 8c7882c5-ab86-4909-bdc8-cdfe49cb89b7
+
+**Next step: start #994 now.** Don't skip it, and don't wait.
+
+**Rule:** Step 4 (Disruption), the time-budget bullet in `burndown-ready-queue.md`, decides this. It says: "Before the deadline, start the next issue even when `budget --need implement,review,ready` says it will not fit, and record the estimate." Only an issue that would start *after* the 22:31 deadline is skipped. It is 20:40, so #994 can still start. `fits: false` (266 minutes estimated against 111 remaining) is not a reason to hold it back.
+
+**What I'd do:**
+1. **Keep the selection and order.** #994 (P1, M) is the top unblocked issue in the fixed selection. I wouldn't reorder it or swap in a smaller issue, and I wouldn't add later arrivals.
+2. **Record the estimate.** I'd note in the task notes that the budget estimate is 266 minutes against 111 remaining, so #994 is expected to be parked at the deadline.
+3. **Log the budget.** I'd run `budget --start implement:994` just before dispatch and `--end` when the worker returns. The deadline would already have been logged once before the first dispatch.
+4. **Pass the deadline to the worker.** I'd generate the handoff with `handoff --deadline 22:31`, once per run, so the worker stops, commits, and publishes at the deadline. I can't interrupt a running worker, so this is the only way to bound it.
+5. **Dispatch express-issue** for #994 with the usual repository, authorization, endpoint, and review-path details. I wouldn't read the subject code to scope the handoff.
+6. **Park if it doesn't finish.** When the worker returns at the deadline with work remaining, I'd run `park --kind time` with the remaining steps. The published progress then stays with an open PR that has a "Parked (time budget)" section. A later run picks it up first, through `parked`.
+7. **Dispatch nothing new after 22:31.** A ready submission or write sequence already dispatched before the deadline may finish, so no PR is left half-written.
+
+**Why:** Starting early means the work is published and kept, not lost. Not starting would leave about 111 minutes unused. The skill also deliberately orders smaller issues first so that the deadline lands on the largest one. #994 is that case.
+
+Scenario: deadline-ready-step-finishes
+Session ID: 9e0ba46c-79d1-4900-96e0-a238c94d7f75
+
+**Next step: wait for the ready-submission worker to return. Don't redispatch it, don't take over the submission myself, and don't park the issue.**
+
+**Deciding rule:** the Disruption step (step 4) of `burndown-ready-queue.md`, in its time-budget bullet. It says: "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+
+**Why this applies**
+- I dispatched the ready submission at 03:39, before the 04:09 deadline. That makes it a write sequence the rule lets finish after the deadline.
+- Redispatching, or doing the submission myself, would be new work after the deadline, which the rule forbids. It could also race the original worker and leave the PR half-written.
+- The rule to park issues "in progress at the deadline" with `park --kind time` doesn't override this. The ready submission is the explicit exception, and the PR is already reviewed and approved with no findings.
+- No other selected issue remains, so there is nothing to start or skip.
+
+**What I do while waiting**
+- I can't interrupt the worker, so I only wait.
+- I may do read-only checks of the PR's state. I make no writes.
+
+**When the worker returns**
+1. Read its report as evidence.
+2. Verify that the PR is ready for review, that the head SHA matches the approved head, and that the board status is `In review`.
+3. Run `queue summary` and give the delivery summary. It must state the actual end time and that the ready step finished after the deadline.
+
+**If the worker never returns:** the skill gives no rule for that case, so I wouldn't invent one. I would report the PR as still a draft with the ready submission outstanding, and leave the decision to the user rather than redispatching.
+
+Scenario: budget-from-measured-marks
+Session ID: c3bf8a81-f3fa-4372-b990-5819108137c1
+
+**Next step:** close the open mark with `budget --end review:164`. Then decide on the two optional notes with the time-budget rule in step 4 "Disruption" of Deliver issues sequentially, in `burndown-ready-queue.md`.
+
+**The rule that decides it:**
+- "Dispatch a correction for an optional reviewer note only when the correction, its re-review, and the ready step fit before the deadline."
+- "Otherwise decline the note and record it in the PR description with the reason, so that an approved head reaches the endpoint."
+
+**How I'd apply it:**
+1. After the `--end` mark, I'd read the clock and run `budget --log NOTES_DIR/budget.jsonl --need correction,review,ready`, adding a few minutes for my own turns.
+   - The correction kind has no measurement yet, so `fits` will be null. I'd estimate it from the closest measured kind, `implement`, scaled down for two small notes, and say that I did so.
+   - Re-review would use the measured 29 minutes and ready the measured 19 minutes.
+2. If the correction, re-review and ready don't all fit before 2026-10-15 20:40, I would not dispatch a correction. I'd decline both notes, record them and the reason in the PR description, and send #164's approved head straight to its ready step. I'd do the same if the clock is already past the deadline, which the session date of 10-18 suggests. In that case I'd dispatch no new work at all: #164 would be parked with `park --kind time` and the remaining steps, and #929 would not be started.
+3. If everything fits, I'd dispatch the correction. Even then, it would only be worth it if the notes are worth that time.
+4. #929 comes next only before the deadline. The rule lets me start it even when `--need implement,review,ready` says it won't fit, and I'd record the estimate. I'd pass `handoff --deadline` so the worker publishes at the deadline, and a time park would keep that progress.
+
+**PR #1079's `updatedAt` of 15:52:** I ignore it. The rule says "Do not take durations from PR or issue timestamps such as `updatedAt`, which change on any edit." The `budget.jsonl` marks are the only source for estimates. #165's ready step is already marked finished, so the later timestamp doesn't reopen it. I'd only confirm #165's state when I verify the endpoint.
