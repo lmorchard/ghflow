@@ -214,3 +214,9 @@ New problems: one worker still read ten references, `facts` missed a gate change
 The [fifth burndown record](2026-10-17-unattended-burndown-5.md) covers the run at skills `2a912ac`, after PRs #118 through #122 moved repeated procedures into the CLI.
 [PR #1083](https://github.com/lmorchard/decafclaw/pull/1083) reached ready after a facts refresh, [PR #1082](https://github.com/lmorchard/decafclaw/pull/1082); #994 was not started because `budget` showed it would not fit. The coordinator and workers used the new commands, dispatch prompts fell to under 520 characters, and `budget` decided the end of the run from measured marks.
 New problems: a handwritten handoff added a review cycle to the facts refresh because `handoff` has no operation for it, a non-gate eval took about 70 minutes of the implementation and ran on a paid cloud model, and the implementer moved its issue to In review while the PR was a draft. Five candidate changes are listed in the record.
+
+## 2026-10-18: sixth unattended Ready-queue burndown on the local model
+
+The [sixth burndown record](2026-10-18-unattended-burndown-6.md) covers the run at skills `1d93227`, after PR #125.
+[PR #1084](https://github.com/lmorchard/decafclaw/pull/1084) reached ready after local review found a data-loss defect and a correction fixed it. The non-gate rule held: an unreachable eval was recorded as an evidence limit in 8 minutes. Coordinator reads fell to 9 and its output to 34,548 tokens.
+New problems: the OpenCode client exited with status 1 and no logged error 35 minutes before the deadline, leaving #994 In progress with no PR or park; the coordinator started #994 without `budget --need` although it did not fit; and a missed start mark left a review unmeasured. Five candidate changes are listed in the record.
