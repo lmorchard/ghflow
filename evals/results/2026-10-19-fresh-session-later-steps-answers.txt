@@ -1,0 +1,198 @@
+Scenario: correction-goes-to-fresh-session
+Session ID: 3445b8ee-855e-4be3-97a8-75cb0fcb45be
+
+**Next step:** resume the same implementation worker, the one that published draft PR #1085. Don't start a new worker, and don't fix F1 yourself. Send the correction handoff to that worker's existing session, even though the session is long.
+
+**Why:** Two rules decide this.
+
+- **express-issue.md, "Review the draft changes":** "Resume the implementation worker with the text of each actionable finding. It corrects them on the same branch, runs the affected checks, commits, and publishes the commits to the same draft under submit-pr."
+- **coordination.md, "Handoffs":** "One implementation worker carries implementation, draft publication, corrections, and ready submission… reuse the worker when it returns." A new worker is for a new role, such as independent review, or for when the responsible worker is unavailable. A long session is neither of those.
+
+**What the handoff contains:**
+- **Finding text:** the full text of F1 and the settled decision from `decisions.md`, not just the label "F1". The handoff should accept or decline the finding with the reason.
+- **Facts that changed:** the worktree `.claude/worktrees/issue-994-subagent-memory-cap`, the branch, PR #1085, and head `1a6b47b`. It should also give the notes path, instead of replaying context the worker already has.
+- **Authorization:**
+  - Fix on the same branch.
+  - Run the affected checks.
+  - Commit.
+  - Publish to the same draft through submit-pr.
+  - Do not mark the PR ready or request review yet.
+- **What to return:** the new published head, check results, evidence limits, and the model ID its own runtime states.
+
+If I wrote the handoff with `handoff OPERATION ISSUE_URL --out FILE`, I'd pass `decisions.md` through `--decisions`. I'd check the `reused` list before dispatching, and I'd send the full handoff in the dispatch call, not an empty prompt.
+
+**After the worker returns:**
+1. Resume the same fresh reviewer for the changed code and F1 only. Don't repeat completed checks without a new reason.
+2. Once review is clean, resume the implementation worker again to mark the PR ready under submit-pr.
+
+I do no subject-repository work myself. I only read the worker's and reviewer's reports. I'd go back to the user only if F1 turned out to be disputed in a way the evidence can't settle, or if it changed scope.
+
+Scenario: correction-goes-to-fresh-session
+Session ID: 973977f1-c058-42f7-a2e7-a49f751c2a32
+
+**Next step:** I generate the correction handoff with the CLI and dispatch a new worker with it. I don't resume the long implementation session, and I don't fix F1 myself.
+
+Concretely, I run `python3 "$GHFLOW_CLI" handoff address-pr-review <issue #994 URL> --out FILE --decisions <notes>/decisions.md`. The command fills in the following from live facts:
+- the skill and task paths
+- the source revision
+- the branch, the worktree `.claude/worktrees/issue-994-subagent-memory-cap`, and PR #1085 at head `1a6b47b`
+- the stopping point and the return list
+
+I also pass what the CLI can't supply:
+- the text of F1 and the settled decision, in the decisions file
+- the review plan and its limits
+- the notes path
+- the flow authorization
+
+I write the file into the run's shared handoff directory and check the CLI's `reused` list before dispatching. I then dispatch with the one-line prompt the CLI prints, which names the file. The worker corrects F1 on the same branch, runs the affected checks, commits, and publishes to the same draft PR through submit-pr. It does not mark the PR ready or request review. It returns the new head, check results, evidence limits, and the model ID its runtime states.
+
+After that I dispatch a new fresh reviewer from `handoff review-changes`. Its handoff covers the changed code and the unresolved F1, and names the earlier findings and the reviewed head `1a6b47b`. The ready submission is a separate later handoff.
+
+**Rules that decide it:**
+- **Express-issue, "Review the draft changes":** "Dispatch a new worker for the corrections, from `handoff address-pr-review` with the text of each actionable finding in the decisions or extra file." After corrections, a new reviewer goes in from `handoff review-changes`.
+- **Express-issue intro:** corrections, re-reviews, and the ready submission each go to a new session from a `handoff` file. A long implementation session can't be resumed, and the intro's example is a 222k-token session on a shared 262k-token cache that couldn't be resumed at all.
+- **Coordination, "Handoffs":** the coordinator doesn't do subject-repository work, so I don't edit or read the diff myself.
+- **Handoff contents:** the handoff carries the finding's full text, not just the label "F1".
+
+F1 is already settled with the user, so it isn't returned to the parent interview.
+
+Scenario: correction-goes-to-fresh-session
+Session ID: 0f3ee284-d0b7-4728-b027-938bdb801054
+
+**Next step:** dispatch a new worker for the correction from a `handoff address-pr-review` file. Don't resume the implementation worker's session.
+
+**Rule that decides it:** the "Review the draft changes" section of `express-issue.md`. It says "Dispatch a new worker for the corrections, from `handoff address-pr-review` with the text of each actionable finding in the decisions or extra file." The opening paragraph gives the reason: corrections, re-reviews and ready submission each go to a new session from a `handoff` file. A long implementation session is too full to resume, and on a local model with a shared 262,144-token cache a 222k-token session could not be resumed at all. The situation says the implementation session is long, so resuming it is not an option.
+
+**What the handoff contains:**
+- **Operation:** `address-pr-review`. It names the task reference, and the worker reads the procedure itself. I don't restate it.
+- **Where the work is:** the worktree `.claude/worktrees/issue-994-subagent-memory-cap`, the branch, draft PR #1085, and head `1a6b47b`.
+- **Finding and decision:** the full text of F1, plus the settled decision from `decisions.md`, accepted or declined with the reason. I settle routine reviewer notes myself and don't ask the user about them. F1 is already settled with the user and recorded.
+- **Instructions to the worker:** correct on the same branch, run the affected checks, commit, and publish the commits to the same draft under `submit-pr`. Don't mark the PR ready or request review.
+- **Authorization and limits:** the flow's endpoint and its limits, the review plan (including any user-approved exception), and the notes path.
+- **What to return:** the PR URL, the published head, check results, evidence limits, remaining work, and the model ID the runtime states.
+
+**What I don't do:**
+- I don't make the fix myself or read the diff to review it. The coordinator doesn't do subject-repository work.
+- I don't start a new branch or PR. Draft #1085 is reused.
+
+**After the correction returns:** I dispatch a new fresh reviewer from `handoff review-changes`. Its handoff carries the earlier findings, the reviewed head and the corrected head, and it covers the changed code and the unresolved findings. I won't repeat completed checks without a new reason. Only once review is complete and the findings are resolved do I dispatch the `submit-pr` worker to mark the PR ready.
+
+Scenario: corrections-same-worker
+Session ID: 60174c35-e51d-4080-a840-42ae71dee9df
+
+**Next step:** I dispatch a new worker from `handoff address-pr-review` to correct the defect. I don't fix it myself, and I don't resume the old implementation worker or start a new branch or PR.
+
+**Rule:** The deciding rule is in "Review the draft changes": *"Dispatch a new worker for the corrections, from `handoff address-pr-review` with the text of each actionable finding in the decisions or extra file; the handoff names the branch, worktree, and PR."* Three nearby rules support it:
+
+- The coordinator "does not do subject-repository work", so I don't edit `workspace_tools.py`.
+- Corrections go to a new session because the old one is too full to resume.
+- "Resume from evidence" says to reuse the existing branch, worktree and draft PR #1060, not create new ones.
+
+**What the handoff contains:**
+- **Finding:** the full text of the reviewer's demonstrated defect. The whitespace-insensitive hint pattern never matches. The two tests pass only because they assert on text from the old error message.
+- **Decision:** I accept the finding and the reviewer's corrected pattern and stronger assertions. This is a routine choice under Decisions, so I settle it here and give the reason. The defect is demonstrated, and it needs no user question because it isn't a scope or intended-behavior dispute.
+- **Locations:** the branch, the worktree, the notes path, PR #1060, and the head `067ea0b`.
+- **Instructions:** correct the code on the same branch and run the affected checks. Commit, then publish to the same draft under submit-pr. Don't mark the PR ready or request review.
+- **Report:** ask for the actual results and the new head.
+
+**After that:**
+1. I dispatch a new fresh-context reviewer from `handoff review-changes`. Its handoff covers the changed code and the unresolved finding, and includes the earlier finding and the reviewed head.
+2. I don't repeat completed checks without a new reason.
+3. If the reviewer finds the same blocker with no progress, I report it instead of cycling.
+4. Once review is clean, I dispatch a `handoff submit-pr` worker to mark the PR ready.
+5. I stop at the endpoint, which is PR review follow-up without merge.
+
+I don't read the diff to review it myself. I would inspect the repository only if a finding were disputed and the next dispatch depended on it.
+
+Scenario: draft-pr-ready-transition
+Session ID: 2b08bbc6-52a7-4c66-ad05-42eeaa413292
+
+**Next step:** dispatch a new worker from a `handoff submit-pr` file to mark the same PR ready. Don't ask the user anything, don't request Copilot, and don't leave the PR as a draft.
+
+**Why**
+
+- **express-issue.md, "Submit and hand off":** "When review is complete and actionable findings are resolved, dispatch a new worker from `handoff submit-pr` to mark the same PR ready under submit-pr." That is the situation here. Review covers the final committed head and all findings are resolved. This is the rule that decides the step.
+- **Draft-only limit:** none was imposed. Publication is authorized, so submit-pr's "Leave an explicit draft-only request in draft status" doesn't apply.
+- **Stale description:** it still lists earlier incomplete work, and the worker must rewrite it. submit-pr says to inspect the diff at the current head before rewriting the description, because "an earlier read does not describe later commits."
+- **How the description gets rewritten:**
+  - The worker runs `pr-state` and `verify-commit --pr-head`. It then writes a fresh body file with `pr body`, covering the summary, the review section, and who ran which checks.
+  - It runs `pr ready` with that body file, `--expect-head` set to the reviewed head, and the board target. That one command updates the description, marks the PR ready, moves the issue to In review, and reads each result back.
+  - If the head differs from the reviewed one, the command refuses. The worker then stops and reports the head instead of marking the new head ready.
+- **Review source:** submit-pr's "Request a review" section says the primary source is a completed different-model local review of the published head, and "Do not request Copilot by default." Copilot is requested only when the user asked, and they didn't.
+- **Handoff contents:** the review outcome, the reviewed head, the authorization and its limits, and the issue and PR facts. It doesn't restate the procedure.
+
+**After the worker returns**
+
+- **Delegated coordinator:** return the submission result and the remaining endpoint to the parent, then stop.
+- **Direct session:** continue under the PR-follow-up-ownership rule. If the ready report shows every check passed on the current head, no pending review and no unresolved findings, report that result and stop. Otherwise the parent dispatches `address-pr-review`.
+- **Merge:** the default endpoint is through review follow-up, without merge, so don't merge.
+
+Scenario: placeholder-dispatch-recovery
+Session ID: d3a87b65-86dd-45cf-8697-98a00eae2868
+
+**What I do next:** I resume the same worker session with the full `handoff submit-pr` prompt. I don't start a new session, and I don't answer its question in free text.
+
+**Steps:**
+1. Generate the handoff with `python3 "$GHFLOW_CLI" handoff submit-pr ISSUE_URL --out FILE`. It would carry these inputs:
+   - the review outcome: no actionable findings;
+   - the reviewed head `42e9a74`;
+   - authorization to mark the same PR ready, within the endpoint "through PR review follow-up, without merge";
+   - the decisions file, written to the same directory as the run's other handoffs.
+2. Check the `reused` list the command reports.
+3. Resume the existing session with the one-line prompt the command prints, which names the handoff file.
+4. Name the extra dispatch call in my report.
+
+**Rule that decides it:** `references/shared/coordination.md`, in Handoffs: "If a dispatch or a resume goes out with an empty or placeholder prompt, resume the same session with the full handoff; do not start a new session for it, and name the extra call in your report."
+
+The Roles section supports the worker's side of this. A subagent that gets a placeholder prompt like `x` should return one line asking for the handoff and stop. It shouldn't guess. This worker's reply fits that. Its asking what I meant is an expected result of my malformed dispatch, so the fix is mine.
+
+The session is still available and holds no work to lose, so there's no reason to replace it. A fresh session would also add nothing the handoff doesn't already supply.
+
+After the worker marks the PR ready, I continue under express-issue.md's "Submit and hand off" and "Continue to the endpoint in the parent". If the ready-submission report shows all checks passed for the current head, no pending review and no unresolved findings, I report from it and stop without merging.
+
+Scenario: coordinator-settles-review-notes
+Session ID: b289a73a-05b8-417a-ab9a-5ac04b416805
+
+**Next step: don't ask the user about any of the three. Settle them yourself and dispatch the correction worker.**
+
+The deciding rule is in "Review the draft changes". It says to dispatch a new worker for the corrections from `handoff address-pr-review`, with the text of each actionable finding in the decisions or extra file. It also says to settle the reviewer's notes yourself as routine choices under Decisions, accepting or declining each in the correction handoff with the reason. Only three things go back to the parent interview: a disputed finding that current evidence can't settle, a scope change, or a choice about intended behavior. The rule also says not to ask the user about style, naming, wording, or documentation conventions.
+
+**How each item is handled:**
+
+1. **Finding: `success: bool` should be `bool | None`.**
+   - This is an actionable finding with a file and line, and the tests pass `None`, so the evidence supports it. Nothing is disputed and no behavior choice is involved.
+   - I put its text in the correction handoff as an item to fix.
+
+2. **Note: the PR description should use a plain `Closes #1053` line.**
+   - This is a wording and convention choice, so it isn't a question for the user.
+   - I accept it in the handoff, with the reason that a plain line is the form GitHub reliably links and closes from.
+
+3. **Note: the session directory holds only `notes.md`, but the project convention names three files.**
+   - This is a documentation convention, so it also isn't a question for the user.
+   - I accept it in the handoff, with the reason that the project's convention governs. The worker should create the missing files per that convention. I would only decline if the convention turned out not to apply.
+
+**After that:**
+- The worker corrects on the same branch, runs the affected checks, commits, and publishes to the same draft under submit-pr.
+- I then dispatch a new reviewer from `handoff review-changes`. Its handoff covers the changed code and the unresolved findings, and carries the earlier findings and the reviewed head.
+- The reviewer's recommendation is approve, but the finding is still actionable, so I wouldn't mark the PR ready until it is resolved.
+- I don't read the diff myself.
+- I don't merge, because the endpoint is PR review follow-up.
+
+Scenario: implementation-handoff-operation-scope
+Session ID: 46dcaccb-dd94-4fdb-bab3-a62a5c63eea3
+
+**Next step:** I write the implementation handoff to a file with `handoff implement-issue ISSUE_URL --out FILE`. I put the compatibility decision in a decisions file passed with `--decisions FILE`. Then I dispatch one implementation worker, using the one-line prompt the command prints. I don't create the worktree, read the diff, or edit anything in the target checkout myself.
+
+**Rules that decide this**
+
+- **express-issue, "Implement and publish draft progress":** Review preparation is already done, since the fresh reviewer path and its model metadata exist. So the next move is to dispatch implement-issue. That one worker also carries draft publication through submit-pr in the same session. The handoff must say it may publish the first significant committed checkpoint as a draft, then resume implementation on the same branch. It must also say the worker must not mark the PR ready or request review.
+- **express-issue, "Establish the task and endpoint":** The user authorized issue #997 through PR review follow-up without merge. That matches the default endpoint, so I state it as the flow's authorization and limits.
+- **coordination, "Handoffs":** The decision to preserve a compatibility option is not in the issue text, so the worker can't recover it from the issue. I must write out the text of that decision, not just a label. The `--decisions FILE` option exists for this.
+- **coordination, "Handoffs":** The handoff supplies only what `facts` can't. That means the decision text, the review plan with its model evidence, the endpoint and limits, and the notes path if there is one. It links to the issue, the project instructions and the facts file instead of restating them. The source commit, target checkout, base commit and issue URL come from the command's live facts.
+- **coordination, "Handoffs":** The handoff asks the worker to return the PR URL, the published head, check results, evidence limits and remaining work. It also asks for the model ID the worker's own runtime states.
+- **coordination, "Handoffs":** I check the `reused` list the command reports before dispatching.
+- **express-issue, "Resume from evidence":** There is no task worktree yet, so there is no existing work to reuse. The handoff doesn't name a branch or worktree. The worker creates them.
+
+**Why this way:** The coordinator dispatches and settles decisions and does no subject-repository work. The worker needs the compatibility decision in the handoff, or it could implement the issue as written and drop that option.
+
+**After the worker returns:** The draft checkpoint does not complete the endpoint. Review comes next, then corrections or ready submission, each in a new session from a handoff file.
