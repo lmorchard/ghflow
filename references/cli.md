@@ -71,7 +71,7 @@ The command reads only. A part it could not read is `null` with an entry in `err
 
 `pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
 
-`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
+`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
 
 `board set-status` refuses In review with exit 3 while every open PR linked to the issue is a draft. `pr ready` moves the board after it marks the PR ready and is not affected.
 
@@ -81,7 +81,7 @@ The command reads only. A part it could not read is `null` with an entry in `err
 
 ## Queue helpers
 
-`queue select --owner OWNER --project NUMBER [--status Ready]` reads every board page and validates each one: no GraphQL errors, the selected project, every item with `status`, `priority`, and `size` keys, and a cursor on every page that claims a next page. It lists that column's issues under `selection` in burndown order, with `below_tier` for issues below `P1`, `unresolved` for items that are not issues, and `status_counts` for every column. It exits 1 on incomplete discovery and then returns no selection.
+`queue select --owner OWNER --project NUMBER [--status Ready]` reads every board page and validates each one: no GraphQL errors, the selected project, every item with `status`, `priority`, and `size` keys, and a cursor on every page that claims a next page. It lists that column's issues under `selection` in burndown order, with `below_tier` for issues below `P1`, `unresolved` for items that are not issues, and `status_counts` for every column. `parked` lists issues In progress whose open PR holds a "Parked (time budget)" section, in the same order; it exits 2 when that check fails for an issue. It exits 1 on incomplete discovery and then returns no selection.
 
 `queue summary ISSUE_URL... --owner OWNER --project NUMBER` reads each issue's linked PR, preferring an open one, with its head, draft state, board Status, and `triage:needs-input` label, and prints them as a Markdown `table`. Review evidence and unattended decisions are not GitHub facts and are not included. It exits 2 when an issue could not be read.
 

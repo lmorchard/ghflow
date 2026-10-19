@@ -66,6 +66,8 @@ When the enclosing flow authorizes publication, apply [Draft PRs and readiness](
 
 When the handoff authorizes you to continue into [submit-pr](submit-pr.md), commit the checkpoint and publish it as a draft through that reference in the same session, then resume implementation on the same branch. Before the completed implementation handoff, publish the final commits to the same draft under the same authorization. Otherwise, return the checkpoint to the coordinator for [submit-pr](submit-pr.md), with the worktree, branch, base, committed head, checks, remaining work, and next action, and do not push or open the PR yourself. State that implementation is incomplete when it is. For a standalone local-only request, continue locally without this publication handoff.
 
+When the handoff gives a deadline, start nothing new at it, even mid-change. Commit the work in progress with a subject that says it is incomplete, publish it to the draft PR, record the remaining steps and the state of the checks in the task notes, and return them with the PR URL and head. Unfinished work that is published can resume; work that stays in the worktree is lost to the next run's evidence.
+
 ## Review and commit
 
 Inspect the complete task diff from the merge base, including uncommitted and new files. Look for incomplete changes, missed callers, error cases, unrelated edits, and missing documentation. Check that changed tests still establish the intended behavior. Fix what you find within scope, and run the affected checks again.
