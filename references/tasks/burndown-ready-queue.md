@@ -41,7 +41,7 @@ The same output answers three other preparation questions without separate comma
 
 ## Deliver issues sequentially
 
-Process one issue at a time:
+Process one issue at a time. Dispatch each worker in the foreground and wait for it to return before the next step, as [Handoffs](../shared/coordination.md#handoffs) states; an unattended run usually has no session that could receive a later notification:
 
 1. Select the top unblocked issue from the recorded selection that has not reached the agreed endpoint. Use the current issue state to decide whether it remains actionable. When delivering to a review follow-up endpoint (without merge), ensure the selected task is independent of other in-flight PRs so it can branch cleanly from `origin/main`. If a task depends on code in an unmerged PR, either authorize merging the prerequisite PR first or defer the dependent task.
 2. Before substantial dependent implementation, apply [Prepare required review](../shared/review.md#prepare-required-review). Dispatch a subagent to execute [express-issue](express-issue.md) on that issue, passing the confirmed repository, issue number, authorization, endpoint, and established review path, model evidence, or explicit exception. If a subagent in your runtime cannot dispatch subagents of its own, as `facts` reports with `runtime.nested_dispatch` false for OpenCode, coordinate the issue yourself under express-issue instead: dispatch its implementation, review, and ready workers directly, and keep express-issue's limits on the coordinator. In particular, do not read the subject code to scope a handoff. The handoff names the issue, the confirmed decisions and where they are recorded, and the project facts file, and the implementation worker does the research.
