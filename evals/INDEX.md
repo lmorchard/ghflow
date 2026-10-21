@@ -69,7 +69,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | 049c793 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-priority-tiers.md](results/2026-10-14-priority-tiers.md) |
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | e4e7ef1 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
 | [deadline-declines-optional-notes](scenarios/deadline-declines-optional-notes.md) | 2026-10-14 | aaa4d7a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-small-rules.md](results/2026-10-14-small-rules.md) |
-| [deadline-ready-step-finishes](scenarios/deadline-ready-step-finishes.md) | 2026-10-18 | a25494c | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-18-resume-time-parks.md](results/2026-10-18-resume-time-parks.md) |
+| [deadline-ready-step-finishes](scenarios/deadline-ready-step-finishes.md) | 2026-10-21 | f00d219 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-21-run7-candidates.md](results/2026-10-21-run7-candidates.md) |
 | [definition-hits-dependency](scenarios/definition-hits-dependency.md) | 2026-10-08 | c96332a | Claude Code general-purpose subagent | unknown | Pass (2/2) | sample | [2026-10-08-blocked-parked-labels.md](results/2026-10-08-blocked-parked-labels.md): Actor model unreported; report only guesses inheritance from parent. |
 | [delivery-early-draft](scenarios/delivery-early-draft.md) | 2026-10-12 | abe744e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-submit-pr-cleanup.md](results/2026-10-11-submit-pr-cleanup.md) |
 | [draft-only-limit](scenarios/draft-only-limit.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
@@ -167,7 +167,8 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [shared-references-on-condition](scenarios/shared-references-on-condition.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
 | [stale-handoff-board](scenarios/stale-handoff-board.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | regression | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after board change not stated. |
 | [stale-handoff-board](scenarios/stale-handoff-board.md) | 2026-10-02 | ff39aa1 | unknown | Claude Sonnet | Pass | baseline | [2026-10-02-retro.md](results/2026-10-02-retro.md) |
-| [start-and-park-when-it-will-not-fit](scenarios/start-and-park-when-it-will-not-fit.md) | 2026-10-18 | a25494c | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-18-resume-time-parks.md](results/2026-10-18-resume-time-parks.md) |
+| [start-and-park-when-it-will-not-fit](scenarios/start-and-park-when-it-will-not-fit.md) | 2026-10-21 | f00d219 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-21-run7-candidates.md](results/2026-10-21-run7-candidates.md) |
+| [start-floor-thirty-minutes](scenarios/start-floor-thirty-minutes.md) | 2026-10-21 | f00d219 | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-21-run7-candidates.md](results/2026-10-21-run7-candidates.md) |
 | [subagent-has-question](scenarios/subagent-has-question.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [subagent-has-question](scenarios/subagent-has-question.md) | 2026-10-11 | 5fd11e0 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-test-assertion.md](results/2026-10-11-test-assertion.md) |
 | [submission-parent-followup](scenarios/submission-parent-followup.md) | 2026-10-11 | 1058e20 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-ceremony-reduction.md](results/2026-10-11-ceremony-reduction.md) |
@@ -215,6 +216,5 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
-- [start-floor-thirty-minutes](scenarios/start-floor-thirty-minutes.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
 - [task-notes-resume-summary](scenarios/task-notes-resume-summary.md)
