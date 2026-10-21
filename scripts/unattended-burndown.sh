@@ -3,13 +3,13 @@
 # Run from the target project checkout. See docs/setup.md, "Run a queue unattended".
 set -eu
 
-OWNER=""; PROJECT=""; HOURS="8"; AGENT="opencode"; MODEL=""; EXCEPTION="no"; DRY_RUN="no"; LOG=""
+OWNER=""; PROJECT=""; HOURS="8"; AGENT="opencode"; MODEL=""; EXCEPTION="no"; DRY_RUN="no"; LOG=""; ALLOW_CONCURRENT="no"
 SKILL_DIR="${GHFLOW_SKILL_DIR:-$HOME/.agents/skills/ghflow}"
 
 usage() {
   cat <<USAGE
 usage: $0 --owner OWNER --project NUMBER [--hours N] [--agent opencode|claude|codex] [--model MODEL]
-          [--same-model-exception] [--skill-dir DIR] [--log FILE] [--dry-run]
+          [--same-model-exception] [--skill-dir DIR] [--log FILE] [--dry-run] [--allow-concurrent]
 USAGE
   exit 2
 }
@@ -25,6 +25,7 @@ while [ $# -gt 0 ]; do
     --skill-dir) SKILL_DIR="$2"; shift 2 ;;
     --log) LOG="$2"; shift 2 ;;
     --dry-run) DRY_RUN="yes"; shift ;;
+    --allow-concurrent) ALLOW_CONCURRENT="yes"; shift ;;
     *) usage ;;
   esac
 done
@@ -41,8 +42,50 @@ if [ "$EXCEPTION" = "yes" ]; then
   REQUEST="$REQUEST Use the same local model for implementation and review under my approved exception for OpenCode with the local model on this laptop."
 fi
 
+# An OpenCode run keeps going on OpenCode's background service after its client exits, so a
+# finished launch does not prove the run ended. Refuse to start a second coordinator on the queue.
+active_opencode_runs() {
+  opencode session list --format json < /dev/null 2>/dev/null | python3 -c '
+import json, sys, time
+try:
+    sessions = json.load(sys.stdin)
+except ValueError:
+    sys.exit(0)
+now = time.time() * 1000
+for s in sessions if isinstance(sessions, list) else []:
+    t = s.get("time")
+    t = t.get("updated") if isinstance(t, dict) else (t or s.get("updated"))
+    if str(s.get("title", "")).startswith("Unattended burndown") and isinstance(t, (int, float)) and now - t < 30 * 60 * 1000:
+        print(s.get("id"), s.get("title"))
+' || true
+}
+
+preflight_warnings() {
+  if command -v memory_pressure >/dev/null 2>&1; then
+    free=$(memory_pressure 2>/dev/null | awk '/free percentage/ {gsub("%", "", $NF); print $NF}')
+    if [ -n "$free" ] && [ "$free" -lt 30 ]; then
+      echo "warning: only ${free}% of memory is free; other jobs slow the local model and can exhaust its cache" >&2
+    fi
+  fi
+  if pgrep -f com.apple.Virtualization.VirtualMachine >/dev/null 2>&1; then
+    echo "warning: a virtual machine, such as Docker Desktop's, is running and holding memory" >&2
+  fi
+}
+
 case "$AGENT" in
   opencode)
+    if [ "$ALLOW_CONCURRENT" = "no" ]; then
+      ACTIVE=$(active_opencode_runs)
+      if [ -n "$ACTIVE" ]; then
+        echo "an unattended burndown session was active in the last 30 minutes:" >&2
+        echo "$ACTIVE" | sed 's/^/  /' >&2
+        echo "stop it with 'opencode session delete SESSION_ID' (killing the client does not stop it), or pass --allow-concurrent" >&2
+        exit 3
+      fi
+    fi
+    preflight_warnings
+    # Keep OpenCode from upgrading itself at launch, so a run starts on the version that was checked.
+    export OPENCODE_DISABLE_AUTOUPDATE=1
     [ -f "$SKILL_DIR/SKILL.md" ] || { echo "entry skill not found at $SKILL_DIR/SKILL.md" >&2; exit 1; }
     # Drop the YAML frontmatter: a message that starts with "---" is parsed as an option and prints help.
     SKILL_BODY=$(awk 'NR==1 && $0=="---" {skip=1; next} skip && $0=="---" {skip=0; next} !skip' "$SKILL_DIR/SKILL.md" | sed '/./,$!d')

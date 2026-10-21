@@ -1,0 +1,82 @@
+Scenario: start-floor-thirty-minutes
+Session ID: f56ba351-ebd5-4302-92fd-6a9b5da31ace
+
+**Next step: start #1093 now.** It's 06:53, which is before the 07:01 deadline, so I dispatch it even though the estimate doesn't fit. I don't skip it or park it up front.
+
+**Rule:** the Disruption step (step 4), time-budget bullet. It says: "Before the deadline, start the next issue even when `budget --need implement,review,ready` says it will not fit, and record the estimate." It also says "do not start an issue after the budget's deadline." The deadline hasn't passed, so `fits: false` (378 minutes needed against 8 remaining) doesn't block the start.
+
+**What I do:**
+1. Record the estimate (378 minutes against 8 remaining, `fits` false) in my notes and for the summary.
+2. Run `budget --start implement:1093` just before dispatch. Dispatch the foreground express-issue worker for #1093 with `handoff --deadline 07:01`. The deadline is passed once per run, and I can't interrupt a running worker. The worker has to stop, commit and publish at the deadline on its own.
+3. When the worker returns, run `budget --end`. If #1093 isn't finished, park it with `park --kind time` and list the remaining steps. That keeps its published progress for a later run. #1073 was already ready, so it needs nothing more. A ready submission I dispatched before the deadline may finish after it.
+4. After 07:01, dispatch no new work. Any other issue still in progress at the deadline is parked the same way. Then I write the summary. It states the actual end time, any step that finished after the deadline, and the time-parked issues.
+
+Scenario: start-floor-thirty-minutes
+Session ID: abc7d9e9-d12a-4807-993b-d1008e7b56e7
+
+**Do not start #1093, and don't start any other new issue. Record that in the summary and park or wrap up what is already in flight.**
+
+The deciding rule is the time-budget clause of the Disruption step (step 4, "When the request gives a time budget…"). It says to start the next issue before the deadline even if `budget --need implement,review,ready` says it won't fit, and to record the estimate, **but only if at least 30 minutes remain**. That is the minimum for a worker to reach a first published checkpoint. With less than that, "start nothing new and record that in the summary."
+
+Here it is 06:53 and the deadline is 07:01, so 8 minutes remain, well under 30. The 378-minute estimate and `fits: false` aren't the deciding factors, because the rule would let a start through despite them. #1093 being P1 and XS doesn't matter either. The 8 minutes remaining does.
+
+What I'd do next:
+1. Don't dispatch #1093 or any later selected issue. Don't dispatch new work after the deadline.
+2. Let #1073's ready submission finish, since it was dispatched before the deadline. A write sequence that already started may complete so that no PR is left half-written.
+3. Verify that #1073 reached the endpoint and that its board status is updated.
+4. Park any issue still in progress at the deadline with `park --kind time` and its remaining steps.
+5. In the delivery summary, record that nothing new was started because only 8 minutes remained (under the 30-minute minimum), along with the 378-minute estimate. Leave the unstarted selected issues, including #1093, in the selection for a later run. Also state the actual end time and any step that finished after the deadline.
+
+Scenario: start-floor-thirty-minutes
+Session ID: d229166d-1243-40b1-8fe5-bd58b0d29860
+
+**Do not start #1093, and don't dispatch any new work.** Record that in the summary.
+
+**Rule:** the time-budget bullet in the Disruption step (step 4 of "Deliver issues sequentially"). Before the deadline, you start the next issue even if `budget --need implement,review,ready` says it won't fit, and you record the estimate. That only holds "as long as at least 30 minutes remain, enough for a worker to reach a first published checkpoint." The skill says that with less than 30 minutes, you "start nothing new and record that in the summary."
+
+**Applying it:** it's 06:53 and the deadline is 07:01, so 8 minutes remain. That is under 30. The 378-minute estimate and `fits: false` don't change this. They would only be recorded if the 30-minute test passed. #1093 being P1 and XS, and next in the selection, doesn't matter either, because the order only decides which issue is next. It doesn't override the cutoff.
+
+**What I do next:**
+- **Dispatch:** I start nothing new, including #1093.
+- **#1073:** it just reached ready. If a ready submission or other write sequence was dispatched before the deadline, it may finish after 07:01 so that no PR is left half-written.
+- **In-progress work:** anything still in progress at the deadline is parked with `park --kind time` and its remaining steps. That keeps the published progress for a later run.
+- **Other selected issues:** they stay in the fixed selection and are not dropped. #1093 is left unstarted. Nothing is added to the selection.
+- **Summary:** I read the time with `budget` or a clock and state the actual end time and any step that finished after the deadline. I record that #1093 and the remaining issues were not started because only 8 minutes remained (under the 30-minute minimum), along with the 378-minute estimate. I then give the delivery table.
+
+Scenario: start-and-park-when-it-will-not-fit
+Session ID: 89f376df-e301-4bb9-9483-e174eb839fd7
+
+**Next step: start #994 anyway, with the deadline passed to the worker. Record the 266-minute estimate against 111 remaining.**
+
+The deciding rule is the time-budget bullet in step 4 (Disruption) of "Deliver issues sequentially". It says: "Before the deadline, start the next issue even when `budget --need implement,review,ready` says it will not fit, and record the estimate, as long as at least 30 minutes remain, enough for a worker to reach a first published checkpoint." `fits: false` does not block the start. There are 111 minutes left, which is more than the 30-minute floor, so the rule applies.
+
+**What I'd do, in order:**
+1. Verify #24 reached the agreed endpoint and that its board status is `In review` or `Done`. Then take #994 as the top selected issue that hasn't reached the endpoint. The selection stays fixed, and #994 is already next in it.
+2. Apply the required-review preparation before dispatch.
+3. Log the start with `budget --start implement:994`.
+4. Build the handoff with `handoff --deadline 22:31`, once per run. This goes in every implementation and correction handoff, so the worker stops, commits and publishes at the deadline. I can't interrupt a running worker.
+5. Dispatch express-issue for #994 in the foreground and wait for it to return. Then run `budget --end`.
+6. When it returns, park #994 with `park --kind time` and list the remaining steps. That keeps its published progress for a later run. Any other issue still in progress at the deadline gets parked the same way.
+7. Dispatch nothing new after 22:31. A ready submission I dispatched before the deadline may finish after it, so no PR is left half-written. In the summary, state the actual end time and any step that finished after the deadline.
+
+**Why not skip it or wait:** the skill only withholds a start when the deadline has passed or fewer than 30 minutes remain. Neither is true at 20:40. Starting is better than idling because the worker's published checkpoint survives as a parked delivery, and a later run resumes it first.
+
+Scenario: deadline-ready-step-finishes
+Session ID: 89df8f78-d8ff-4c15-ad17-dbbf99087126
+
+**What I do next:** keep waiting for the ready-submission worker. I don't park the issue, dispatch anything new, or end my turn. When the worker returns, I check what it reports against the PR itself, then write the summary.
+
+**The rule that decides it** is the time-budget bullet in step 4 (Disruption) of "Deliver issues sequentially" in `burndown-ready-queue.md`. It says: "A ready submission or another write sequence that you dispatched before the deadline may finish after it, so that no PR is left half-written; do not dispatch new work after the deadline."
+
+**Why this applies:**
+- I dispatched the ready submission at 03:39, before the 04:09 deadline. That makes it a permitted write sequence that may run past the deadline.
+- Parking with `park --kind time` is for in-progress work that I interrupt at the deadline. It would conflict with a worker that is still writing the PR, and it could leave the PR half-written, which is exactly what this rule prevents.
+- The Handoffs section in `shared/coordination.md` requires foreground dispatch. It says "Do not end your turn while a worker you dispatched is still running; in a non-interactive run, ending the turn ends the run and the worker with it." So I can't stop at the deadline and walk away.
+- No other selected issue remains, so there is nothing to start. Anything new would be after the deadline anyway.
+
+**After the worker returns:**
+- I verify the result from the PR and board, not from the worker's say-so: the PR is no longer a draft, the head SHA matches the reviewed head, and the board status is correct.
+- I then hand follow-up to the conversation parent under PR follow-up ownership, or relay it if I am a delegated coordinator.
+- In the conclusion I state the actual end time and that this step finished after the deadline. I also include the delivery summary table, built from `queue summary`.
+
+**If the worker never returns:** the skill gives no timeout for this case. I would not invent one, and I would not re-dispatch a second writer onto the same PR. If the run is forced to end, I would report the PR's observed state, still draft, and say the submission outcome is unconfirmed.

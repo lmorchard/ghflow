@@ -1,6 +1,8 @@
 """Launch composition checks for unattended-burndown.sh through fake agent commands."""
+import json
 import os
 import subprocess
+import time
 import tempfile
 import unittest
 from pathlib import Path
@@ -10,7 +12,9 @@ SCRIPT = ROOT / "scripts/unattended-burndown.sh"
 
 # Records every argument on its own line, then exits with FAKE_STATUS.
 FAKE_OPENCODE = """#!/bin/sh
+if [ "$1 $2" = "session list" ]; then cat "${FAKE_SESSIONS:-/dev/null}" 2>/dev/null || echo '[]'; exit 0; fi
 for a in "$@"; do printf '%s\\n' "$a"; done > "$FAKE_ARGS"
+printf '%s' "${OPENCODE_DISABLE_AUTOUPDATE:-unset}" > "$FAKE_ARGS.autoupdate"
 exit "${FAKE_STATUS:-0}"
 """
 # Drops caffeinate's own flag and runs the wrapped command.
@@ -53,9 +57,14 @@ class UnattendedBurndownTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def run_script(self, *extra, status=0):
+    def run_script(self, *extra, status=0, sessions=None):
         env = dict(os.environ, PATH=f"{self.bin}:{os.environ['PATH']}",
                    FAKE_ARGS=str(self.args_file), FAKE_STATUS=str(status))
+        env.pop("OPENCODE_DISABLE_AUTOUPDATE", None)
+        if sessions is not None:
+            sessions_file = Path(self.tmp.name) / "sessions.json"
+            sessions_file.write_text(json.dumps(sessions))
+            env["FAKE_SESSIONS"] = str(sessions_file)
         return subprocess.run(
             ["sh", str(SCRIPT), "--owner", "o", "--project", "6", "--agent", "opencode",
              "--skill-dir", str(self.skill), "--log", str(self.log), *extra],
@@ -87,6 +96,33 @@ class UnattendedBurndownTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertFalse(self.args_file.exists())
         self.assertIn("--- request ---", result.stdout)
+
+
+    def test_refuses_while_a_recent_burndown_session_is_active(self):
+        recent = [{"id": "ses_old", "title": "Unattended burndown 20261020-194445", "time": int(time.time() * 1000) - 60_000}]
+        result = self.run_script(sessions=recent)
+        self.assertEqual(result.returncode, 3)
+        self.assertIn("ses_old", result.stderr)
+        self.assertIn("opencode session delete", result.stderr)
+        self.assertFalse(self.args_file.exists())
+
+    def test_allow_concurrent_overrides_the_guard(self):
+        recent = [{"id": "ses_old", "title": "Unattended burndown x", "time": int(time.time() * 1000)}]
+        result = self.run_script("--allow-concurrent", sessions=recent)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertTrue(self.args_file.exists())
+
+    def test_ignores_old_and_unrelated_sessions(self):
+        hour_ago = int(time.time() * 1000) - 60 * 60_000
+        sessions = [{"id": "ses_a", "title": "Unattended burndown y", "time": hour_ago},
+                    {"id": "ses_b", "title": "Curate project 6", "time": int(time.time() * 1000)}]
+        result = self.run_script(sessions=sessions)
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_launch_disables_opencode_autoupdate(self):
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(Path(str(self.args_file) + ".autoupdate").read_text(), "1")
 
 
 if __name__ == "__main__":
