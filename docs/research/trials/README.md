@@ -220,3 +220,9 @@ New problems: a handwritten handoff added a review cycle to the facts refresh be
 The [sixth burndown record](2026-10-18-unattended-burndown-6.md) covers the run at skills `1d93227`, after PR #125.
 [PR #1084](https://github.com/lmorchard/decafclaw/pull/1084) reached ready after local review found a data-loss defect and a correction fixed it. The non-gate rule held: an unreachable eval was recorded as an evidence limit in 8 minutes. Coordinator reads fell to 9 and its output to 34,548 tokens.
 New problems: the OpenCode client exited with status 1 and no logged error 35 minutes before the deadline, leaving #994 In progress with no PR or park; the coordinator started #994 without `budget --need` although it did not fit; and a missed start mark left a review unmeasured. Five candidate changes are listed in the record.
+
+## 2026-10-21: seventh unattended Ready-queue burndown on the local model
+
+The [seventh burndown record](2026-10-21-unattended-burndown-7.md) covers the first run with start-and-park, new sessions for later steps, and foreground dispatch, on OpenCode 2.0.32.
+[PR #1108](https://github.com/lmorchard/decafclaw/pull/1108) reached ready with a browser test for a visual bug, [PR #1109](https://github.com/lmorchard/decafclaw/pull/1109) was started and parked at the deadline, and the facts refresh [PR #1098](https://github.com/lmorchard/decafclaw/pull/1098) went ready without review. The first launch dispatched in the background, its client exited after 43 minutes, and its session kept running on OpenCode's service, so the relaunch put a second coordinator on the queue.
+New problems: `opencode run` sessions outlive their client, two coordinators overloaded the shared model cache, OpenCode auto-updated under the trial, and start-and-park has no time floor. Four candidate changes are listed in the record.
