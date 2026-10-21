@@ -22,6 +22,8 @@ Write the complete handoff before the dispatch call and send it in that call. Di
 
 Keep the handoff specific to the assigned operation. Link to the issue and project instructions instead of copying their procedures or the full issue body. Carry decisions and evidence that the next worker cannot recover from those sources. Distinguish the enclosing flow's authorization from the worker's current stopping point.
 
+A worker can use another skill for its coding or design method, such as a debugging, test-first, or planning procedure. The handoff still controls the stopping point, publication, merge, worktree cleanup, and the return. If that skill's completion steps conflict with the handoff, such as an offer to merge, open a PR, or remove the worktree, follow the handoff and skip those steps. The other skill does not reduce the evidence that the task reference requires.
+
 For example, an implementation handoff can use this form. Replace the placeholders with actual paths and evidence; omit fields that do not apply:
 
 ```text
