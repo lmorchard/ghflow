@@ -1,0 +1,111 @@
+Scenario: burndown-foreground-dispatch
+Session ID: 9b4d97db-2acc-47c2-b864-2a42ab63f44a
+
+**Next step:** dispatch the prepare-project-facts refresh worker now, using the handoff I already wrote. Then wait for it to return before I touch any issue. I would not use the waiting time to read the first issues or write their decisions files.
+
+**Rule that decides it:** "Check the project facts" in `burndown-ready-queue.md`. If `project_facts.origin.stale_sources` is not empty, dispatch prepare-project-facts "to refresh the file before the first issue". The reason given is that every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
+
+**Why `background` doesn't change this:**
+- **Handoffs depend on the result.** Workers branch from `origin/main`, where the refresh isn't merged. So every handoff must set the project facts path to the refreshed file in the refresh worktree. I can't write a correct handoff until the refresh returns that path.
+- **The issue work is the worker's job.** Reading the first issues and writing their decisions files would be starting issue work. Under "Deliver issues sequentially", the express-issue worker does that research. The coordinator shouldn't pre-scope it, and the refresh isn't done, so the facts those decisions would rest on are still stale.
+- **The refresh is authorized.** The queue request authorizes the refresh and its PR. It is part of the delivery flow, so an unattended run does it without asking. The worker publishes a ready PR for the user's review and does not merge.
+
+**What I do around the dispatch:**
+1. Before dispatching, record the eight-hour deadline once with `budget --deadline`. Then run `budget --start refresh:` just before the dispatch and `--end` when the worker returns.
+2. Dispatch the refresh in the background if I like. While it runs I only do coordinator housekeeping: keep the recorded selection (parked deliveries first, then the Ready issues) and the endpoint in my notes. I start no issue work.
+3. When the worker returns, take the refreshed facts path from its result. Put that path in every issue handoff, and record the refresh PR for the delivery summary.
+4. If the refresh fails or returns no file, continue the queue. Name the stale sources in each handoff and record the failure in the summary.
+5. Then begin sequential delivery with the first selected issue.
+
+Scenario: burndown-foreground-dispatch
+Session ID: e2464335-1aa6-4b30-a939-46f287678bdf
+
+**Next step:** dispatch the prepare-project-facts refresh worker in the foreground, using the handoff I already wrote. Then wait for it to return. I would not use `background`, and I would not read issues or write decisions files while it runs.
+
+**Rule that decides it:** "Deliver issues sequentially" says: "Dispatch each worker in the foreground and wait for it to return before the next step, as Handoffs states; an unattended run usually has no session that could receive a later notification". The "Check the project facts" step applies here. It requires the refresh to finish "before the first issue", and it says an unattended run performs the refresh.
+
+**Why:**
+- This is an unattended, non-interactive run, so nothing may be there to receive the background "worker finished" notification. If the notification is lost, the queue stalls and the eight-hour budget burns.
+- Every later worker reads the facts file. Each handoff has to point to the refreshed file in the refresh worktree, which I only know once the refresh returns. Issue decisions and handoffs written during the wait could carry a stale or missing facts path.
+- The queue is strictly sequential, one thing at a time. Reading the first issues early would break that ordering. It would also break the coordinator limit of not doing the workers' research. The handoff names the issue, the decisions and the facts path, and the worker does the reading.
+
+**After the refresh returns:**
+1. Record its PR for the summary. The PR is published ready for the user and is not merged.
+2. Set the refreshed file path as the project facts path in every handoff.
+3. If the refresh fails or returns no file, continue the queue anyway. Name the stale sources in each handoff and record the failure in the summary.
+4. Record the budget deadline once before the first dispatch, using `budget --deadline`. Wrap the refresh in `--start` and `--end` with kind `refresh`.
+5. Start the first selected issue, which is the highest priority and smallest size, in the foreground under express-issue.
+
+Scenario: burndown-foreground-dispatch
+Session ID: 200e297a-b688-4a6b-b3f6-4bb6095c4cd2
+
+**Next step:** dispatch the prepare-project-facts refresh worker in the foreground, using the handoff file I already wrote. Then wait for it to return. I won't use `background`, and I won't read the first issues or write their decisions files while it runs.
+
+**Rule that decides it:** the first line of "Deliver issues sequentially" in `burndown-ready-queue.md` says to dispatch each worker in the foreground and wait for it to return before the next step, as Handoffs states. It gives the reason: "an unattended run usually has no session that could receive a later notification." The `background` option promises a notification, but this non-interactive run may have nobody to receive it. The run could then end or stall without ever seeing the worker finish.
+
+**Why the refresh comes first:** "Check the project facts" says to refresh a stale facts file before the first issue. It also says the queue request authorizes the refresh and its PR, so an unattended run performs it. Every issue's handoff must point to the refreshed file in the refresh worktree, and I can't know that path until the worker returns. Decisions files and handoffs written during the wait would be built on stale or missing facts.
+
+**What happens after it returns:**
+1. Record the refresh PR for the delivery summary.
+2. Put the refreshed facts path in every handoff.
+3. If the refresh fails or returns no file, continue the queue. Name the stale sources in each handoff and record the failure in the summary.
+4. Start issue 1 from the recorded selection, in the order given by `queue select`.
+
+Since there's an eight-hour budget, I'd also log the deadline with `budget --deadline` before this first dispatch. I'd bracket the refresh with `--start refresh:` and `--end refresh:` so later `--need` estimates have a measured duration.
+
+Scenario: burndown-foreground-dispatch
+Session ID: ses_ea37c3210ffe83FIQRn4Ab27U1
+
+## What I do next
+
+Dispatch the refresh worker now with the handoff I already wrote — as an ordinary dispatch, **not** with the `background` option — and wait for its return before touching the first issue. I do not read the first issue or write its decisions file in the meantime. (The refresh needs no user approval: the queue request authorizes it, as *Check the project facts* states — but before this first dispatch I still record the deadline once with `budget --deadline` and wrap the refresh in `--start refresh` / `--end refresh`.)
+
+## Why
+
+The proposed "useful" waiting work is actually dependent on the refresh's result:
+
+- The refresh is not optional padding — it runs *before the first issue* because every worker in the queue reads the facts file, and a stale section would send each one to the wrong gate or setup command.
+- Workers branch from `origin/main`, where the refresh is not yet merged, so **every** handoff — including the first issue's — must point at the refreshed file **in the refresh worktree**.
+- That worktree path (or, if the refresh fails, the list of stale sources that must instead be named in each handoff) exists only when the refresh worker returns; its return list is what gives me the path "so the coordinator can point every worker at it."
+
+So I cannot yet complete the first issue's handoff or settle its decisions file: doing so in the waiting window would either point the issue at the stale file or record decisions before the flow's required prerequisite has resolved. The skill's coordination model is a strict dispatch → return sequence (one issue at a time, each span tracked with `--start`/`--end`); the runtime's `background` option is a convenience the skill's procedure never uses, and it changes nothing about what the first issue's handoff needs. The background option is therefore moot — the correct next action is the same either way: dispatch the refresh, wait for its return, then begin the first selected issue.
+
+## The rule that decides it
+
+**"Check the project facts"** in `burndown-ready-queue.md` — "dispatch prepare-project-facts to refresh the file **before the first issue**… set the project facts path in **every handoff** to the refreshed file in the refresh worktree" — applied together with **Handoffs** in `shared/coordination.md` ("point to the refreshed copy in the refresh worktree, because the worker's branch from `origin/main` still holds the old file") and the **Return** section of `prepare-project-facts.md` (the refresh worker returns the worktree path of the refreshed file so the coordinator can point every worker at it).
+
+Scenario: burndown-foreground-dispatch
+Session ID: ses_ea35a684fffeBKyDazd33tEvQ1
+
+**Next step:** Dispatch the facts-refresh worker in the **foreground** with the handoff file I just wrote, and wait for it to return before I touch the first issue. I do not use the `background` option, and I do not use the wait time to read issues or draft decisions.
+
+**Why:**
+
+1. **The refresh result decides my next step.** Under *Check the project facts*, a stale `stale_sources` on `project_facts.origin` means I dispatch `prepare-project-facts` before the first issue, and every later handoff depends on its outcome: I must point all workers at the refreshed file in the refresh worktree, or, if the refresh fails, name the stale sources in each handoff. So the refresh worker is exactly the kind the rule excludes from background dispatch — "a worker whose result decides your next step."
+
+2. **This is an unattended, non-interactive run.** The foreground rule warns that "in a non-interactive run, ending the turn ends the run and the worker with it," and the task skill adds that "an unattended run usually has no session that could receive a later notification." A promised completion notification has no reliable receiver here, so backgrounding the refresh would strand it and the queue.
+
+3. **Ordering is fixed by the task skill:** the traversal and facts check happen "before the first dispatch" of any issue. Starting to read the first issue or write its decisions file before the refresh returns would be doing step 1 of *Deliver issues sequentially* out of order.
+
+**The deciding rule:** the foreground-dispatch rule in **Handoffs** (`coordination.md#handoffs`): *"Dispatch in the foreground and wait for the worker's result before you continue: if a runtime offers background dispatch, do not use it for a worker whose result decides your next step. Do not end your turn while a worker you dispatched is still running; in a non-interactive run, ending the turn ends the run and the worker with it."* — as applied by *Deliver issues sequentially* in `burndown-ready-queue.md`: *"Dispatch each worker in the foreground and wait for it to return before the next step… an unattended run usually has no session that could receive a later notification."*
+
+Scenario: burndown-refreshes-stale-facts
+Session ID: 1fb86d6c-e605-4ab3-9a49-7ae9123d821d
+
+**Next step: refresh the facts file before dispatching the first implementation worker. Don't dispatch the issue worker yet.**
+
+The deciding rule is "Check the project facts" in `burndown-ready-queue.md`. It says that after the traversal and before the first dispatch, you decide from `project_facts.origin`, which checks the facts file on the default branch against that branch's sources. If `origin.present` is true and its `stale_sources` is not empty, you dispatch `prepare-project-facts` to refresh the file before the first issue.
+
+What I would do:
+
+1. **Confirm the staleness against `origin`.** Run `git fetch origin`, then `facts`, and read `project_facts.origin.stale_sources`. The `Makefile` staleness you were given may come from the top-level `stale_sources`, which only checks my working copy and can lag `origin`. If `origin` shows no stale sources, continue without a refresh. If it shows `Makefile`, go to the next step.
+2. **Dispatch the refresh worker.** Make the handoff with `python3 "$GHFLOW_CLI" handoff prepare-project-facts --out FILE`. That handoff takes no issue and asks for a ready PR without review.
+3. **Why an unattended run does this without asking.** The queue request authorizes the refresh and its PR. The skill treats it as part of the delivery flow, not a change outside an issue under Decisions. Nobody mentioning the facts file doesn't matter. The worker publishes a ready PR, doesn't merge it, and returns the worktree path of the refreshed file.
+4. **Point every worker at the refreshed file.** The refresh isn't merged into `origin/main`, so each implementation handoff must set the project facts path to the refreshed file in the refresh worktree. That is the rule in Handoffs. The reason is that the `Gates` section (`make check`, `make test`) is drawn partly from the `Makefile`. Left stale, it could send every worker to the wrong gate.
+5. **Record the refresh PR in the delivery summary.**
+6. **If the refresh fails or returns no file,** continue the queue. Name `Makefile` as a stale source in each handoff and record the failure in the summary.
+
+Two related points:
+
+- **Time budget.** The eight-hour budget applies, so I would record the deadline once with `budget --deadline`. I would also log the refresh as kind `refresh` with `--start` and `--end`.
+- **Other gates.** The green base CI and the identity check already passed, so neither blocks the refresh.
