@@ -244,3 +244,16 @@ On 2026-10-11, Les specified that "tackle issue 999" means "deliver issue 999."
 The [entry point](../../SKILL.md) includes the synonym in discovery text and routes it to express-issue.
 The existing default endpoint remains review follow-up with the PR open. Merge still needs explicit authorization.
 The [scenario](../../evals/scenarios/tackle-issue-delivery.md) records the expected endpoint. It remains unevaluated and does not establish blind entry-point discovery.
+
+## Local-model work in one session
+
+On 2026-11-03, Les requested local-model work in the same session, same-model review, and no subagents.
+This request extends the earlier OpenCode and Qwen review exception to local-model setups generally.
+[Execution mode](../../references/shared/coordination.md#execution-mode) owns mode selection and the override of delegated roles.
+[Single-session review](../../references/shared/review.md#single-session-review) owns the separate review pass and its evidence limits.
+The mode preserves task scope, configured identity, tests, CI, and separate merge authorization.
+Cloud-model defaults remain unless the user explicitly selects this mode.
+
+The new scenarios cover delivery, review after corrections, and the cloud-mode boundary.
+They define expected decisions, not observed local-model behavior.
+No new model session or subagent was used to evaluate this change.

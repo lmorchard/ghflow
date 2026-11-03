@@ -1,6 +1,18 @@
 # Coordination
 
-Apply these rules when delegating tasks or returning their results. [Authorization](authorization.md) supplies permission and scope limits.
+Select the execution mode before applying role, dispatch, or handoff instructions. [Authorization](authorization.md) supplies permission and scope limits.
+
+## Execution mode
+
+Use **single-session mode** when the user identifies the active setup as local-model work or runtime evidence establishes it. The user can also explicitly select this mode for another setup. Do not infer local execution from a model name or agent application alone. Otherwise use the delegated roles below. Missing dispatch alone does not select single-session mode.
+
+In single-session mode, the conversation-owning agent performs all authorized subject-repository operations itself, in order, in the current session. Do not spawn subagents, delegate to other model sessions, or start a fresh session for a correction, review, submission, or follow-up. This includes sequential subagent calls. Do not load another model to satisfy a dispatch or review instruction. Ordinary Git, `gh`, CLI, and test processes remain available.
+
+This mode takes precedence over parent and worker separation, fresh-session requirements, dispatch fallbacks, and handoff-only stopping points throughout the task references and shared rules. Read and execute each included task reference yourself. Carry the selected mode, scope, decisions, commits, and evidence through task boundaries and [Task notes](task-notes.md). A role change does not require a handoff file or renewed permission. After ready submission, continue included follow-up yourself before reporting the agreed endpoint.
+
+For review, apply [Single-session review](review.md#single-session-review). Keep task limits, configured [Agent identity](identity.md), GitHub write checks, and separate merge authorization. Mode selection does not authorize more work or waive repository protections. If the user requires an independent reviewer or a fresh context for this task, report that conflict before dependent implementation and ask which requirement to change. Do not silently delegate or call self-review independent.
+
+The remaining role and dispatch instructions apply in delegated mode.
 
 ## Roles
 

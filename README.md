@@ -25,6 +25,10 @@ Start a new agent session in the target checkout and try a read-only request:
 Use ghflow to reassess https://github.com/lmorchard/gh-project-workflow/issues/23. Return findings only. Do not edit GitHub records or implement changes.
 ```
 
+For local-model work, ghflow keeps all authorized steps in the current session and forbids subagents.
+Review uses a separate pass with the same model in that session.
+[Execution mode](references/shared/coordination.md#execution-mode) explains mode selection and limits.
+
 ## Find the relevant docs
 
 - [Setup](docs/setup.md): Installation, requirements, and access.

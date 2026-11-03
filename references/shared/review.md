@@ -4,7 +4,7 @@ These rules apply to every skill that requests, performs, waits for, or relies o
 
 ## Review sources
 
-For an agent pull request, the primary review source is **independent local review**, done with [review-changes](../tasks/review-changes.md) in a fresh context.
+First apply [Execution mode](coordination.md#execution-mode). In single-session mode, use [Single-session review](#single-session-review). Otherwise, the primary review source for an agent pull request is **independent local review**, done with [review-changes](../tasks/review-changes.md) in a fresh context.
 
 The user may request **Copilot** review manually, in the GitHub web interface or with `gh pr edit PR_URL --add-reviewer "@copilot"`. Copilot is not the default for agent pull requests. Its underlying model is unknown unless something identifies it.
 
@@ -28,6 +28,8 @@ Report an approved waiver as waived, not completed or silently unmet. For an alt
 
 ## Prepare required review
 
+In single-session mode, prepare the review pass below instead of checking dispatch or alternate model availability. The remaining dispatch preparation applies in delegated mode.
+
 First apply any [user-approved exception](#user-approved-exceptions) to establish what review this delivery requires. Establish an available path for that review before substantial implementation depends on it. Inspect current tool, session, or dispatch metadata for available dispatch, usable model selection, and recorded implementer and reviewer model identities. `facts` reports the detected runtime, its configured models, and per-agent model overrides under `runtime`; use it instead of reading the runtime's configuration files. Unless the approved exception permits otherwise, make sure that the selected reviewer model differs from the implementer model. Use that evidence, not assumptions about runtime names or model availability.
 
 For an explicit same-model request, preserve the requested review method and fresh review context. Select the same model configuration for both workers when the dispatch controls permit it. Record the selected configuration separately from actual runtime identity. A shared agent type or configuration default alone does not establish that both workers ran the same model. When the exception waives model difference, preparation needs only an available dispatch path: do not read runtime or agent configuration to predict which model a worker will run. Ask each worker in its handoff for the model ID its own runtime states to it, and record that as a self-reported identity. Treat dispatch metadata as confirmation only when you can read it yourself; some runtimes store it where the coordinator cannot see it. Never record a configured or default model as a worker's identity, because a session flag can override every configuration file. The exception waives model difference, not accurate evidence reporting.
@@ -37,6 +39,16 @@ If dispatch, model selection, or model identity evidence is missing, report the 
 Preparation establishes the available path and model evidence; it does not require executing the review before implementation. At review dispatch, record the actual selection and returned model evidence, including any remaining identity limit. If an established path later hits a capacity limit, preserve the work and model evidence and let the parent dispatch the reviewer under [Coordination](coordination.md#handoffs). This dispatch failure does not create a new review choice or require renewed approval.
 
 Apply this preparation only when the selected flow requires independent review. A standalone implement-only operation, an ordinary draft, or a read-only task does not gain this requirement merely by using ghflow.
+
+## Single-session review
+
+Single-session mode permits a same-model review pass in the current conversation and waives the default different-model and fresh-context requirements. It does not require another model, worker, or session. An existing scoped waiver that makes review optional stays optional. A task-specific requirement for independent or fresh-context review needs resolution under [Execution mode](coordination.md#execution-mode).
+
+When the flow requires review, finish implementation, then apply [review-changes](../tasks/review-changes.md) as a separate pass over the exact base and head. Reread the issue, diff, relevant callers, and tests instead of accepting the implementation report as the conclusion. During this pass, report findings without editing the implementation. Then address the findings and review the changed code again within the same session. Preserve exact commit coverage and relevant check results.
+
+Report this as **same-model self-review in the current session**, not independent review or a fresh second opinion. Record the runtime model identity when available, or state the identity limit. Report different-model and fresh-context review as waived under this mode. A completed favorable pass satisfies ghflow's review gate for submission and merge assessment within this mode, but does not supply a GitHub approval or satisfy an external independent-review requirement.
+
+Apply this review path wherever a task calls for different-model review, including Copilot fallback and review of corrections. Tests, current-head CI, human feedback, unresolved findings, repository protections, and separate merge authorization still apply.
 
 ## Copilot request state
 
@@ -52,7 +64,7 @@ A review is complete when the requested reviewer has submitted a review for the 
 
 ## Affirmative review
 
-**Affirmative review** is a favorable review that covers the changes being merged. It can come from a person, Copilot, or an independent local review.
+**Affirmative review** is a favorable review that covers the changes being merged. It can come from a person, Copilot, or an independent local review. In single-session mode, a favorable pass under [Single-session review](#single-session-review) also qualifies within that mode.
 
 A COMMENTED review qualifies when its text recommends approval or clearly reports a completed review with no findings. These do not qualify: silence, an empty comment list, a timeout, or the COMMENTED state alone. A review whose text asks for human review, such as Copilot's "Needs a closer look", does not qualify even with no findings. It returns the merge decision to the user. Another review source, including a different-model local review, does not answer that request. This workflow does not require the GitHub APPROVED state. Authors cannot approve their own PRs, and the agent often submits PRs as the user.
 

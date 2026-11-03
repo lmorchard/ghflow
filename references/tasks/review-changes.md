@@ -8,7 +8,9 @@ Apply [Working context and tool output](../shared/context.md) to selective sourc
 
 ## Set up the reviewer
 
-The parent starts this review in a fresh context. It supplies the repository, issue, project instructions, and exact base and head commits. Give the reviewer the necessary facts, not the author's conversation or conclusions.
+First apply [Execution mode](../shared/coordination.md#execution-mode). In single-session mode, perform [Single-session review](../shared/review.md#single-session-review) yourself, using the scope, examination, and reporting steps below. The fresh-context and model-selection instructions in this section apply only in delegated mode.
+
+In delegated mode, the parent starts this review in a fresh context. It supplies the repository, issue, project instructions, and exact base and head commits. Give the reviewer the necessary facts, not the author's conversation or conclusions.
 
 For an unpublished head, also require the supplied checkout path and publication state. Verify the supplied base and head with local Git in that checkout, following [Evidence](../shared/evidence.md#verifying-a-commit). Reject a missing commit, wrong checkout, or mismatched expected head and return it to the parent. For a published PR, read its current head with `pr-state` and verify that published commit remotely.
 

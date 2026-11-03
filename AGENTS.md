@@ -14,6 +14,8 @@ Create each worktree for this repository at `.claude/worktrees/<branch>` inside 
 
 ## Parent and trial agent roles
 
+First apply [Execution mode](references/shared/coordination.md#execution-mode). In single-session mode, the current agent performs authorized subject-repository tasks directly and must not use subagents. The parent and trial-agent separation below applies only in delegated mode.
+
 The parent agent develops skills with Les and evaluates their trials. It can edit this workflow repository and inspect subject repositories for research. A subject repository is a project used to try the skills.
 
 Subagents perform subject-repository tasks through the relevant skills. This includes code changes, commits, pushes, issue and board updates, PR submission, review replies, merges, and cleanup. The parent must not perform those actions directly merely because the user authorized the task.
@@ -22,13 +24,15 @@ Give each subagent the skill, necessary inputs, and the authorized scope. Return
 
 If a skill is incomplete, revise it here and let a subagent continue the task. If delegation is unavailable, report that limit. Only an explicit user exception permits the parent to act directly in the subject repository.
 
-## Local OpenCode review exception
+## Local-model execution and review
+
+Les requested single-session execution for local-model work, with no subagents and same-model review allowed. Apply [Execution mode](references/shared/coordination.md#execution-mode) and [Single-session review](references/shared/review.md#single-session-review). This approval covers local-model setups beyond the earlier OpenCode and Qwen exception below. It does not change cloud-model defaults.
 
 Les approved skipping different-model review for this project when using OpenCode with local `qwen3.8:latest` on his laptop. A fresh same-model second opinion is optional. Keep tests and self-review, and report the different-model review as waived under this approval. This exception does not apply to cloud-model workflows, waive other checks, or authorize merge. Carry its scope under [Review](references/shared/review.md#user-approved-exceptions).
 
 ## Authorization across issue tasks
 
-Les wants an agreed issue-preparation flow to continue through research, interviews, draft review, and publication without approval at every skill boundary. Carry that authorization and its limits into each subagent handoff. Once decisions are settled, publish the reviewed result within the agreed scope and report it. A subagent finishing a draft does not end the parent's authorized flow. Dispatch the next included task instead of waiting for the user to ask what is next.
+Les wants an agreed issue-preparation flow to continue through research, interviews, draft review, and publication without approval at every skill boundary. Carry that authorization and its limits across tasks and into any subagent handoff. Once decisions are settled, publish the reviewed result within the agreed scope and report it. A subagent finishing a draft does not end the parent's authorized flow. Dispatch the next included task instead of waiting for the user to ask what is next.
 
 Interviews settle questions, not repeated authorization. Carry authorization forward through changes that Les reviews or weighs in on. Revisit authorization only when a significant change falls outside the reviewed or authorized scope.
 

@@ -29,7 +29,8 @@ The repository root contains the single `ghflow` skill. Task procedures and shar
 Personal symbolic links install the checkout root. [Setup](../setup.md) records commands, source access, and the nested-worktree discovery limitation.
 
 Individual tasks remain usable directly. Delivery coordinators combine tasks within an explicitly selected issue, parent, or Ready queue.
-Coordination follows [roles and handoffs](../../references/shared/coordination.md). It requires available subagent dispatch.
+Coordination follows [execution mode, roles, and handoffs](../../references/shared/coordination.md).
+Local-model work stays in the current session without subagents. Other setups use delegated roles unless the user selects single-session mode.
 Bounded delivery does not authorize general backlog selection or scheduling.
 
 ## Current workflow boundaries
@@ -45,8 +46,9 @@ Standalone implementation remains local-only.
 Existing authorization carries across task boundaries within its scope. Explicit draft-only and read-only limits still apply.
 [Authorization](../../references/shared/authorization.md) owns permission rules. Implementation or submission does not authorize merge.
 
-Subagents use a configured machine account for subject-repository actions. [Agent identity](../../references/shared/identity.md) owns account selection and credential handling.
-Independent local review with a different recorded model is the primary review source for agent PRs.
+Agents use a configured machine account for subject-repository actions. [Agent identity](../../references/shared/identity.md) owns account selection and credential handling.
+In delegated mode, independent local review with a different recorded model is the primary review source for agent PRs.
+Single-session mode permits a separate same-model self-review pass in the current session.
 [Review](../../references/shared/review.md) owns review preparation, exceptions, and affirmative review criteria.
 [Merge PR](../../references/tasks/merge-pr.md) owns the merge procedure and its current-head checks.
 

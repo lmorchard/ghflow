@@ -1,10 +1,10 @@
 # Agent identity
 
-These rules apply to every subagent that runs Git commands or interacts with GitHub.
+These rules apply to every agent that runs Git commands or interacts with GitHub, including the current agent in single-session mode.
 
 ## Overview
 
-Subagents perform subject-repository actions under a designated machine account (such as `MokaGnome`). This distinguishes agent contributions from human actions on GitHub and allows the user to submit approving reviews on agent PRs.
+Agents perform subject-repository actions under a designated machine account (such as `MokaGnome`). This distinguishes agent contributions from human actions on GitHub and allows the user to submit approving reviews on agent PRs.
 
 ## Configuration
 
