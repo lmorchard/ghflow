@@ -30,7 +30,7 @@ Once the specification is solid:
 
 1. Update the issue body in the subject repository with the reviewed definition:
    ```bash
-   gh issue edit ISSUE_NUMBER --repo OWNER/REPO --body-file /tmp/defined-body.md
+   ghflow exec -- gh issue edit ISSUE_NUMBER --repo OWNER/REPO --body-file /tmp/defined-body.md
    ```
 2. Remove `triage:needs-definition` and add `triage:ready`.
 3. Post a brief comment linking to the revised body and noting that the issue is now actionable for implementation.
