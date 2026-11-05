@@ -119,6 +119,40 @@ def confirm_write_identity():
     confirm_authenticated_login(identity, identity_env(identity))
 
 
+def resolve_identity_or_none():
+    """Resolve the selected identity, or None when its configuration is unusable."""
+    try:
+        return resolve_identity()
+    except GhError:
+        return None
+
+
+def bare_gh_login(env=None):
+    """Report the login that a plain gh call in this environment uses.
+
+    Runs without the identity environment on purpose: this is the account that a
+    bare `gh` write outside `ghflow exec` would reach. Returns None when the
+    check cannot run, which the callers report as an unknown, not an error.
+    """
+    result = subprocess.run(["gh", "api", "user"], capture_output=True, text=True,
+                            env=dict(os.environ if env is None else env))
+    if result.returncode != 0:
+        return None
+    try:
+        profile = json.loads(result.stdout)
+    except json.JSONDecodeError:
+        return None
+    login = profile.get("login") if isinstance(profile, dict) else None
+    return login if isinstance(login, str) and login else None
+
+
+def identity_mismatch(effective_login, selected_login):
+    """Compare a plain-gh login with the selected login; None when either is unknown."""
+    if not effective_login or not isinstance(selected_login, str) or not selected_login:
+        return None
+    return effective_login.casefold() != selected_login.casefold()
+
+
 def confirm_authenticated_login(identity, env):
     """Make sure a board mutation uses a token for the selected login."""
     login = identity.get("login")
@@ -260,7 +294,7 @@ def same_reviewer(requested, author):
     return requested == "copilot" and author.startswith("copilot")
 
 
-def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated):
+def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=None, identity=None):
     errors = []
 
     def part(name, read):
@@ -472,6 +506,16 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated):
         "comments": comments,
         "errors": errors,
     }
+    if bare_login is not None:
+        # A plain-gh login check is a side read: when it cannot run, the fields
+        # are null and the exit status and errors stay untouched.
+        try:
+            effective = bare_login()
+        except (GhError, OSError, ValueError):
+            effective = None
+        result["effective_gh_login"] = effective
+        selected = identity.get("login") if isinstance(identity, dict) else None
+        result["identity_mismatch"] = identity_mismatch(effective, selected)
     return result, 2 if errors else 0
 
 
@@ -1250,7 +1294,7 @@ def read_base_ci(remote, sha, required, gh):
 
 
 def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run_gh_paginated, identity=None,
-                  env=None, home=None, skill_root=SKILL_ROOT):
+                  env=None, home=None, skill_root=SKILL_ROOT, bare_login=None):
     """Report the live, deterministic facts about a checkout that a task handoff would otherwise restate.
 
     Reads only. ``issue`` is ``(repo, number)`` or ``None``. Each part that could not be read
@@ -1402,7 +1446,16 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
 
     def read_identity():
         config = identity if identity is not None else resolve_identity()
-        return {key: config.get(key) for key in ("login", "configured", "ready", "source")}
+        info = {key: config.get(key) for key in ("login", "configured", "ready", "source")}
+        if bare_login is not None:
+            # Like the pr-state side read: null fields when it cannot run, not errors.
+            try:
+                effective = bare_login()
+            except (GhError, OSError, ValueError):
+                effective = None
+            info["effective_gh_login"] = effective
+            info["identity_mismatch"] = identity_mismatch(effective, info.get("login"))
+        return info
 
     identity_facts = part("identity", read_identity)
 
@@ -1589,6 +1642,192 @@ def pr_body(repo, number, out, issue_number=None, summary=None, review=None, dec
     Path(out).write_text(text, encoding="utf-8")
     return {"pr": f"{repo}#{number}", "head": head, "out": str(out), "chars": len(text),
             "commits": len(commits), "checks": len(checks or [])}, 0
+
+
+REVIEW_STATES = {"approve": "APPROVED", "request-changes": "CHANGES_REQUESTED", "comment": "COMMENTED"}
+
+READ_ERRORS = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError, UnicodeDecodeError)
+
+
+def normalized_body(text):
+    """Normalize a GitHub body for comparison: line endings and trailing whitespace."""
+    return (text or "").replace("\r\n", "\n").strip()
+
+
+def _open_pr_guard(repo, number, fields, result, gh):
+    """Read a PR and refuse with exit 3, writing nothing, unless it is open."""
+    try:
+        pr = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", fields]), dict, "The PR response")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "read", "error": str(error)})
+        return None, 1
+    result["before"] = {"state": pr.get("state"), "is_draft": pr.get("isDraft"), "head": pr.get("headRefOid")}
+    if pr.get("state") != "OPEN":
+        result["errors"].append({"part": "pr", "error": f"The PR is {pr.get('state')}; nothing was written."})
+        return None, 3
+    return pr, 0
+
+
+def _identity_login(identity):
+    config = identity if identity is not None else resolve_identity()
+    login = config.get("login")
+    return login if isinstance(login, str) and login else None
+
+
+def pr_review_post(repo, number, state, body_file, gh=run_gh, gh_text=run_gh_text,
+                   confirm=confirm_write_identity, identity=None):
+    """Post one PR review with the chosen verdict and read it back.
+
+    ``state`` is "approve", "request-changes", or "comment". The verdict policy is
+    the caller's: this command confirms the write identity, it does not infer approval.
+    """
+    result = {"pr": f"{repo}#{number}", "state": state, "writes": [], "errors": []}
+    expected = REVIEW_STATES.get(state)
+    if expected is None:
+        result["errors"].append({"part": "state", "error": f"Unknown review state {state!r}."})
+        return result, 1
+    try:
+        body = Path(body_file).read_text(encoding="utf-8")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "body", "error": str(error)})
+        return result, 1
+    if not body.strip():
+        result["errors"].append({"part": "body", "error": "The body file is empty."})
+        return result, 1
+    pr, status = _open_pr_guard(repo, number, "state,isDraft,headRefOid", result, gh)
+    if pr is None:
+        return result, status
+    try:
+        confirm()
+    except IdentityError as error:
+        result["errors"].append({"part": "identity", "error": str(error)})
+        return result, 1
+    login = _identity_login(identity)
+    flags = {"approve": "--approve", "request-changes": "--request-changes", "comment": "--comment"}[state]
+    tmp = Path(tempfile.mkdtemp(prefix="ghflow-review-"))
+    try:
+        body_path = tmp / "body.md"
+        body_path.write_text(body, encoding="utf-8")
+        gh_text(["pr", "review", str(number), "--repo", repo, flags, "--body-file", str(body_path)])
+        result["writes"].append("review")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        data = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", "reviews"]), dict, "The PR response")
+        reviews = response_type(data.get("reviews"), list, "The reviews list")
+        last = response_type(reviews[-1], dict, "The last review") if reviews else {}
+        author = (last.get("author") or {}).get("login") if isinstance(last.get("author"), dict) else None
+        result["readback"] = {
+            "author": bool(login) and isinstance(author, str) and author.casefold() == login.casefold(),
+            "state": last.get("state") == expected,
+            "body": normalized_body(last.get("body")) == normalized_body(body),
+        }
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    if not all(result["readback"].values()):
+        return result, 2
+    return result, 2 if result["errors"] else 0
+
+
+def pr_comment(repo, number, body_file, gh=run_gh, gh_text=run_gh_text,
+               confirm=confirm_write_identity, identity=None):
+    """Post a top-level comment on a PR and read it back."""
+    result = {"pr": f"{repo}#{number}", "writes": [], "errors": []}
+    try:
+        body = Path(body_file).read_text(encoding="utf-8")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "body", "error": str(error)})
+        return result, 1
+    if not body.strip():
+        result["errors"].append({"part": "body", "error": "The body file is empty."})
+        return result, 1
+    pr, status = _open_pr_guard(repo, number, "state,isDraft,headRefOid", result, gh)
+    if pr is None:
+        return result, status
+    try:
+        confirm()
+    except IdentityError as error:
+        result["errors"].append({"part": "identity", "error": str(error)})
+        return result, 1
+    login = _identity_login(identity)
+    tmp = Path(tempfile.mkdtemp(prefix="ghflow-comment-"))
+    try:
+        body_path = tmp / "body.md"
+        body_path.write_text(body, encoding="utf-8")
+        gh_text(["pr", "comment", str(number), "--repo", repo, "--body-file", str(body_path)])
+        result["writes"].append("comment")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    try:
+        data = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", "comments"]), dict, "The PR response")
+        comments = response_type(data.get("comments"), list, "The comments list")
+        last = response_type(comments[-1], dict, "The last comment") if comments else {}
+        author = (last.get("author") or {}).get("login") if isinstance(last.get("author"), dict) else None
+        result["readback"] = {
+            "author": bool(login) and isinstance(author, str) and author.casefold() == login.casefold(),
+            "body": normalized_body(last.get("body")) == normalized_body(body),
+        }
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    if not all(result["readback"].values()):
+        return result, 2
+    return result, 2 if result["errors"] else 0
+
+
+def pr_merge(repo, number, method, expect_head, gh=run_gh, gh_text=run_gh_text,
+             confirm=confirm_write_identity):
+    """Merge a PR with a verified head and read the merged state back.
+
+    ``method`` is "merge", "squash", or "rebase". ``expect_head`` must be the
+    reviewed head; the command refuses a moved head, a draft, a closed PR, and a
+    non-mergeable PR without writing anything.
+    """
+    result = {"pr": f"{repo}#{number}", "method": method, "writes": [], "errors": []}
+    if method not in ("merge", "squash", "rebase"):
+        result["errors"].append({"part": "method", "error": f"Unknown merge method {method!r}."})
+        return result, 1
+    pr, status = _open_pr_guard(repo, number, "state,isDraft,headRefOid,mergeable", result, gh)
+    if pr is None:
+        return result, status
+    if pr.get("isDraft"):
+        result["errors"].append({"part": "pr", "error": "The PR is a draft; nothing was written."})
+        return result, 3
+    if pr.get("mergeable") != "MERGEABLE":
+        result["errors"].append({"part": "pr", "error": f"The PR is {pr.get('mergeable')}; nothing was written."})
+        return result, 3
+    head = pr.get("headRefOid")
+    if not isinstance(head, str) or not head or head != expect_head:
+        result["errors"].append({"part": "head", "error": f"The current head {head} is not the expected {expect_head}; nothing was written."})
+        return result, 3
+    try:
+        confirm()
+    except IdentityError as error:
+        result["errors"].append({"part": "identity", "error": str(error)})
+        return result, 1
+    try:
+        gh_text(["pr", "merge", str(number), "--repo", repo, f"--{method}", "--match-head-commit", expect_head])
+        result["writes"].append("merge")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+        return result, 1
+    try:
+        data = response_type(gh(["pr", "view", str(number), "--repo", repo, "--json", "state,mergedAt,mergeCommit"]), dict, "The PR response")
+        merged = data.get("state") == "MERGED" and bool(data.get("mergedAt")) and bool((data.get("mergeCommit") or {}).get("oid"))
+        result["merge_commit"] = (data.get("mergeCommit") or {}).get("oid") if isinstance(data.get("mergeCommit"), dict) else None
+        result["merged_at"] = data.get("mergedAt")
+        result["readback"] = {"merged": merged}
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    if not result["readback"]["merged"]:
+        return result, 2
+    return result, 2 if result["errors"] else 0
 
 
 HANDOFF_SCOPE = {
@@ -2345,6 +2584,20 @@ def main(argv=None):
     body.add_argument("--summary", metavar="FILE", help="Markdown summary of the change")
     body.add_argument("--review", metavar="FILE", help="Markdown review section")
     body.add_argument("--decisions", metavar="FILE", help="Markdown decisions taken unattended")
+    review_post = pr_commands.add_parser("review-post", help="Post one PR review with the chosen verdict from a body file, and read it back.")
+    review_post.add_argument("pr", help="PR URL, or PR number with --repo")
+    review_post.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    review_post.add_argument("--state", required=True, choices=tuple(REVIEW_STATES), help="review verdict to submit")
+    review_post.add_argument("--body-file", required=True, metavar="FILE", help="UTF-8 file with the review body")
+    pr_comment_cmd = pr_commands.add_parser("comment", help="Post a top-level PR comment from a body file, and read it back.")
+    pr_comment_cmd.add_argument("pr", help="PR URL, or PR number with --repo")
+    pr_comment_cmd.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    pr_comment_cmd.add_argument("--body-file", required=True, metavar="FILE", help="UTF-8 file with the comment body")
+    pr_merge_cmd = pr_commands.add_parser("merge", help="Merge a PR with a verified head and read the merged state back.")
+    pr_merge_cmd.add_argument("pr", help="PR URL, or PR number with --repo")
+    pr_merge_cmd.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    pr_merge_cmd.add_argument("--method", required=True, choices=("merge", "squash", "rebase"), help="merge method to use")
+    pr_merge_cmd.add_argument("--expect-head", required=True, metavar="SHA", help="refuse to merge unless the current head is this commit")
     handoff_cmd = commands.add_parser("handoff", help="Write a dispatch handoff file from live facts and your decisions, and print the one-line prompt that points to it.")
     handoff_cmd.add_argument("operation", choices=sorted(HANDOFF_SCOPE), help="the worker's task reference")
     handoff_cmd.add_argument("issue", nargs="?", help="issue URL; prepare-project-facts takes none")
@@ -2403,7 +2656,7 @@ def main(argv=None):
 
     if args.command == "pr-state":
         repo, number = parse_pr(args.pr, args.repo)
-        result, status = pr_state(repo, number)
+        result, status = pr_state(repo, number, bare_login=bare_gh_login, identity=resolve_identity_or_none())
     elif args.command == "verify-commit":
         pr_head = parse_pr(args.pr_head, args.repo) if args.pr_head else None
         result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head)
@@ -2448,6 +2701,15 @@ def main(argv=None):
             result, status = pr_body(repo, number, args.out, args.issue_number, args.summary, args.review, args.decisions)
         except (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
             result, status = {"errors": [{"part": "body", "error": str(error)}]}, 1
+    elif args.command == "pr" and args.pr_command == "review-post":
+        repo, number = parse_pr(args.pr, args.repo)
+        result, status = pr_review_post(repo, number, args.state, args.body_file, identity=resolve_identity_or_none())
+    elif args.command == "pr" and args.pr_command == "comment":
+        repo, number = parse_pr(args.pr, args.repo)
+        result, status = pr_comment(repo, number, args.body_file, identity=resolve_identity_or_none())
+    elif args.command == "pr" and args.pr_command == "merge":
+        repo, number = parse_pr(args.pr, args.repo)
+        result, status = pr_merge(repo, number, args.method, args.expect_head)
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
         board = None
@@ -2460,7 +2722,7 @@ def main(argv=None):
 
     elif args.command == "facts":
         issue = parse_issue(args.issue, args.repo) if args.issue else None
-        result, status = project_facts(issue=issue)
+        result, status = project_facts(issue=issue, bare_login=bare_gh_login)
     elif args.command == "identity":
         try:
             identity = resolve_identity()
