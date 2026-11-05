@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Check skill frontmatter and local Markdown links."""
+"""Check skill frontmatter, local Markdown links, and agent identity in docs."""
 
 import re
 import subprocess
@@ -10,6 +10,19 @@ ROOT = Path(__file__).resolve().parent.parent
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TASK_NAME = NAME
+
+# A `gh` invocation that changes GitHub state. Agents must run these under the
+# selected identity: through a `ghflow` write command or `ghflow exec`.
+BARE_GH_WRITE = re.compile(
+    r"\bgh\s+(?:"
+    r"pr\s+(?:merge|update-branch|edit|close|reopen|comment|review|ready|create)|"
+    r"issue\s+(?:edit|close|reopen|comment|create|pin|unpin|delete)|"
+    r"repo\s+edit|"
+    r"api\s+(?:-X|--method)\s+(?:PUT|POST|DELETE)\b"
+    r")"
+)
+# Marks a line whose bare `gh` write is deliberate, with the reason recorded.
+ALLOW_MARKER = "allow-bare-gh"
 
 
 def frontmatter(text):
@@ -143,8 +156,44 @@ def check_scenario_skills(root=ROOT):
     return errors
 
 
+def tracked_markdown(root=ROOT):
+    files = subprocess.run(
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard", "*.md"],
+        cwd=root, capture_output=True, text=True, check=True,
+    ).stdout.split()
+    return [(root / name) for name in files if (root / name).exists()]
+
+
+def instruction_markdown(root=ROOT):
+    """Return the agent-facing instruction files, not run records or fixtures."""
+    skip = ("evals/", "docs/research/")
+    return [
+        path for path in tracked_markdown(root)
+        if path.name == "SKILL.md" or not (
+            path.relative_to(root).as_posix().startswith(skip)
+        )
+    ]
+
+
+def check_bare_gh_writes(root=ROOT):
+    """Flag documented gh write commands that do not run under the agent identity."""
+    errors = []
+    for path in instruction_markdown(root):
+        name = path.relative_to(root).as_posix()
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            if not BARE_GH_WRITE.search(line):
+                continue
+            if "ghflow exec" in line or "$GHFLOW_CLI" in line or ALLOW_MARKER in line:
+                continue
+            errors.append(
+                f"{name}:{number}: bare gh write; run it under the identity with"
+                " a ghflow write command or 'ghflow exec -- gh ...', or mark the"
+                f" line with <!-- {ALLOW_MARKER}: reason -->")
+    return errors
+
+
 def main():
-    errors = check_skills() + check_links() + check_scenario_skills()
+    errors = check_skills() + check_links() + check_scenario_skills() + check_bare_gh_writes()
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0

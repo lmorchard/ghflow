@@ -51,11 +51,11 @@ When the user approves a bundle:
    - For an existing parent issue, ensure the `theme` label is applied.
 2. Link the child issues to the parent using native GitHub sub-issue relationships:
    ```bash
-   gh issue edit PARENT_NUMBER --repo OWNER/REPO --add-sub-issue CHILD_NUMBER1,CHILD_NUMBER2
+   ghflow exec -- gh issue edit PARENT_NUMBER --repo OWNER/REPO --add-sub-issue CHILD_NUMBER1,CHILD_NUMBER2
    ```
    Alternatively, set the parent from the child:
    ```bash
-   gh issue edit CHILD_NUMBER --repo OWNER/REPO --parent PARENT_NUMBER
+   ghflow exec -- gh issue edit CHILD_NUMBER --repo OWNER/REPO --parent PARENT_NUMBER
    ```
 3. Read back the updated parent issue to confirm that GitHub reflects the attached sub-issues.
 

@@ -48,9 +48,9 @@ For each evaluated issue:
    - The blocking questions or missing criteria, if applicable.
 2. Apply the matching label from [Triage labels](../shared/triage-labels.md). For a blocked issue, set a native blocked-by relationship for each blocking issue before you apply `triage:blocked`.
 3. If the issue is already completed, close it:
-   - `gh issue close ISSUE_URL --reason completed`
+   - `ghflow exec -- gh issue close ISSUE_URL --reason completed`
 4. If the issue is obsolete or not planned, close it:
-   - `gh issue close ISSUE_URL --reason "not planned"`
+   - `ghflow exec -- gh issue close ISSUE_URL --reason "not planned"`
    - Add the `wontfix` or `duplicate` label if the repository uses it.
 5. If updating labels fails because a label does not exist in the repository, create the label with a brief description and retry.
 6. When evaluating a parent issue's sub-issues, post a rollup summary comment to the parent issue listing the status of its children.

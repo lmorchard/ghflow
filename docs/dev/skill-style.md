@@ -45,7 +45,7 @@ There is no fixed sentence-length limit. Split a sentence when it holds two sepa
 
 State the rule positively when you can. "Read checks for the current head" covers several "do not" rules about earlier commits.
 
-Use "Do not" for a specific temptation with a real cost, such as `gh pr create --dry-run` pushing changes. Keep concrete pitfalls like that one when they are not obvious and an error is expensive.
+Use "Do not" for a specific temptation with a real cost, such as `gh pr create --dry-run` pushing changes. <!-- allow-bare-gh: names the forbidden command, not a run instruction --> Keep concrete pitfalls like that one when they are not obvious and an error is expensive.
 
 Before you add a rule for an incident, look for the general rule that the agent missed. Strengthen or clarify that rule instead of adding a new special case. Record the incident and the commit in [Trial records](../research/trials/README.md).
 

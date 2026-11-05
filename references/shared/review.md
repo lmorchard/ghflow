@@ -6,7 +6,7 @@ These rules apply to every skill that requests, performs, waits for, or relies o
 
 First apply [Execution mode](coordination.md#execution-mode). In single-session mode, use [Single-session review](#single-session-review). Otherwise, the primary review source for an agent pull request is **independent local review**, done with [review-changes](../tasks/review-changes.md) in a fresh context.
 
-The user may request **Copilot** review manually, in the GitHub web interface or with `gh pr edit PR_URL --add-reviewer "@copilot"`. Copilot is not the default for agent pull requests. Its underlying model is unknown unless something identifies it.
+The user may request **Copilot** review manually, in the GitHub web interface or with `gh pr edit PR_URL --add-reviewer "@copilot"`. <!-- allow-bare-gh: names the user's own manual action, which no agent runs --> Copilot is not the default for agent pull requests. Its underlying model is unknown unless something identifies it.
 
 **Human review** comes from the user or another person.
 
@@ -52,7 +52,7 @@ Apply this review path wherever a task calls for different-model review, includi
 
 ## Copilot request state
 
-Request a Copilot review with `gh pr edit PR_URL --add-reviewer "@copilot"` only when the user asked for it. For an agent pull request, the default source is independent local review, not Copilot. Request a reviewer, not a coding-agent assignment or a comment that asks Copilot to change code.
+Request a Copilot review with `ghflow exec -- gh pr edit PR_URL --add-reviewer "@copilot"` only when the user asked for it. For an agent pull request, the default source is independent local review, not Copilot. Request a reviewer, not a coding-agent assignment or a comment that asks Copilot to change code.
 
 Before you request, inspect current review requests, completed reviews, and review-request timeline events. Repository automation can request Copilot as soon as the PR opens. An empty requested-reviewer list does not prove that no request exists. If a request for the current head exists, keep its timestamp and do not request again.
 
