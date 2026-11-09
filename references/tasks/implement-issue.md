@@ -4,6 +4,8 @@ Produce tested, committed changes for the requested issue, with enough evidence 
 
 Read this reference and your handoff first. Open the shared references when their conditions apply, as [Working context and tool output](../shared/context.md) states: [Agent identity](../shared/identity.md#running-commands-under-the-identity) before your first Git or `gh` command; [Board status](../shared/board-status.md) before you move the issue In progress; [Task notes](../shared/task-notes.md) when you create or resume notes; [Decisions](../shared/decisions.md) when a fact or choice is missing; [Evidence](../shared/evidence.md) when you record a check or write your report; [Authorization](../shared/authorization.md) when a step's scope or permission is in question; [GitHub writes](../shared/github-writes.md) before you change a GitHub record. Reading them all before you start delays the work and changes no decision.
 
+Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect.
+
 Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 
 ## Read the issue and current code
@@ -74,7 +76,7 @@ Inspect the complete task diff from the merge base, including uncommitted and ne
 
 If the base changes or conflicts need resolution, reassess which results still apply.
 
-Stage only the intended files and inspect the staged diff. Commit logical changes following project conventions. If a commit hook changes tested files, run the affected checks again. Make sure the commits contain the changes your report describes.
+Stage only the intended files and inspect the staged diff. Commit logical changes with `python3 "$GHFLOW_CLI" exec -- git commit ...`, following project conventions. If a commit hook changes tested files, run the affected checks again. Make sure the commits contain the changes your report describes.
 
 This self-review is not independent review. Do not claim independent verification when none occurred.
 

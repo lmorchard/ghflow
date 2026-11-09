@@ -1604,6 +1604,7 @@ HANDOFF_SCOPE = {
                              "and publish it as a ready PR for the user's review. It needs no agent review: do not publish a draft, "
                              "request a review, or wait for one. Do not merge. Return the refreshed file's worktree path.",
 }
+HANDOFF_WRITE_OPERATIONS = frozenset(HANDOFF_SCOPE) - {"review-changes"}
 ISSUELESS_OPERATIONS = ("prepare-project-facts",)
 HANDOFF_DEFAULTS = "handoff-defaults.json"
 HANDOFF_RETURN = ("Return the PR URL, the published head, the check results with their commits, evidence limits, "
@@ -1655,6 +1656,13 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         info, status = facts()
     if status == 1:
         return {"errors": info.get("errors", [])}, 1
+    identity = info.get("identity") or {}
+    if operation in HANDOFF_WRITE_OPERATIONS and not identity.get("ready"):
+        login = identity.get("login") or "unknown"
+        return {"errors": [{"part": "identity", "error": (
+            f"The agent identity {login} is not ready. A write handoff needs a configured login "
+            "and token. Run `identity`, fix the configuration, or use `review-changes` for a "
+            "read-only handoff.")}]}, 1
     skill = info.get("skill_source") or {}
     checkout = info.get("checkout") or {}
     repository = info.get("repository") or {}
@@ -1674,6 +1682,13 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         f"Project facts: {facts_line or 'no facts file'}; run `facts{' --issue ' + subject if issue_url else ''}` for live state.",
         f"Base: origin/{repository.get('default_branch', '')} at {repository.get('origin_default_head', 'unknown')}.",
     ]
+    if operation in HANDOFF_WRITE_OPERATIONS:
+        cli_path = skill_dir / "cli" / "ghflow.py"
+        lines.append(
+            f"Identity: {identity.get('login')} is ready. Run every Git and GitHub write through "
+            f"`python3 {cli_path} exec -- ...` or a ghflow command. Before the first write, "
+            f"`exec -- gh api user` must return {identity.get('login')}."
+        )
     if issue_url:
         lines.append(f"Existing work: branches {issue.get('branches') or []}, worktrees {issue.get('worktrees') or []}, "
                      f"PRs {[(p.get('number'), p.get('state'), p.get('head')) for p in issue.get('prs') or []]}.")

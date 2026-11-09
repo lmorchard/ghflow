@@ -2,7 +2,7 @@
 
 Evaluate open `triage:ready` issues, assign their `Priority` and `Size` fields, and stage high-priority (`P0`/`P1`) issues into the project board's `Backlog`. Re-sweep lower-priority issues when the high-priority queue runs low or circumstances warrant a rethink. This is the task that promotes an issue into the `P0`/`P1` tier; [curate-ready-queue](curate-ready-queue.md) never changes priorities, as [Priority tiers](../shared/board-status.md#priority-tiers) states. This skill does not move issues to `Ready` or begin implementation.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Board status](../shared/board-status.md), and [Agent identity](../shared/identity.md) throughout. The parent agent conducts the ranking review with the user; subagents execute project board field updates in the subject repository. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Board status](../shared/board-status.md), and [Agent identity](../shared/identity.md) throughout. The parent agent conducts the ranking review with the user; subagents execute project board field updates in the subject repository. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Select the candidate pool
 

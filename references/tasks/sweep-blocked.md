@@ -2,7 +2,7 @@
 
 Find open issues labeled `triage:blocked` whose blockers have all closed, and return them to `triage:needs-definition` so that they appear with actionable work again. This task changes labels and posts comments. It does not define issues; [sweep-needs-definition](sweep-needs-definition.md) does that next.
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. Subagents perform subject-repository writes following [Agent identity](../shared/identity.md) and [GitHub writes](../shared/github-writes.md).
+Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. Subagents perform subject-repository writes following [Agent identity](../shared/identity.md) and [GitHub writes](../shared/github-writes.md). Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect.
 
 ## List blocked issues
 
@@ -20,7 +20,7 @@ A blocker that closed as `not planned` still counts as closed, but it can invali
 
 ## Update the issues
 
-1. For each unblocked issue, replace `triage:blocked` with `triage:needs-definition`. Post a short comment that names the closed blockers, with the PR or commit that closed each when GitHub records one, and says that any outline needs a full specification against current code.
+1. For each unblocked issue, replace `triage:blocked` with `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...`. Post a short comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` that names the closed blockers, with the PR or commit that closed each when GitHub records one, and says that any outline needs a full specification against current code.
 2. Leave still-blocked issues unchanged.
 3. For an issue with no recorded blocker, read its body and comments. If they name blocking issues, report them so that the relationships can be set. Do not relabel the issue on text alone.
 

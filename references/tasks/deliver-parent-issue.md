@@ -2,7 +2,7 @@
 
 Work through the children needed to satisfy one selected parent issue, reusing the existing skills and carrying decisions between them. Continue from child to child without the user restarting the flow. Stop at the parent's boundary.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Apply [Coordination](../shared/coordination.md) to dispatch and handoffs. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Apply [Coordination](../shared/coordination.md) to dispatch and handoffs. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the boundary
 
@@ -58,6 +58,6 @@ Run the project checks and focused integration checks needed for the remaining e
 
 Keep automated tests, hosted CI, deployment, and user-reported smoke checks distinct. Name required live checks that were not performed. Do not claim parent completion while a required success condition is unresolved.
 
-If the authorized endpoint and all completion conditions are met, have a subagent close the parent and apply its board transition, then read back the result. Otherwise leave it open and report exactly what remains.
+If the authorized endpoint and all completion conditions are met, have a subagent close the parent and apply its board transition with ghflow commands or `exec`, then read back the result. Otherwise leave it open and report exactly what remains.
 
 Return the child and PR links, parent state, current coverage, decisions made, blockers, and verification limits. Do not move on to unrelated backlog work.

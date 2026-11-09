@@ -2,7 +2,7 @@
 
 Review issues that were closed autonomously during triage. Present a summary digest of findings and cited evidence to the user, confirm the closures, and reopen any issues the user decides to retain.
 
-Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the review; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the review; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## List agent-closed issues
 
@@ -35,10 +35,10 @@ Collect the user's evaluation:
   - Retain the `triage:agent-closed` label unless the user requests removing it.
 - **Reopened issues**:
   - Dispatch a subagent to:
-    1. Reopen the issue: `gh issue reopen ISSUE_URL`.
-    2. Remove the `triage:agent-closed` label.
-    3. Post a comment explaining why the issue was reopened and the user's intent.
-    4. Apply `triage:needs-input` or `triage:needs-definition` based on the user's direction.
+    1. Reopen the issue: `python3 "$GHFLOW_CLI" exec -- gh issue reopen ISSUE_URL`.
+    2. Remove the `triage:agent-closed` label with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --remove-label triage:agent-closed`.
+    3. Post a comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` explaining why the issue was reopened and the user's intent.
+    4. Apply `triage:needs-input` or `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...` based on the user's direction.
 
 ## Conclude the sweep
 

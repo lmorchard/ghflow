@@ -2,7 +2,7 @@
 
 Evaluate a batch of open issues to identify completed, obsolete, well-defined, or uncertain work. Post findings comments on the issues and apply one [triage label](../shared/triage-labels.md) to each. Close confirmed completed or obsolete issues with evidence. This skill does not implement changes, submit PRs, or modify project boards.
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Select the issue batch
 
@@ -42,15 +42,15 @@ Autonomous closure requires verifiable evidence: a commit SHA, merged PR, passin
 
 For each evaluated issue:
 
-1. Post a concise comment with:
+1. Post a concise comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...`:
    - Summary of findings against current code.
    - Cited evidence (commit SHAs, file paths, test assertions, PRs).
    - The blocking questions or missing criteria, if applicable.
 2. Apply the matching label from [Triage labels](../shared/triage-labels.md). For a blocked issue, set a native blocked-by relationship for each blocking issue before you apply `triage:blocked`.
 3. If the issue is already completed, close it:
-   - `gh issue close ISSUE_URL --reason completed`
+   - `python3 "$GHFLOW_CLI" exec -- gh issue close ISSUE_URL --reason completed`
 4. If the issue is obsolete or not planned, close it:
-   - `gh issue close ISSUE_URL --reason "not planned"`
+   - `python3 "$GHFLOW_CLI" exec -- gh issue close ISSUE_URL --reason "not planned"`
    - Add the `wontfix` or `duplicate` label if the repository uses it.
 5. If updating labels fails because a label does not exist in the repository, create the label with a brief description and retry.
 6. When evaluating a parent issue's sub-issues, post a rollup summary comment to the parent issue listing the status of its children.

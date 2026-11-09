@@ -2709,6 +2709,7 @@ class HandoffTests(unittest.TestCase):
                 "repository": {"default_branch": "main", "origin_default_head": "d" * 40},
                 "project_files": {"instructions": ["AGENTS.md"]},
                 "project_facts": {"path": ".ghflow/project.md", "present": True},
+                "identity": {"login": "MokaGnome", "configured": True, "ready": True},
                 "issue": {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "branches": [], "worktrees": [], "prs": []},
                 "errors": []}, 0
 
@@ -2728,6 +2729,39 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("model ID your runtime states to you", text)
         self.assertIn(str(tmp / "h" / "handoff.md"), result["dispatch_prompt"])
         self.assertLess(len(result["dispatch_prompt"]), 300)
+
+    def test_write_handoff_names_the_identity_and_the_exec_path(self):
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5",
+                                       tmp / "handoff.md", facts=self.facts)
+        self.assertEqual(status, 0)
+        text = (tmp / "handoff.md").read_text()
+        self.assertIn("Identity: MokaGnome is ready.", text)
+        self.assertIn("`python3 /skills/ghflow/cli/ghflow.py exec -- ...`", text)
+        self.assertIn("`exec -- gh api user` must return MokaGnome.", text)
+
+    def test_read_only_handoff_does_not_require_or_name_the_identity(self):
+        def no_identity(issue=None):
+            info, _ = self.facts()
+            info["identity"] = {"login": "MokaGnome", "configured": True, "ready": False}
+            return info, 0
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("review-changes", "https://github.com/o/r/issues/5",
+                                       tmp / "review.md", facts=no_identity)
+        self.assertEqual(status, 0)
+        self.assertNotIn("Identity:", (tmp / "review.md").read_text())
+
+    def test_write_handoff_refuses_a_missing_identity(self):
+        def no_identity(issue=None):
+            info, _ = self.facts()
+            info["identity"] = {"login": "MokaGnome", "configured": True, "ready": False}
+            return info, 0
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5",
+                                       tmp / "handoff.md", facts=no_identity)
+        self.assertEqual(status, 1)
+        self.assertEqual(result["errors"][0]["part"], "identity")
+        self.assertFalse((tmp / "handoff.md").exists())
 
     def test_unknown_operation_is_refused(self):
         result, status = write_handoff("merge-pr", "https://github.com/o/r/issues/5", "/tmp/x.md", facts=self.facts)

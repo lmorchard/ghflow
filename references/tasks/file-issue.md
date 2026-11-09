@@ -1,8 +1,8 @@
 # File an issue
 
-Publish the supplied draft with existing `gh` commands, add the requested relationships and fields, and confirm the saved result. Do not repeat issue definition or begin implementation.
+Publish the supplied draft with ghflow commands or `ghflow exec`, add the requested relationships and fields, and confirm the saved result. Do not repeat issue definition or begin implementation.
 
-Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. A request to file the draft, or an agreed flow that includes publication, authorizes issue creation. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. A request to file the draft, or an agreed flow that includes publication, authorizes issue creation. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the requested changes
 
@@ -14,7 +14,7 @@ If a missing decision changes what the issue means, return the question to the p
 
 ## Inspect GitHub before writing
 
-Run `gh auth status`. Do not print credentials. If authentication fails, report the required action.
+Run `python3 "$GHFLOW_CLI" identity`. Do not print credentials. Before the first write, confirm that `python3 "$GHFLOW_CLI" exec -- gh api user` returns the configured login. If authentication fails, report the required action.
 
 Check the installed help for the operations you need. Some `gh` versions support parent links and project field names directly, without manual identifier lookups.
 
@@ -28,9 +28,9 @@ Write the body to a UTF-8 file, separate from the title, and pass it with `--bod
 
 Before the first write, note the operations you intend. A short session note is enough.
 
-Create the issue in the explicit target repository. Include parent or project flags when their targets are unambiguous. Record the returned URL immediately.
+Create the issue with `python3 "$GHFLOW_CLI" exec -- gh issue create ...` in the explicit target repository. Include parent or project flags when their targets are unambiguous. Record the returned URL immediately.
 
-Read the saved issue back. Make sure the title and body match the prepared content and the requested relationships exist. Add any missing metadata to that issue. Set a requested project status only after project membership exists, following [Board status](../shared/board-status.md).
+Read the saved issue back. Make sure the title and body match the prepared content and the requested relationships exist. Add any missing metadata with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...`. Set a requested project status only after project membership exists, with `python3 "$GHFLOW_CLI" board set-status ...` following [Board status](../shared/board-status.md).
 
 Read back project membership even when no project was requested. A project's auto-add workflow can add the issue on creation. Report membership that nobody requested, and return the choice to remove it to the parent or user.
 

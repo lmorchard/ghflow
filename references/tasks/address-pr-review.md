@@ -2,7 +2,7 @@
 
 Take an existing PR through one review cycle and CI repair, and return the final report directly to the parent. This skill can follow [submit-pr](submit-pr.md) or start from a PR created elsewhere. It acts on review findings; it does not provide independent review. It stops before merge.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 
@@ -28,7 +28,7 @@ gh pr checks PR_URL --watch --interval 30 --fail-fast
 
 Run it in a way that returns control, so you can handle review feedback and user input. Report when a check finishes, a review arrives, or a decision is needed. Do not send updates that only repeat an unchanged pending state.
 
-If a check fails, read its job log before you change anything. Distinguish a code defect from setup problems, permissions, service outages, and cancellation. Fix failures within the issue and its required build setup, without weakening checks. Run the affected local checks, commit, push to the same PR, and watch the new head.
+If a check fails, read its job log before you change anything. Distinguish a code defect from setup problems, permissions, service outages, and cancellation. Fix failures within the issue and its required build setup, without weakening checks. Run the affected local checks, commit with `python3 "$GHFLOW_CLI" exec -- git commit ...`, push to the same PR with `python3 "$GHFLOW_CLI" exec -- git push ...`, and watch the new head.
 
 Continue until CI passes or a concrete blocker prevents useful work. Do not retry an unchanged failure without new evidence or a specific reason that a retry can help. Rerunning a failed job for such a reason is part of CI repair. Report missing credentials, persistent service failures, and decisions that need the user. Keep completed fixes.
 
@@ -58,11 +58,11 @@ Respond to each finding in one of these ways:
 
 A request to address review covers corrections and factual replies within the agreed scope. Return a new product decision or broader scope to the parent or user. Do not weaken a success condition to satisfy a suggestion.
 
-Make all accepted corrections, run the checks, and push them together. Each push restarts CI and can trigger another automatic review.
+Make all accepted corrections, run the checks, and push them together with `python3 "$GHFLOW_CLI" exec -- git push ...`. Each push restarts CI and can trigger another automatic review.
 
-Before you edit, confirm that the worktree and branch match the PR head. Work in that worktree or a new isolated one, and preserve unrelated work. Add or update useful tests, and run the affected checks plus the required project checks. Commit and push to the same PR branch. Inspect unexpected remote changes before you push, and do not force-push over another contributor's work.
+Before you edit, confirm that the worktree and branch match the PR head. Work in that worktree or a new isolated one, and preserve unrelated work. Add or update useful tests, and run the affected checks plus the required project checks. Commit and push to the same PR branch with `python3 "$GHFLOW_CLI" exec -- git commit ...` and `python3 "$GHFLOW_CLI" exec -- git push ...`. Inspect unexpected remote changes before you push, and do not force-push over another contributor's work.
 
-Reply with the correction and its commit, or explain why you made no change. Resolve a discussion only when its concern is fixed and the project permits it. Leave disputed and undecided discussions open.
+Reply with `python3 "$GHFLOW_CLI" exec -- gh pr comment ...` and name the correction and its commit, or explain why you made no change. Resolve a discussion only when its concern is fixed and the project permits it. Leave disputed and undecided discussions open.
 
 After a push, read CI and review state for the new head. Update the PR description if the changes make its claims wrong.
 

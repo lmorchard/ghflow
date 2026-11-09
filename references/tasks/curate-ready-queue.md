@@ -2,7 +2,7 @@
 
 Select high-priority (`P0`/`P1`) issues from the project board's `Backlog` and advance them to `Ready`. Maintain a bounded work-in-progress (WIP) queue (typically 3 to 5 items) so implementers have a clear, prioritized pipeline without overwhelming the board. This skill does not start implementation or submit pull requests.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Board status](../shared/board-status.md), and [Agent identity](../shared/identity.md) throughout. The parent agent discusses candidate tasks with the user; subagents execute board transitions in the subject repository. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Board status](../shared/board-status.md), and [Agent identity](../shared/identity.md) throughout. The parent agent discusses candidate tasks with the user; subagents execute board transitions in the subject repository. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Audit current board WIP
 

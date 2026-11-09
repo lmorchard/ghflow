@@ -2,7 +2,7 @@
 
 Survey an open issue backlog, cluster related items into thematic initiatives, and organize them under native GitHub parent issues. This groups scattered issues by code boundary and outcome before deep triage or implementation.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md) throughout. The parent agent discusses proposed clusters with the user; subagents execute issue creation and relationship updates in the subject repository. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. The parent agent discusses proposed clusters with the user; subagents execute issue creation and relationship updates in the subject repository. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Survey the backlog
 
@@ -46,16 +46,16 @@ When the user approves a bundle:
    - Include a concise problem statement, the shared boundary, and success criteria for the whole initiative.
    - Apply the `theme` label to identify it as a thematic parent umbrella issue. If the label does not exist, create it:
      ```bash
-     gh label create "theme" --repo OWNER/REPO --description "Thematic parent umbrella issue" --color "6f42c1"
+     python3 "$GHFLOW_CLI" exec -- gh label create "theme" --repo OWNER/REPO --description "Thematic parent umbrella issue" --color "6f42c1"
      ```
    - For an existing parent issue, ensure the `theme` label is applied.
 2. Link the child issues to the parent using native GitHub sub-issue relationships:
    ```bash
-   gh issue edit PARENT_NUMBER --repo OWNER/REPO --add-sub-issue CHILD_NUMBER1,CHILD_NUMBER2
+   python3 "$GHFLOW_CLI" exec -- gh issue edit PARENT_NUMBER --repo OWNER/REPO --add-sub-issue CHILD_NUMBER1,CHILD_NUMBER2
    ```
    Alternatively, set the parent from the child:
    ```bash
-   gh issue edit CHILD_NUMBER --repo OWNER/REPO --parent PARENT_NUMBER
+   python3 "$GHFLOW_CLI" exec -- gh issue edit CHILD_NUMBER --repo OWNER/REPO --parent PARENT_NUMBER
    ```
 3. Read back the updated parent issue to confirm that GitHub reflects the attached sub-issues.
 

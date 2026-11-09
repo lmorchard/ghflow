@@ -52,7 +52,7 @@ Apply this review path wherever a task calls for different-model review, includi
 
 ## Copilot request state
 
-Request a Copilot review with `gh pr edit PR_URL --add-reviewer "@copilot"` only when the user asked for it. For an agent pull request, the default source is independent local review, not Copilot. Request a reviewer, not a coding-agent assignment or a comment that asks Copilot to change code.
+Request a Copilot review with `python3 "$GHFLOW_CLI" exec -- gh pr edit PR_URL --add-reviewer "@copilot"` only when the user asked for it. Apply [Agent identity](identity.md#running-commands-under-the-identity) to the request; a plain `gh` write uses the host account. For an agent pull request, the default source is independent local review, not Copilot. Request a reviewer, not a coding-agent assignment or a comment that asks Copilot to change code.
 
 Before you request, inspect current review requests, completed reviews, and review-request timeline events. Repository automation can request Copilot as soon as the PR opens. An empty requested-reviewer list does not prove that no request exists. If a request for the current head exists, keep its timestamp and do not request again.
 
