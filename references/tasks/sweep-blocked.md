@@ -2,7 +2,7 @@
 
 Find open issues labeled `triage:blocked` whose blockers have all closed, and return them to `triage:needs-definition` so that they appear with actionable work again. This task changes labels and posts comments. It does not define issues; [sweep-needs-definition](sweep-needs-definition.md) does that next.
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. Subagents perform subject-repository writes following [Agent identity](../shared/identity.md) and [GitHub writes](../shared/github-writes.md). Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect.
+Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. Subagents perform subject-repository writes following [Agent identity](../shared/identity.md) and [GitHub writes](../shared/github-writes.md).
 
 ## List blocked issues
 

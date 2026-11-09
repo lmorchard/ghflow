@@ -1,6 +1,6 @@
 # Triage labels
 
-Triage labels record where an open issue stands in refinement. Give each triaged issue exactly one `triage:*` label. Replace the old label when the state changes. Apply [GitHub writes](github-writes.md) and [Agent identity](identity.md#running-commands-under-the-identity) to each label change. Run every write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect.
+Triage labels record where an open issue stands in refinement. Give each triaged issue exactly one `triage:*` label. Replace the old label when the state changes. Apply [GitHub writes](github-writes.md) and [Agent identity](identity.md#running-commands-under-the-identity) to each label change.
 
 | Label | Meaning | Next step |
 |---|---|---|
@@ -17,7 +17,7 @@ Triage labels record where an open issue stands in refinement. Give each triaged
 
 An issue is blocked when its refinement depends on an open issue: the specification would describe code, a contract, or a decision that the other issue will change or supply. An open question for the user is `triage:needs-input`, not a blocker.
 
-Record each blocker as a native GitHub blocked-by relationship, not only in text. The relationship is the source that [sweep-blocked](../tasks/sweep-blocked.md) reads to return the issue to `triage:needs-definition`. Check the installed help for `python3 "$GHFLOW_CLI" exec -- gh issue edit` for the blocked-by option, and set it through that command. If the relationship cannot be set, report the failure and leave the issue on its previous label.
+Record each blocker as a native GitHub blocked-by relationship, not only in text. The relationship is the source that [sweep-blocked](../tasks/sweep-blocked.md) reads to return the issue to `triage:needs-definition`. Check the installed `gh issue edit` help for the blocked-by option. <!-- allow-bare-gh: names the command for its help text, not a run instruction --> If the relationship cannot be set, report the failure and leave the issue on its previous label.
 
 A blocked issue can carry an outline that names the contract it consumes, its scope, and its acceptance criteria, without file targets. Note in the outline that the full specification waits for the blocker.
 

@@ -2,7 +2,7 @@
 
 Write or refresh the project facts file, `.ghflow/project.md`, in the subject repository: one screen of stable facts that workers otherwise rediscover in every session. The file holds only what `ghflow facts` cannot read. This task ends with the file written and committed in a worktree, and published only when the flow authorizes it. It does not implement issues or change other files.
 
-Apply [Authorization](../shared/authorization.md) before you write to the subject repository, [Evidence](../shared/evidence.md) to every fact you record, and [Agent identity](../shared/identity.md#running-commands-under-the-identity) to every Git and GitHub write. Run every write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. When project conventions conflict or a fact needs the user's choice, apply [Decisions](../shared/decisions.md).
+Apply [Authorization](../shared/authorization.md) before you write to the subject repository, [Evidence](../shared/evidence.md) to every fact you record, and [Agent identity](../shared/identity.md#running-commands-under-the-identity) to every Git and GitHub write. When project conventions conflict or a fact needs the user's choice, apply [Decisions](../shared/decisions.md).
 
 ## Decide whether the file needs work
 

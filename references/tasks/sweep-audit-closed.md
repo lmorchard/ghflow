@@ -2,7 +2,7 @@
 
 Review issues that were closed autonomously during triage. Present a summary digest of findings and cited evidence to the user, confirm the closures, and reopen any issues the user decides to retain.
 
-Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the review; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the review; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## List agent-closed issues
 

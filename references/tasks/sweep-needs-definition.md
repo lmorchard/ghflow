@@ -2,7 +2,7 @@
 
 Develop open issues labeled `triage:needs-definition` into actionable definitions. Use [Define an issue](define-issue.md) for research, scope, and issue content. Keep each definition proportional to its goal and evidence.
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. The parent agent coordinates the sweep; subagents execute research and issue updates in the subject repository. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. The parent agent coordinates the sweep; subagents execute research and issue updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## List pending issues
 
@@ -30,10 +30,10 @@ Once the specification is solid:
 
 1. Update the issue body in the subject repository with the reviewed definition:
    ```bash
-   python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_NUMBER --repo OWNER/REPO --body-file /tmp/defined-body.md
+   ghflow exec -- gh issue edit ISSUE_NUMBER --repo OWNER/REPO --body-file /tmp/defined-body.md
    ```
-2. Remove `triage:needs-definition` and add `triage:ready` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_NUMBER --remove-label triage:needs-definition --add-label triage:ready`.
-3. Post a brief comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` linking to the revised body and noting that the issue is now actionable for implementation.
+2. Remove `triage:needs-definition` and add `triage:ready`.
+3. Post a brief comment linking to the revised body and noting that the issue is now actionable for implementation.
 4. When the issue belongs to a parent theme, update the parent issue's rollup comment to reflect the newly ready status.
 
 ## Conclude the sweep

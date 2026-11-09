@@ -2,7 +2,7 @@
 
 Conduct an interactive review of issues marked `triage:needs-input`. Settle the blocking product and design questions with the user, update the issue records, and advance each issue to its next state.
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the conversation; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the conversation; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## List pending issues
 

@@ -2,7 +2,7 @@
 
 Take an existing PR through one review cycle and CI repair, and return the final report directly to the parent. This skill can follow [submit-pr](submit-pr.md) or start from a PR created elsewhere. It acts on review findings; it does not provide independent review. It stops before merge.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 Apply [Working context and tool output](../shared/context.md) to selective source reads and complete evidence with concise output.
 

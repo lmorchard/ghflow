@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1681,6 +1681,134 @@ def pr_view_out(**overrides):
     return data
 
 
+class FakeReviewGitHub:
+    """A fake gh for the PR write commands: reads return fixtures, writes record."""
+
+    def __init__(self, state="OPEN", is_draft=False, head="a" * 40, mergeable="MERGEABLE",
+                 reviews=None, comments=None, merged=None):
+        self.state, self.is_draft, self.head = state, is_draft, head
+        self.mergeable, self.reviews, self.comments = mergeable, list(reviews or []), list(comments or [])
+        self.merged = merged if merged is not None else {"state": "MERGED", "mergedAt": "2026-11-05T19:25:47Z",
+                                                         "mergeCommit": {"oid": "f" * 40}}
+        self.writes = []
+
+    def gh(self, args):
+        if args[:2] == ["pr", "view"]:
+            keys = args[args.index("--json") + 1].split(",")
+            fields = {"state": self.state, "isDraft": self.is_draft, "headRefOid": self.head,
+                      "mergeable": self.mergeable, "mergedAt": self.merged["mergedAt"],
+                      "mergeCommit": self.merged["mergeCommit"]}
+            out = {key: fields[key] for key in keys if key in fields}
+            if "reviews" in keys:
+                out["reviews"] = [{"author": {"login": r[0]}, "state": r[1], "body": r[2]} for r in self.reviews]
+            if "comments" in keys:
+                out["comments"] = [{"author": {"login": c[0]}, "body": c[1]} for c in self.comments]
+            return out
+        raise AssertionError(args)
+
+    def gh_text(self, args):
+        self.writes.append(args)
+        if args[1] == "review" and "--body-file" in args:
+            state = ("CHANGES_REQUESTED" if "--request-changes" in args
+                     else "APPROVED" if "--approve" in args else "COMMENTED")
+            body = Path(args[args.index("--body-file") + 1]).read_text()
+            self.reviews.append(("FakeBot", state, body))
+        if args[1] == "comment" and "--body-file" in args:
+            body = Path(args[args.index("--body-file") + 1]).read_text()
+            self.comments.append(("FakeBot", body))
+        if args[1] == "merge":
+            self.state = "MERGED"
+        return ""
+
+
+class PrWriteCommandTests(unittest.TestCase):
+    BODY = "Review findings:\n\n1. Wrong sort order.\n"
+
+    def setUp(self):
+        self.body = Path(tempfile.mkdtemp(prefix="ghflow-test-")) / "body.md"
+        self.body.write_text(self.BODY, encoding="utf-8")
+        self.identity = {"login": "FakeBot"}
+
+    def review_post(self, fake, state="comment"):
+        return pr_review_post("o/r", 7, state, self.body, gh=fake.gh, gh_text=fake.gh_text,
+                              confirm=lambda: None, identity=self.identity)
+
+    def pr_comment(self, fake):
+        return pr_comment("o/r", 7, self.body, gh=fake.gh, gh_text=fake.gh_text,
+                          confirm=lambda: None, identity=self.identity)
+
+    def merge(self, fake, method="squash", expect_head="a" * 40):
+        return pr_merge("o/r", 7, method, expect_head, gh=fake.gh, gh_text=fake.gh_text, confirm=lambda: None)
+
+    def test_review_post_submits_from_file_and_reads_back(self):
+        fake = FakeReviewGitHub()
+        result, status = self.review_post(fake, state="request-changes")
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["writes"], ["review"])
+        self.assertEqual(result["readback"], {"author": True, "state": True, "body": True})
+        self.assertIn("--request-changes", fake.writes[0])
+
+    def test_review_post_readback_flags_a_foreign_author(self):
+        fake = FakeReviewGitHub()
+        fake.reviews = [("SomeoneElse", "COMMENTED", "")]
+        fake.gh_text = lambda args: fake.writes.append(args) or ""
+        result, status = self.review_post(fake)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["readback"]["author"])
+
+    def test_review_post_refuses_a_closed_pr_without_writes(self):
+        fake = FakeReviewGitHub(state="MERGED")
+        result, status = self.review_post(fake)
+        self.assertEqual((status, fake.writes), (3, []))
+        self.assertIn("nothing was written", result["errors"][0]["error"])
+
+    def test_review_post_refuses_an_empty_body(self):
+        self.body.write_text("   \n", encoding="utf-8")
+        fake = FakeReviewGitHub()
+        result, status = self.review_post(fake)
+        self.assertEqual((status, fake.writes), (1, []))
+
+    def test_comment_posts_and_reads_back(self):
+        fake = FakeReviewGitHub()
+        result, status = self.pr_comment(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["writes"], ["comment"])
+        self.assertEqual(result["readback"], {"author": True, "body": True})
+
+    def test_comment_readback_body_tolerates_line_endings(self):
+        fake = FakeReviewGitHub(comments=[("FakeBot", self.BODY.replace("\n", "\r\n") + "\r\n")])
+        result, status = self.pr_comment(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertTrue(result["readback"]["body"])
+
+    def test_merge_squashes_the_expected_head_and_reads_back(self):
+        fake = FakeReviewGitHub()
+        result, status = self.merge(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["writes"], ["merge"])
+        self.assertEqual(result["merge_commit"], "f" * 40)
+        self.assertIn("--squash", fake.writes[0])
+        self.assertIn("--match-head-commit", fake.writes[0])
+
+    def test_merge_refuses_a_moved_head_without_writes(self):
+        fake = FakeReviewGitHub(head="b" * 40)
+        result, status = self.merge(fake, expect_head="a" * 40)
+        self.assertEqual((status, fake.writes), (3, []))
+        self.assertIn("head", result["errors"][0]["part"])
+
+    def test_merge_refuses_a_draft_and_a_non_mergeable_pr(self):
+        for fake in (FakeReviewGitHub(is_draft=True), FakeReviewGitHub(mergeable="DIRTY")):
+            with self.subTest(fake=fake):
+                result, status = self.merge(fake)
+                self.assertEqual((status, fake.writes), (3, []))
+
+    def test_merge_readback_failure_is_reported(self):
+        fake = FakeReviewGitHub(merged={"state": "MERGED", "mergedAt": None, "mergeCommit": None})
+        result, status = self.merge(fake)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["readback"]["merged"])
+
+
 class PrStateSubprocessTests(unittest.TestCase):
     def _harness(self, head=HEAD, reviews=None, comments=None, issue_comments=None,
                  timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=()):
@@ -1887,6 +2015,54 @@ class PrStateSubprocessTests(unittest.TestCase):
                 self.assertEqual(out["errors"][0]["part"], part)
                 self.assertIsNone(out[part])
                 self.assertNotIn("Traceback", result.stderr)
+
+    def test_pr_state_reports_effective_login_and_no_mismatch(self):
+        h = self._harness()
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["effective_gh_login"], "FakeBot")
+        self.assertIs(out["identity_mismatch"], False)
+
+    def test_pr_state_flags_a_mismatched_plain_gh_login(self):
+        h = self._harness()
+        h.replies["api:user"] = {"out": {"login": "RealOwner"}}
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(out["effective_gh_login"], "RealOwner")
+        self.assertIs(out["identity_mismatch"], True)
+        self.assertEqual(result.returncode, 0)
+
+    def test_pr_state_reports_unknown_when_the_plain_gh_check_cannot_run(self):
+        h = self._harness()
+        h.replies["api:user"] = {"code": 1, "err": "no keyring"}
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertIsNone(out["effective_gh_login"])
+        self.assertIsNone(out["identity_mismatch"])
+        self.assertEqual(out["errors"], [])
+
+    def test_review_post_dispatch_posts_and_reads_back(self):
+        h = self._harness()
+        h.replies["pr.review:o/r:7"] = {"out": None}
+        h.replies["pr.view:o/r:7"]["out"]["reviews"] = [
+            {"author": {"login": "FakeBot"}, "state": "COMMENTED", "body": "Findings.\n"}]
+        body = os.path.join(h.dir, "body.md")
+        with open(body, "w", encoding="utf-8") as f:
+            f.write("Findings.\n")
+        result, out, _ = h.run(["pr", "review-post", "7", "--repo", "o/r", "--state", "comment", "--body-file", body])
+        self.assertEqual(result.returncode, 0, out)
+        self.assertEqual(out["writes"], ["review"])
+        self.assertEqual(out["readback"], {"author": True, "state": True, "body": True})
+
+    def test_comment_dispatch_posts_and_reads_back(self):
+        h = self._harness()
+        h.replies["pr.comment:o/r:7"] = {"out": None}
+        h.replies["pr.view:o/r:7"]["out"]["comments"] = [{"author": {"login": "FakeBot"}, "body": "Note.\n"}]
+        body = os.path.join(h.dir, "body.md")
+        with open(body, "w", encoding="utf-8") as f:
+            f.write("Note.\n")
+        result, out, _ = h.run(["pr", "comment", "7", "--repo", "o/r", "--body-file", body])
+        self.assertEqual(result.returncode, 0, out)
+        self.assertEqual(out["writes"], ["comment"])
+        self.assertEqual(out["readback"], {"author": True, "body": True})
 
 
 class VerifyCommitSubprocessTests(unittest.TestCase):
@@ -2613,7 +2789,7 @@ class ProjectFactsTests(unittest.TestCase):
     def test_main_facts_passes_issue(self):
         captured = {}
 
-        def fake_facts(issue=None):
+        def fake_facts(issue=None, bare_login=None):
             captured["issue"] = issue
             return {"ok": True}, 0
 

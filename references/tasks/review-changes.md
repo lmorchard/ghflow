@@ -51,4 +51,4 @@ If you found no actionable defects, say so. Do not invent a finding to justify t
 
 Return the reviewed base and head, the model identities and their sources, the findings, and the checks you ran. Give your own model as the ID your runtime states to you, not a configured or default model. If the head changed during review, say that the result covers the earlier commit. Keep the report short, in the conversation or a requested location. Return user decisions to the parent.
 
-Do not post a GitHub review without authorization to publish it. Do not edit code, resolve threads, approve a merge, or start a repair loop.
+Do not post a GitHub review without authorization to publish it. When the user authorizes publishing, post it with `ghflow pr review-post PR_URL --state STATE --body-file FILE`, with the state that [Review](../shared/review.md) supports. Do not edit code, resolve threads, approve a merge, or start a repair loop.

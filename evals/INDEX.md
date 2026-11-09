@@ -218,6 +218,7 @@ These scenarios have no structured run record in the reports. This does not prov
 
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [local-model-single-session](scenarios/local-model-single-session.md)
+- [mismatched-plain-gh-login](scenarios/mismatched-plain-gh-login.md)
 - [single-session-review-corrections](scenarios/single-session-review-corrections.md)
 - [single-session-scope-boundary](scenarios/single-session-scope-boundary.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)

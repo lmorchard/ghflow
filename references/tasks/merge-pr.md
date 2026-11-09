@@ -2,7 +2,7 @@
 
 Merge the requested PR after checking its current state, then confirm the merge, issue, and board results. Use the user's existing merge authorization without asking again.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the current state
 
@@ -18,7 +18,7 @@ If CI is pending, wait with a tool that lets you report progress. If CI fails, r
 
 If the repository has no CI, report that the green-CI condition cannot be met. Do not waive it. Changing this policy is a user decision.
 
-Green CI counts only when the head contains the current tip of the base branch: `base_behind_by` in `pr-state` must be 0. Each PR can pass alone and still fail after another PR merges. If the head is behind, update the branch with `python3 "$GHFLOW_CLI" exec -- gh api -X PUT repos/OWNER/NAME/pulls/NUMBER/update-branch -f expected_head_sha=HEAD` when the configured identity has the `repo` scope. `gh pr update-branch` needs that scope, which the current identity may not have. If the identity cannot update the branch, report the limit; do not use the host account. If the update has conflicts, return the PR for repair. Do not merge a head that is behind its base, even with green CI.
+Green CI counts only when the head contains the current tip of the base branch: `base_behind_by` in `pr-state` must be 0. Each PR can pass alone and still fail after another PR merges. If the head is behind, update the branch with `ghflow exec -- gh api -X PUT repos/OWNER/NAME/pulls/NUMBER/update-branch -f expected_head_sha=HEAD`, wait for CI on the new head, and assess again. <!-- allow-bare-gh: the branch update needs the host login's token scope, so it is deliberate --> `gh pr update-branch` needs the `repo` token scope, which the agent identity does not have. If the update has conflicts, return the PR for repair. Do not merge a head that is behind its base, even with green CI.
 
 A clean update from the base adds no change of its own, so it does not need another independent review. It does need green CI on the new head.
 
@@ -39,7 +39,7 @@ Do not dismiss unresolved defects or human objections because formal approval is
 
 Confirm that the PR is open, not a draft, and mergeable. Use the project's merge method when it specifies one. Otherwise choose a permitted method and state it.
 
-Immediately before merging, read the head, check state, and `base_behind_by` again. Merge with `python3 "$GHFLOW_CLI" exec -- gh pr merge --match-head-commit SHA` when supported. If the head changed, repeat the assessment instead of merging unseen changes.
+Immediately before merging, read the head, check state, and `base_behind_by` again. Merge with `ghflow pr merge PR --repo OWNER/NAME --method METHOD --expect-head SHA`, which repeats the state and head checks and reads the merged state back. If the head changed, repeat the assessment instead of merging unseen changes.
 
 Follow repository rules and required merge queues. Do not use administrator bypass or weaken protection rules. If GitHub requires an approval that this workflow does not, report the repository restriction.
 

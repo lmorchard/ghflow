@@ -2,7 +2,7 @@
 
 Publish the supplied draft with ghflow commands or `ghflow exec`, add the requested relationships and fields, and confirm the saved result. Do not repeat issue definition or begin implementation.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. A request to file the draft, or an agreed flow that includes publication, authorizes issue creation. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. A request to file the draft, or an agreed flow that includes publication, authorizes issue creation. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the requested changes
 

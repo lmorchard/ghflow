@@ -2,7 +2,7 @@
 
 Work through the children needed to satisfy one selected parent issue, reusing the existing skills and carrying decisions between them. Continue from child to child without the user restarting the flow. Stop at the parent's boundary.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Run every Git and GitHub write through `python3 "$GHFLOW_CLI" exec -- ...` or a ghflow command. A plain `git` or `gh` write is a defect. Apply [Coordination](../shared/coordination.md) to dispatch and handoffs. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Apply [Coordination](../shared/coordination.md) to dispatch and handoffs. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the boundary
 

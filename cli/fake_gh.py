@@ -19,6 +19,7 @@ from the environment:
 
 Call keys:
 - ``pr view N --repo R`` is keyed ``pr.view:R:N``.
+- ``pr review|comment|merge N --repo R`` is keyed ``pr.review|comment|merge:R:N``.
 - ``api <path> --jq <expr>`` is keyed ``api.jq:<path>:<expr>``.
 - ``api <path> --paginate --slurp`` is keyed ``api.paginate:<path>``.
 - other ``api <path> ...`` is keyed ``api:<path>``.
@@ -153,6 +154,9 @@ def main():
     if cmd == "pr":
         repo = flag(argv, "--repo")
         number = argv[2]
+        sub = argv[1]
+        if sub in ("review", "comment", "merge"):
+            reply(replies, f"pr.{sub}:{repo}:{number}", argv)
         reply(replies, f"pr.view:{repo}:{number}", argv)
 
     if cmd == "api":

@@ -77,6 +77,12 @@ python3 "$GHFLOW_CLI" exec -- git push origin BRANCH
 - `GIT_CONFIG_PARAMETERS` so GitHub HTTPS operations use `gh auth git-credential`.
   Other Git configuration parameters remain available.
 
+### Write under the selected identity
+
+Run every GitHub write under the selected identity. Prefer a `ghflow` write command: `pr ready`, `pr review-post`, `pr comment`, `pr merge`, `board set-status`, or `park`. Run any other write as `ghflow exec -- gh ...`. A `gh` write outside `ghflow exec` uses the host login — the account logged in to `gh` on this machine — not the selected account. If a needed operation has no `ghflow` command, run it through `ghflow exec` and report the missing command as a limit.
+
+`facts` and `pr-state` report `effective_gh_login` and `identity_mismatch`. `effective_gh_login` is the login that a plain `gh` call in this environment uses. `identity_mismatch` is `true` when that login differs from the selected login, `false` when it matches, and `null` when the check could not run. Read these fields before a write. When `identity_mismatch` is `true`, a plain `gh` call would use the wrong account: run writes only through `ghflow` write commands or `ghflow exec`, and report the mismatch in your result.
+
 Before a direct `git commit`, `ghflow exec` requires a selected author name and email.
 This check does not require a GitHub read, so a local commit can remain offline.
 The command does not inspect scripts or other arbitrary subprocesses for hidden writes.
