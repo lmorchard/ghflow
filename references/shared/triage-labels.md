@@ -17,7 +17,7 @@ Triage labels record where an open issue stands in refinement. Give each triaged
 
 An issue is blocked when its refinement depends on an open issue: the specification would describe code, a contract, or a decision that the other issue will change or supply. An open question for the user is `triage:needs-input`, not a blocker.
 
-Record each blocker as a native GitHub blocked-by relationship, not only in text. The relationship is the source that [sweep-blocked](../tasks/sweep-blocked.md) reads to return the issue to `triage:needs-definition`. Check the installed `gh issue edit` help for the blocked-by option. If the relationship cannot be set, report the failure and leave the issue on its previous label.
+Record each blocker as a native GitHub blocked-by relationship, not only in text. The relationship is the source that [sweep-blocked](../tasks/sweep-blocked.md) reads to return the issue to `triage:needs-definition`. Check the installed `gh issue edit` help for the blocked-by option. <!-- allow-bare-gh: names the command for its help text, not a run instruction --> If the relationship cannot be set, report the failure and leave the issue on its previous label.
 
 A blocked issue can carry an outline that names the contract it consumes, its scope, and its acceptance criteria, without file targets. Note in the outline that the full specification waits for the blocker.
 

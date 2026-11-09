@@ -10,6 +10,8 @@ Read a PR's state with `python3 "$GHFLOW_CLI" pr-state PR_URL`, run from the tar
 
 `base_behind_by` is the number of base-branch commits that the head does not contain. A value of 0 means the head contains the current base tip.
 
+`effective_gh_login` is the login that a plain `gh` call in the same environment uses, without the selected identity. `identity_mismatch` is `true` when that login differs from the selected login, `false` when it matches, and `null` when the check could not run, which is not an error. A `true` value means a `gh` write outside the identity tools would use the wrong account; see [Write under the selected identity](shared/identity.md#write-under-the-selected-identity).
+
 `comments` lists the PR's top-level comments from every result page, each with its author, time, URL, and full body. These are the conversation comments on the PR, not inline review threads; `inline_comments` on each review counts those. An empty list means that the read succeeded and found none. Read the bodies yourself before you describe or dismiss them.
 
 Use `latest_review_requests` to decide whether a review request exists and whether a later review answered it. `pending_review_requests` lists only reviewers that GitHub still shows as requested, and it can be empty while a request is live. Request events do not record a commit; after later pushes, compare the request time with the push times to decide which head it covers.
@@ -50,6 +52,14 @@ An invalid primary commit response also exits 1. An invalid expectation response
 When a draft PR meets the readiness conditions, run `python3 "$GHFLOW_CLI" pr ready PR_URL --body-file FILE --expect-head REVIEWED_SHA --issue ISSUE_URL --owner OWNER --project NUMBER` from the target project directory. One command does the ready submission's writes in order, each with its own read-back. It updates the description from the file and reads the body back. It marks the draft ready and reads back the ready state and head. It moves the issue to the Status option, `In review` by default, with the same procedure as `board set-status`. It ends with a `pr-state` read of the current head. It confirms the write identity before the first write. Omit `--body-file` to keep the current description, and omit the three board options when no board move is wanted.
 
 It writes nothing and exits 3 when the PR is not open or when the current head is not the commit in `--expect-head`. Give the reviewed head, so that a commit pushed after review cannot be marked ready unseen. It stops before the next write when a read-back fails or does not match, and exits 2. `description_matches` compares the file with the live body without trailing-whitespace and line-ending differences, which `gh` introduces. `facts` records each step as `confirmed`, `unchanged`, `mismatch`, `unknown`, or `refused`. `action` is `ready`, `unchanged` for a PR that was already ready, or `reconciled` when the ready command reported an error but the read-back shows the PR ready. A head that moves during the command is reported under `errors` with the part `head`; the review may not cover the new head. The `board` and `pr_state` parts carry those commands' results. Report `before`, `after`, `action`, `description_matches`, the board values, and the final `ci` from the output.
+
+## Posting a review or comment
+
+Run `python3 "$GHFLOW_CLI" pr review-post PR_URL --state comment --body-file FILE` to post one review with the verdict `comment`, `approve`, or `request-changes`. Run `python3 "$GHFLOW_CLI" pr comment PR_URL --body-file FILE` to post a top-level comment on the PR. Both commands read the PR first, confirm the write identity, submit from the file, and read the result back: the review's or comment's author, state, and body. The body comparison tolerates line-ending and trailing-whitespace differences, which `gh` introduces. The commands write nothing and exit 3 when the PR is not open. They exit 1 on a write error and 2 when the read-back does not match. Report the read-back values, not just the exit status.
+
+## Merging a PR
+
+Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` with the method the project uses: `merge`, `squash`, or `rebase`. The command reads the PR first and writes nothing, with exit 3, when the PR is not open, is a draft, is not mergeable, or the current head is not the commit in `--expect-head`. It confirms the write identity, merges with the head match, and reads the merged state back. It reports `merge_commit`, and exits 2 when the read-back does not show a merged PR. Report the merge commit and time from the output.
 
 ## Reading project facts
 
