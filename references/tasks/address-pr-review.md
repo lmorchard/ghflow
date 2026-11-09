@@ -62,7 +62,7 @@ Make all accepted corrections, run the checks, and push them together with `pyth
 
 Before you edit, confirm that the worktree and branch match the PR head. Work in that worktree or a new isolated one, and preserve unrelated work. Add or update useful tests, and run the affected checks plus the required project checks. Commit and push to the same PR branch with `python3 "$GHFLOW_CLI" exec -- git commit ...` and `python3 "$GHFLOW_CLI" exec -- git push ...`. Inspect unexpected remote changes before you push, and do not force-push over another contributor's work.
 
-Reply in the same place as the finding. Use `python3 "$GHFLOW_CLI" pr comment ...` for a top-level comment. No ghflow command posts an inline review-thread reply; use `python3 "$GHFLOW_CLI" exec -- gh api ...` with the review-comment reply endpoint, or report that the environment cannot reply inline. Name the correction and its commit, or explain why you made no change. Resolve a discussion only when its concern is fixed and the project permits it. Leave disputed and undecided discussions open.
+Reply in the same place as the finding. Use `python3 "$GHFLOW_CLI" pr comment ...` for a top-level comment. No ghflow command posts an inline review-thread reply. Use `python3 "$GHFLOW_CLI" exec -- gh api -X POST repos/OWNER/REPO/pulls/PULL_NUMBER/comments/COMMENT_ID/replies -f body=TEXT`, or report that the environment cannot reply inline. Name the correction and its commit, or explain why you made no change. Resolve a discussion only when its concern is fixed and the project permits it. Leave disputed and undecided discussions open.
 
 After a push, read CI and review state for the new head. Update the PR description if the changes make its claims wrong.
 

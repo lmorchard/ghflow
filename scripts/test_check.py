@@ -45,6 +45,20 @@ class BareGhWriteLintTests(unittest.TestCase):
         self.assertEqual(len(errors), 1)
         self.assertIn("references/tasks/d.md:1", errors[0])
 
+    def test_flags_a_bare_write_after_an_exec_prefix(self):
+        errors = self.lint({
+            "references/tasks/e.md": "Run `ghflow exec -- git push`, then `gh pr merge 7`.\n",
+        })
+        self.assertEqual(len(errors), 1)
+        self.assertIn("references/tasks/e.md:1", errors[0])
+
+    def test_flags_a_bare_write_next_to_a_wrapped_write(self):
+        errors = self.lint({
+            "references/tasks/f.md": 'Run `python3 "$GHFLOW_CLI" exec -- gh api user` and `gh pr merge 7`.\n',
+        })
+        self.assertEqual(len(errors), 1)
+        self.assertIn("references/tasks/f.md:1", errors[0])
+
     def test_honors_the_allow_marker(self):
         errors = self.lint({"docs/dev/g.md":
                             "Do not use `gh pr create --dry-run`. <!-- allow-bare-gh: forbidden command -->\n"})

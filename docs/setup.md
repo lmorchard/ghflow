@@ -39,7 +39,15 @@ A symbolic link points to the source checkout root. Source edits appear through 
 A link to a separate checkout shows source edits only after `git -C ~/.agents/skills/ghflow pull --ff-only`.
 The installer preserves correct links and refuses existing conflicting entries before it creates links.
 It creates `~/.claude/skills/ghflow` and `~/.agents/skills/ghflow` on a clean installation.
-If `~/.agents/skills/ghflow` is already a separate checkout, do not run the `codex` target. The installer refuses that destination. Link the other agent to the separate checkout, or keep the existing link.
+If `~/.agents/skills/ghflow` is already a separate checkout, do not run the `codex` target. The installer refuses that destination.
+The installer has no option to link another agent to the separate checkout.
+Create that link by hand after you inspect and remove an old link:
+
+```sh
+ln -s ~/.agents/skills/ghflow ~/.claude/skills/ghflow
+```
+
+Keep an existing link if it already points to the separate checkout.
 OpenCode also discovers these compatible directories. See the [root-package setup trial](research/trials/2026-10-07-ghflow-root-setup.md) for tested discovery and limits.
 If you use only OpenCode and the source checkout has no worktrees, run `python3 scripts/install-skill.py opencode` for its native personal directory.
 Do not add a native OpenCode link when compatible links already expose `ghflow`.
