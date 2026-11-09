@@ -91,6 +91,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [followup-current-head-pending](scenarios/followup-current-head-pending.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [handoff-points-to-project-facts](scenarios/handoff-points-to-project-facts.md) | 2026-10-13 | 15d84e0 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-facts-refresh.md](results/2026-10-13-facts-refresh.md) |
 | [handoff-points-to-project-facts](scenarios/handoff-points-to-project-facts.md) | 2026-10-13 | ca2ea3e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-session-facts.md](results/2026-10-13-session-facts.md) |
+| [handoff-write-identity](scenarios/handoff-write-identity.md) | 2026-11-09 | 800a9b5 | claude | claude-sonnet-5-5 | Pass | new text | [2026-11-09-handoff-write-identity.md](results/2026-11-09-handoff-write-identity.md): One cloud sample; local-model run pending. |
 | [head-changed-before-merge](scenarios/head-changed-before-merge.md) | 2026-10-02 | unknown | unknown | Claude Sonnet | Pass | regression | [2026-10-02-copilot-headline.md](results/2026-10-02-copilot-headline.md): Evaluated commit after verify-commit change not stated. |
 | [head-changed-before-merge](scenarios/head-changed-before-merge.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
 | [implement-does-not-merge](scenarios/implement-does-not-merge.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
@@ -216,7 +217,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
-- [handoff-write-identity](scenarios/handoff-write-identity.md)
 - [local-model-single-session](scenarios/local-model-single-session.md)
 - [single-session-review-corrections](scenarios/single-session-review-corrections.md)
 - [single-session-scope-boundary](scenarios/single-session-scope-boundary.md)
