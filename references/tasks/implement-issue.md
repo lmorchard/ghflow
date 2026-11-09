@@ -74,7 +74,7 @@ Inspect the complete task diff from the merge base, including uncommitted and ne
 
 If the base changes or conflicts need resolution, reassess which results still apply.
 
-Stage only the intended files and inspect the staged diff. Commit logical changes following project conventions. If a commit hook changes tested files, run the affected checks again. Make sure the commits contain the changes your report describes.
+Stage only the intended files and inspect the staged diff. Commit logical changes with `python3 "$GHFLOW_CLI" exec -- git commit ...`, following project conventions. If a commit hook changes tested files, run the affected checks again. Make sure the commits contain the changes your report describes.
 
 This self-review is not independent review. Do not claim independent verification when none occurred.
 

@@ -35,10 +35,10 @@ Collect the user's evaluation:
   - Retain the `triage:agent-closed` label unless the user requests removing it.
 - **Reopened issues**:
   - Dispatch a subagent to:
-    1. Reopen the issue: `ghflow exec -- gh issue reopen ISSUE_URL`.
-    2. Remove the `triage:agent-closed` label.
-    3. Post a comment explaining why the issue was reopened and the user's intent.
-    4. Apply `triage:needs-input` or `triage:needs-definition` based on the user's direction.
+    1. Reopen the issue: `python3 "$GHFLOW_CLI" exec -- gh issue reopen ISSUE_URL`.
+    2. Remove the `triage:agent-closed` label with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --remove-label triage:agent-closed`.
+    3. Post a comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` explaining why the issue was reopened and the user's intent.
+    4. Apply `triage:needs-input` or `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...` based on the user's direction.
 
 ## Conclude the sweep
 

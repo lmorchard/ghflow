@@ -15,7 +15,7 @@ python3 scripts/install-skill.py claude codex
 
 The installer creates symbolic links, paths that point to this source checkout.
 Keep the checkout available so the agent can read the skill and its references.
-OpenCode also discovers these compatible directories.
+OpenCode also discovers these compatible directories. When the source checkout has worktrees, use a separate checkout for OpenCode. Read [Setup](docs/setup.md#opencode-discovery-limits).
 
 Read [Setup](docs/setup.md) for OpenCode installation, project installation, source permissions, machine account access, and discovery limits.
 

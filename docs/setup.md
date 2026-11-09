@@ -36,11 +36,55 @@ python3 scripts/install-skill.py claude codex
 ```
 
 A symbolic link points to the source checkout root. Source edits appear through the links without another installation.
+A link to a separate checkout shows source edits only after `git -C ~/.agents/skills/ghflow pull --ff-only`.
 The installer preserves correct links and refuses existing conflicting entries before it creates links.
-It creates `~/.claude/skills/ghflow` and `~/.agents/skills/ghflow`.
+It creates `~/.claude/skills/ghflow` and `~/.agents/skills/ghflow` on a clean installation.
+If `~/.agents/skills/ghflow` is already a separate checkout, do not run the `codex` target. The installer refuses that destination.
+The installer has no option to link another agent to the separate checkout.
+Create that link by hand after you inspect and remove an old link:
+
+```sh
+ln -s ~/.agents/skills/ghflow ~/.claude/skills/ghflow
+```
+
+Keep an existing link if it already points to the separate checkout.
 OpenCode also discovers these compatible directories. See the [root-package setup trial](research/trials/2026-10-07-ghflow-root-setup.md) for tested discovery and limits.
-If you use only OpenCode, run `python3 scripts/install-skill.py opencode` for its native personal directory.
+If you use only OpenCode and the source checkout has no worktrees, run `python3 scripts/install-skill.py opencode` for its native personal directory.
 Do not add a native OpenCode link when compatible links already expose `ghflow`.
+If the source checkout has worktrees, use the separate OpenCode checkout below.
+
+### OpenCode separate checkout
+
+OpenCode discovers nested `SKILL.md` files through a symbolic link, including copies in `.claude/worktrees/`.
+A worktree copy can become the selected skill instead of the main checkout.
+When the source checkout has worktrees, use a separate checkout for OpenCode at `~/.agents/skills/ghflow`.
+Do not link a working clone that has worktrees.
+
+Create the separate checkout once:
+
+```sh
+git clone git@github.com:lmorchard/ghflow.git ~/.agents/skills/ghflow
+```
+
+Refresh it after skill changes:
+
+```sh
+git -C ~/.agents/skills/ghflow pull --ff-only
+```
+
+Do not edit the installed checkout.
+Make skill changes in the source checkout, publish them, and pull them in the installed checkout.
+Run `python3 "$GHFLOW_CLI" facts` from a subject checkout and confirm that `skill_source.head` names the intended revision.
+A separate checkout without worktrees gives OpenCode one copy of the skill.
+Check it with:
+
+```sh
+git -C ~/.agents/skills/ghflow worktree list
+```
+
+If it lists more than the main checkout, remove a worktree only when it has no uncommitted changes and no open PR.
+Otherwise use another clean checkout.
+A worktree still exposes its copy through the separate checkout.
 
 For one target project, use `--project TARGET_PATH` with the agent names.
 For an isolated personal installation trial, use `--home TEMP_HOME`.
@@ -68,7 +112,9 @@ If current evidence shows that it is resolved, a result with no remaining work i
 
 OpenCode can discover nested `SKILL.md` files inside the linked checkout, including Git-ignored worktrees.
 Repository checks ignore worktrees, but native discovery does not.
-The selected policy documents this limitation and permits root checkout links without an installer guard.
+The selected policy permits root checkout links for a clean source checkout.
+A working clone with worktrees can expose worktree copies, so use the separate OpenCode checkout above for that case.
+The current OpenCode installation uses a separate checkout at `~/.agents/skills/ghflow` because OpenCode selected a worktree copy through the root link.
 Inspect the installed source's worktrees for nested skill files.
 Maintain worktrees through authorized cleanup, and preserve worktrees with uncommitted changes or an open PR.
 If additional skills are unwanted, use a separate source checkout without nested skill packages.

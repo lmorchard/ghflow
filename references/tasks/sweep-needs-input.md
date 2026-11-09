@@ -34,14 +34,14 @@ Do not ask the user to read raw code or diffs unless they ask.
 Once the user provides a direction:
 
 1. Dispatch a subagent to update the issue in the subject repository:
-   - Post a comment recording the user's confirmed decision and rationale.
-   - Remove the `triage:needs-input` label.
+   - Post a comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` recording the user's confirmed decision and rationale.
+   - Remove the `triage:needs-input` label with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --remove-label triage:needs-input`.
 2. Apply the resulting state:
-   - **User decided not to proceed**: Close the issue with reason `not planned` (and add `wontfix` if used).
-   - **Decision makes the task actionable as-is**: Add `triage:ready`.
-   - **Decision settles direction, but technical details or criteria remain open**: Add `triage:needs-definition`.
-   - **Decision makes the issue wait for other open issues**: Set native blocked-by relationships and add `triage:blocked`.
-   - **User decided to keep the issue as a parking lot or a parent tracked by children**: Add `triage:parked`.
+   - **User decided not to proceed**: Close the issue with `python3 "$GHFLOW_CLI" exec -- gh issue close ISSUE_URL --reason "not planned"` (and add `wontfix` if used).
+   - **Decision makes the task actionable as-is**: Add `triage:ready` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:ready`.
+   - **Decision settles direction, but technical details or criteria remain open**: Add `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:needs-definition`.
+   - **Decision makes the issue wait for other open issues**: Set native blocked-by relationships and add `triage:blocked` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...`.
+   - **User decided to keep the issue as a parking lot or a parent tracked by children**: Add `triage:parked` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:parked`.
 3. If the issue belongs to a parent theme, update the parent issue's rollup comment to reflect the new state.
 4. Report the updated status to the user and proceed to the next issue or cluster.
 

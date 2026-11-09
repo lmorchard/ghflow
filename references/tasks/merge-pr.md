@@ -2,7 +2,7 @@
 
 Merge the requested PR after checking its current state, then confirm the merge, issue, and board results. Use the user's existing merge authorization without asking again.
 
-Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), and [Review](../shared/review.md) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence.md), [Review](../shared/review.md), and [Agent identity](../shared/identity.md#running-commands-under-the-identity) throughout. Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
 
 ## Establish the current state
 

@@ -20,7 +20,7 @@ A blocker that closed as `not planned` still counts as closed, but it can invali
 
 ## Update the issues
 
-1. For each unblocked issue, replace `triage:blocked` with `triage:needs-definition`. Post a short comment that names the closed blockers, with the PR or commit that closed each when GitHub records one, and says that any outline needs a full specification against current code.
+1. For each unblocked issue, replace `triage:blocked` with `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...`. Post a short comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` that names the closed blockers, with the PR or commit that closed each when GitHub records one, and says that any outline needs a full specification against current code.
 2. Leave still-blocked issues unchanged.
 3. For an issue with no recorded blocker, read its body and comments. If they name blocking issues, report them so that the relationships can be set. Do not relabel the issue on text alone.
 
