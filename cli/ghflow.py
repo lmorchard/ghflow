@@ -1896,12 +1896,23 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     if status == 1:
         return {"errors": info.get("errors", [])}, 1
     identity = info.get("identity") or {}
-    if operation in HANDOFF_WRITE_OPERATIONS and not identity.get("ready"):
-        login = identity.get("login") or "unknown"
-        return {"errors": [{"part": "identity", "error": (
-            f"The agent identity {login} is not ready. A write handoff needs a configured login "
-            "and token. Run `identity`, fix the configuration, or use `review-changes` for a "
-            "read-only handoff.")}]}, 1
+    if operation in HANDOFF_WRITE_OPERATIONS:
+        if not identity:
+            detail = next((e.get("error") for e in info.get("errors") or []
+                           if isinstance(e, dict) and e.get("part") == "identity"), None)
+            message = "The agent identity could not be read. Run `identity` and report its error."
+            if detail:
+                message += f" {detail}"
+            return {"errors": [{"part": "identity", "error": message}]}, 1
+        if not identity.get("login"):
+            return {"errors": [{"part": "identity", "error": (
+                "The agent identity has no login. A write handoff needs a configured login and token. "
+                "Run `identity` and fix the configuration.")}]}, 1
+        if not identity.get("ready"):
+            return {"errors": [{"part": "identity", "error": (
+                f"The agent identity {identity.get('login')} is not ready. A write handoff needs a configured "
+                "login and token. Run `identity`, fix the configuration, or use `review-changes` for a "
+                "read-only handoff.")}]}, 1
     skill = info.get("skill_source") or {}
     checkout = info.get("checkout") or {}
     repository = info.get("repository") or {}

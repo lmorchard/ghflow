@@ -21,6 +21,8 @@ BARE_GH_WRITE = re.compile(
     r"api\s+(?:-X|--method)\s+(?:PUT|POST|DELETE)\b"
     r")"
 )
+# A `gh` write that runs through the identity environment.
+GHFLOW_EXEC = re.compile(r'\$GHFLOW_CLI"?\s+exec\s+--\s+gh\b')
 # Marks a line whose bare `gh` write is deliberate, with the reason recorded.
 ALLOW_MARKER = "allow-bare-gh"
 
@@ -183,7 +185,7 @@ def check_bare_gh_writes(root=ROOT):
         for number, line in enumerate(path.read_text().splitlines(), start=1):
             if not BARE_GH_WRITE.search(line):
                 continue
-            if "ghflow exec" in line or "$GHFLOW_CLI" in line or ALLOW_MARKER in line:
+            if "ghflow exec" in line or GHFLOW_EXEC.search(line) or ALLOW_MARKER in line:
                 continue
             errors.append(
                 f"{name}:{number}: bare gh write; run it under the identity with"

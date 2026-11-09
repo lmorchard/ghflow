@@ -34,8 +34,16 @@ class BareGhWriteLintTests(unittest.TestCase):
         errors = self.lint({
             "references/tasks/a.md": "Run `ghflow exec -- gh pr merge 7`.\n",
             "references/tasks/b.md": 'Run `python3 "$GHFLOW_CLI" pr merge 7`.\n',
+            "references/tasks/c.md": 'Create with `python3 "$GHFLOW_CLI" exec -- gh issue create`.\n',
         })
         self.assertEqual(errors, [])
+
+    def test_flags_a_bare_write_on_a_line_that_mentions_the_cli(self):
+        errors = self.lint({
+            "references/tasks/d.md": 'Set GHFLOW_CLI, then run `gh pr merge 7`.\n',
+        })
+        self.assertEqual(len(errors), 1)
+        self.assertIn("references/tasks/d.md:1", errors[0])
 
     def test_honors_the_allow_marker(self):
         errors = self.lint({"docs/dev/g.md":

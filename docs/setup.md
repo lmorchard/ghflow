@@ -36,8 +36,10 @@ python3 scripts/install-skill.py claude codex
 ```
 
 A symbolic link points to the source checkout root. Source edits appear through the links without another installation.
+A link to a separate checkout shows source edits only after `git -C ~/.agents/skills/ghflow pull --ff-only`.
 The installer preserves correct links and refuses existing conflicting entries before it creates links.
-It creates `~/.claude/skills/ghflow` and `~/.agents/skills/ghflow`.
+It creates `~/.claude/skills/ghflow` and `~/.agents/skills/ghflow` on a clean installation.
+If `~/.agents/skills/ghflow` is already a separate checkout, do not run the `codex` target. The installer refuses that destination. Link the other agent to the separate checkout, or keep the existing link.
 OpenCode also discovers these compatible directories. See the [root-package setup trial](research/trials/2026-10-07-ghflow-root-setup.md) for tested discovery and limits.
 If you use only OpenCode and the source checkout has no worktrees, run `python3 scripts/install-skill.py opencode` for its native personal directory.
 Do not add a native OpenCode link when compatible links already expose `ghflow`.
@@ -65,7 +67,16 @@ git -C ~/.agents/skills/ghflow pull --ff-only
 Do not edit the installed checkout.
 Make skill changes in the source checkout, publish them, and pull them in the installed checkout.
 Run `python3 "$GHFLOW_CLI" facts` from a subject checkout and confirm that `skill_source.head` names the intended revision.
-The separate checkout has no worktrees, so OpenCode sees one copy of the skill.
+A separate checkout without worktrees gives OpenCode one copy of the skill.
+Check it with:
+
+```sh
+git -C ~/.agents/skills/ghflow worktree list
+```
+
+If it lists more than the main checkout, remove a worktree only when it has no uncommitted changes and no open PR.
+Otherwise use another clean checkout.
+A worktree still exposes its copy through the separate checkout.
 
 For one target project, use `--project TARGET_PATH` with the agent names.
 For an isolated personal installation trial, use `--home TEMP_HOME`.

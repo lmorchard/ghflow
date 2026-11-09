@@ -113,7 +113,9 @@ No installer guard, permission workaround, or worktree removal was applied.
 
 On 2026-11-09, the OpenCode installation at `~/.agents/skills/ghflow` changed from a symbolic link to a separate checkout.
 OpenCode had selected a worktree copy of the skill through the root link.
-The separate checkout has no worktrees, so native discovery sees one copy.
+A separate checkout without worktrees gives native discovery one copy.
+Check it with `git worktree list`.
+The installation on 2026-11-09 had a worktree at `.claude/worktrees/identity-guardrails`, so cleanup or a clean checkout was still needed.
 The tradeoff is a stale checkout. Refresh it after skill changes with `git -C ~/.agents/skills/ghflow pull --ff-only`.
 [Setup](../../setup.md#opencode-separate-checkout) records the procedure.
 

@@ -2919,7 +2919,7 @@ class HandoffTests(unittest.TestCase):
     def test_read_only_handoff_does_not_require_or_name_the_identity(self):
         def no_identity(issue=None):
             info, _ = self.facts()
-            info["identity"] = {"login": "MokaGnome", "configured": True, "ready": False}
+            info["identity"] = None
             return info, 0
         tmp = Path(tempfile.mkdtemp())
         result, status = write_handoff("review-changes", "https://github.com/o/r/issues/5",
@@ -2927,7 +2927,7 @@ class HandoffTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertNotIn("Identity:", (tmp / "review.md").read_text())
 
-    def test_write_handoff_refuses_a_missing_identity(self):
+    def test_write_handoff_refuses_an_unready_identity(self):
         def no_identity(issue=None):
             info, _ = self.facts()
             info["identity"] = {"login": "MokaGnome", "configured": True, "ready": False}
@@ -2937,6 +2937,33 @@ class HandoffTests(unittest.TestCase):
                                        tmp / "handoff.md", facts=no_identity)
         self.assertEqual(status, 1)
         self.assertEqual(result["errors"][0]["part"], "identity")
+        self.assertIn("is not ready", result["errors"][0]["error"])
+        self.assertFalse((tmp / "handoff.md").exists())
+
+    def test_write_handoff_refuses_an_unreadable_identity(self):
+        def no_identity(issue=None):
+            info, _ = self.facts()
+            info["identity"] = None
+            info["errors"] = [{"part": "identity", "error": "identity file is unreadable"}]
+            return info, 0
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5",
+                                       tmp / "handoff.md", facts=no_identity)
+        self.assertEqual(status, 1)
+        self.assertIn("could not be read", result["errors"][0]["error"])
+        self.assertIn("identity file is unreadable", result["errors"][0]["error"])
+        self.assertFalse((tmp / "handoff.md").exists())
+
+    def test_write_handoff_refuses_an_identity_without_a_login(self):
+        def no_login(issue=None):
+            info, _ = self.facts()
+            info["identity"] = {"login": "", "configured": True, "ready": True}
+            return info, 0
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5",
+                                       tmp / "handoff.md", facts=no_login)
+        self.assertEqual(status, 1)
+        self.assertIn("has no login", result["errors"][0]["error"])
         self.assertFalse((tmp / "handoff.md").exists())
 
     def test_unknown_operation_is_refused(self):
