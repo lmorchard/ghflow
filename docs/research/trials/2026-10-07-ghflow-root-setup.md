@@ -105,11 +105,17 @@ The [configuration schema](https://opencode.ai/config.json) provides additional 
 
 Clean-source discovery succeeds, but ignored nested worktrees can expose additional skills in OpenCode `1.18.35`.
 Les selected a document-only policy for this limitation on 2026-10-07.
-Root checkout links remain permitted. The installer does not reject nested skill packages.
+Root checkout links remain permitted for a clean source checkout. The installer does not reject nested skill packages.
 Inspect and maintain source worktrees through authorized cleanup.
 Preserve worktrees with uncommitted changes or an open PR.
 If unwanted skills appear, use a separate source checkout without nested skill packages.
 No installer guard, permission workaround, or worktree removal was applied.
+
+On 2026-11-09, the OpenCode installation at `~/.agents/skills/ghflow` changed from a symbolic link to a separate checkout.
+OpenCode had selected a worktree copy of the skill through the root link.
+The separate checkout has no worktrees, so native discovery sees one copy.
+The tradeoff is a stale checkout. Refresh it after skill changes with `git -C ~/.agents/skills/ghflow pull --ff-only`.
+[Setup](../../setup.md#opencode-separate-checkout) records the procedure.
 
 ## Review decision for PR #17
 
