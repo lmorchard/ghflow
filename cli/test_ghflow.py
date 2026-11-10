@@ -8,12 +8,12 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2881,7 +2881,8 @@ class PrBodyTests(unittest.TestCase):
 class HandoffTests(unittest.TestCase):
     def facts(self, issue=None):
         return {"skill_source": {"path": "/skills/ghflow", "head": "c" * 40},
-                "checkout": {"primary_root": "/work/repo"},
+                "checkout": {"root": "/work/repo", "primary_root": "/work/repo", "is_linked_worktree": False,
+                             "branch": "main", "head": "d" * 40, "dirty": False},
                 "repository": {"default_branch": "main", "origin_default_head": "d" * 40},
                 "project_files": {"instructions": ["AGENTS.md"]},
                 "project_facts": {"path": ".ghflow/project.md", "present": True},
@@ -2903,8 +2904,15 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("- Keep the message wording.", text)
         self.assertIn("Do not mark the PR ready", text)
         self.assertIn("model ID your runtime states to you", text)
-        self.assertIn(str(tmp / "h" / "handoff.md"), result["dispatch_prompt"])
-        self.assertLess(len(result["dispatch_prompt"]), 300)
+        prompt = result["dispatch_prompt"]
+        self.assertIn(str(tmp / "h" / "handoff.md"), prompt)
+        self.assertLess(len(prompt.split("\n\n")[0]), 300)
+        # The dispatch prompt carries the compact preamble inline, with the handoff file for details.
+        self.assertIn("ghflow preamble", prompt)
+        self.assertIn("checkout /work/repo", prompt)
+        self.assertIn("task branch issue-5-fix", prompt)
+        self.assertIn("do not ask for:", prompt)
+        self.assertLess(len(prompt), 2000)
 
     def test_write_handoff_names_the_identity_and_the_exec_path(self):
         tmp = Path(tempfile.mkdtemp())
@@ -3021,6 +3029,120 @@ class HandoffDeadlineTests(unittest.TestCase):
         self.assertIn("publish it to the draft PR", (tmp / "fix.md").read_text())
         write_handoff("review-changes", issue, tmp / "review.md", facts=self.facts)
         self.assertNotIn("Deadline:", (tmp / "review.md").read_text())
+
+
+class PreambleTests(unittest.TestCase):
+    """The generated session-start block: a view over facts, never a stored file."""
+
+    def facts(self):
+        return {"skill_source": {"path": "/skills/ghflow", "head": "c" * 40},
+                "checkout": {"root": "/work/repo/.claude/worktrees/issue-5", "primary_root": "/work/repo",
+                             "is_linked_worktree": True, "branch": "issue-5", "head": "d" * 40, "dirty": False},
+                "repository": {"remote": "o/r", "default_branch": "main", "origin_default_head": "d" * 40},
+                "project_files": {"instructions": ["AGENTS.md"], "make_targets": ["check", "test"],
+                                  "ci_workflows": [".github/workflows/ci.yml"]},
+                "project_facts": {"path": ".ghflow/project.md", "present": True, "stale_sources": []},
+                "identity": {"login": "MokaGnome", "configured": True, "ready": True},
+                "issue": {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "state": "OPEN",
+                          "board_items": [{"project": "r", "status": "In progress"}],
+                          "branches": ["issue-5"], "worktrees": ["/work/repo/.claude/worktrees/issue-5"], "prs": []},
+                "base_ci": {"summary": "green", "stale": False},
+                "errors": []}
+
+    def test_generation_names_revision_time_and_fields(self):
+        now = datetime(2026, 11, 9, 16, 50, 7, tzinfo=timezone.utc)
+        text = preamble_text(self.facts(), operation="implement-issue", limits="unattended, no merge",
+                             review_plan="different-model local review", notes="/notes/n.md",
+                             handoff_path="/run/h.md", now=now)
+        self.assertIn("--- ghflow preamble 2026-11-09T16:50:07Z facts@" + "d" * 12 + " ---", text)
+        self.assertIn("repo o/r", text)
+        self.assertIn("checkout /work/repo/.claude/worktrees/issue-5 (of /work/repo)", text)
+        self.assertIn("branch issue-5", text)
+        self.assertIn("base origin/main@" + "d" * 12 + " CI green", text)
+        self.assertIn("task #5 Fix it (OPEN, board In progress)", text)
+        self.assertIn("operation implement-issue", text)
+        self.assertIn("endpoint: unattended, no merge", text)
+        self.assertIn("review: different-model local review", text)
+        self.assertIn("identity MokaGnome (ready); writes only via ghflow write commands or `ghflow exec --`", text)
+        self.assertIn("notes: /notes/n.md", text)
+        self.assertIn("handoff file: /run/h.md", text)
+        self.assertIn("instructions AGENTS.md", text)
+        self.assertIn("gates: make check, test", text)
+        self.assertIn("CI .github/workflows/ci.yml", text)
+        self.assertIn("project facts .ghflow/project.md current", text)
+        self.assertIn("first: read the handoff file and follow it", text)
+        self.assertIn("do not ask for:", text)
+        self.assertIn("never: bare `gh` writes", text)
+        self.assertNotIn("task branch", text)
+
+    def test_missing_identity_reports_unconfigured(self):
+        info = self.facts()
+        info["identity"] = None
+        text = preamble_text(info)
+        self.assertIn("identity: unconfigured; GitHub writes are unavailable", text)
+        self.assertNotIn("MokaGnome", text)
+
+    def test_stale_project_facts_are_flagged(self):
+        info = self.facts()
+        info["project_facts"] = {"path": ".ghflow/project.md", "present": True,
+                                 "stale_sources": [{"path": "Makefile", "reason": "changed"}]}
+        text = preamble_text(info)
+        self.assertIn("project facts .ghflow/project.md STALE (1 sources changed; run `ghflow facts` for live state)", text)
+
+    def test_absent_live_fields_still_generate(self):
+        info = self.facts()
+        info.update({"repository": None, "project_files": None, "project_facts": None,
+                     "base_ci": None, "identity": None, "issue": None})
+        info["checkout"]["branch"] = None
+        text = preamble_text(info)
+        self.assertIn("repo unknown", text)
+        self.assertIn("branch unknown", text)
+        self.assertNotIn("base origin/", text)
+        self.assertIn("identity: unconfigured", text)
+        self.assertIn("project facts: none", text)
+
+    def test_output_length_stays_within_the_token_budget(self):
+        text = preamble_text(self.facts(), operation="implement-issue", limits="unattended, no merge",
+                             review_plan="different-model local review", notes="/notes/n.md")
+        self.assertLessEqual(estimate_tokens(text), PREAMBLE_TOKEN_BUDGET)
+
+    def test_open_draft_pr_is_named_and_closed_prs_are_not(self):
+        info = self.facts()
+        info["issue"]["prs"] = [{"number": 9, "state": "OPEN", "is_draft": True, "head": "a"},
+                                {"number": 8, "state": "MERGED", "is_draft": False, "head": "b"}]
+        text = preamble_text(info)
+        self.assertIn("PR #9 (draft)", text)
+        self.assertNotIn("#8", text)
+
+    def test_no_checkout_raises(self):
+        with self.assertRaises(ValueError):
+            preamble_text({"checkout": None})
+
+    def test_main_prints_the_preamble_and_warns_over_the_budget(self):
+        with patch("ghflow.project_facts", return_value=(self.facts(), 0)), \
+             patch("sys.stdout", new=io.StringIO()) as out, \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble", "https://github.com/o/r/issues/5"])
+        self.assertEqual(status, 0)
+        self.assertIn("ghflow preamble", out.getvalue())
+        self.assertIn("task #5 Fix it", out.getvalue())
+        self.assertEqual(err.getvalue(), "")
+        with patch("ghflow.project_facts", return_value=(self.facts(), 0)), \
+             patch("sys.stdout", new=io.StringIO()), \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble", "https://github.com/o/r/issues/5", "--limits", "x" * 3000])
+        self.assertEqual(status, 0)
+        self.assertIn("400", err.getvalue())
+
+    def test_main_exits_1_without_a_checkout(self):
+        info = self.facts()
+        info["checkout"] = None
+        with patch("ghflow.project_facts", return_value=(info, 1)), \
+             patch("sys.stdout", new=io.StringIO()), \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble"])
+        self.assertEqual(status, 1)
+        self.assertIn("no checkout", err.getvalue())
 
 
 class BoardDraftGuardTests(unittest.TestCase):

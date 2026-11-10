@@ -124,6 +124,30 @@ class UnattendedBurndownTest(unittest.TestCase):
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(Path(str(self.args_file) + ".autoupdate").read_text(), "1")
 
+    def test_preamble_is_appended_after_the_request(self):
+        cli_dir = self.skill / "cli"
+        cli_dir.mkdir()
+        (cli_dir / "ghflow.py").write_text('print("--- ghflow preamble TEST ---")\nprint("repo o/r")\n')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self.args_file.read_text().split("\n")
+        message = "\n".join(args[8:]).rstrip("\n")
+        self.assertIn("--- ghflow preamble TEST ---", message)
+        self.assertIn("repo o/r", message)
+        self.assertLess(message.index("End with the delivery summary table."),
+                        message.index("--- ghflow preamble TEST ---"))
+
+    def test_a_failed_preamble_only_loses_the_block(self):
+        cli_dir = self.skill / "cli"
+        cli_dir.mkdir()
+        (cli_dir / "ghflow.py").write_text('import sys\nsys.stderr.write("boom\\n")\nsys.exit(1)\n')
+        result = self.run_script()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        args = self.args_file.read_text().split("\n")
+        message = "\n".join(args[8:]).rstrip("\n")
+        self.assertNotIn("ghflow preamble", message)
+        self.assertIn("deliver the Ready queue of project 6", message)
+
 
 if __name__ == "__main__":
     unittest.main()

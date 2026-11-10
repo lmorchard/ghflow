@@ -18,7 +18,8 @@ pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
 queue select exits 1 on incomplete discovery and then returns no selection.
 queue summary exits 2 when an issue could not be read. budget exits 1 for an
-end mark without a start.
+end mark without a start. preamble prints plain text and exits 1 when the
+checkout itself could not be read.
 """
 
 import argparse
@@ -31,7 +32,7 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 CHECK_RUN_STATES = {
@@ -1855,6 +1856,122 @@ HANDOFF_DEADLINE = ("Deadline: {deadline}. At the deadline, start nothing new: c
                     "so that the coordinator can park the delivery and a later run can resume it.")
 
 
+PREAMBLE_TOKEN_BUDGET = 400
+PREAMBLE_HEADER = "--- ghflow preamble {stamp} facts@{rev} ---"
+PREAMBLE_DO_NOT_ASK = ("do not ask for: repository, checkout, branch, base, identity, gates, endpoint, "
+                       "review plan, or notes. Ask only for product decisions, missing scope, conflicts, "
+                       "or actions beyond authorization.")
+PREAMBLE_NEVER = "never: bare `gh` writes outside `ghflow exec --`, `gh auth login`, `gh auth switch`, `gh auth logout`"
+
+
+def estimate_tokens(text):
+    """Estimate a token count at about four characters per token."""
+    return max(1, (len(text) + 3) // 4)
+
+
+def preamble_text(info, operation=None, limits=None, review_plan=None, notes=None,
+                  handoff_path=None, branch=None, first=None, now=None):
+    """Build the compact session-start block from one facts read plus the task context.
+
+    A view over `facts`, the project facts file state, and the issue or handoff.
+    Never a stored file. Raises ValueError when the facts read has no checkout.
+    """
+    checkout = info.get("checkout") if isinstance(info, dict) else None
+    if not isinstance(checkout, dict) or not checkout.get("root"):
+        raise ValueError("The facts read has no checkout; run `ghflow facts` and report its errors.")
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    repository = info.get("repository") or {}
+    project_files = info.get("project_files") or {}
+    facts_file = info.get("project_facts") or {}
+    identity = info.get("identity") or {}
+    issue = info.get("issue") or {}
+    base_ci = info.get("base_ci") or {}
+
+    def value(text, fallback="unknown"):
+        return text if text else fallback
+
+    lines = [PREAMBLE_HEADER.format(stamp=stamp, rev=value(checkout.get("head"))[:12])]
+    parts = [f"repo {value(repository.get('remote'))}",
+             f"checkout {checkout['root']}"
+             + (f" (of {checkout['primary_root']})" if checkout.get("is_linked_worktree") else ""),
+             f"branch {value(checkout.get('branch'))}" + (" dirty" if checkout.get("dirty") else "")]
+    if repository.get("default_branch"):
+        base_part = (f"base origin/{repository['default_branch']}"
+                     f"@{value(repository.get('origin_default_head'))[:12]}")
+        if base_ci.get("summary"):
+            base_part += f" CI {base_ci['summary']}" + (" (stale fetch)" if base_ci.get("stale") else "")
+        parts.append(base_part)
+    if branch and branch != checkout.get("branch"):
+        parts.append(f"task branch {branch}")
+    lines.append(" | ".join(parts))
+
+    if issue.get("url"):
+        number = str(issue["url"]).rstrip("/").split("/")[-1]
+        board = next((item.get("status") for item in issue.get("board_items") or []
+                      if isinstance(item, dict) and item.get("status")), None)
+        title = str(issue.get("title") or "")[:80]
+        task = f"task #{number} {title} ({value(issue.get('state'), 'unknown state')}"
+        if board:
+            task += f", board {board}"
+        task += ")"
+        open_prs = [f"PR #{pr['number']} (draft)" if pr.get("is_draft") else f"PR #{pr['number']}"
+                    for pr in issue.get("prs") or []
+                    if isinstance(pr, dict) and pr.get("state") == "OPEN" and pr.get("number")]
+        if open_prs:
+            task += " | " + ", ".join(open_prs[:2])
+        lines.append(task)
+        worktrees = issue.get("worktrees") or []
+        if worktrees:
+            lines.append(f"task worktrees: {', '.join(worktrees[:2])}")
+
+    parts = []
+    if operation:
+        parts.append(f"operation {operation}")
+    if limits:
+        parts.append(f"endpoint: {limits}")
+    if review_plan:
+        parts.append(f"review: {review_plan}")
+    if identity.get("login"):
+        state_text = "ready" if identity.get("ready") else "not ready"
+        parts.append(f"identity {identity['login']} ({state_text}); writes only via ghflow write commands or `ghflow exec --`")
+    else:
+        parts.append("identity: unconfigured; GitHub writes are unavailable")
+    if notes:
+        parts.append(f"notes: {notes}")
+    if handoff_path:
+        parts.append(f"handoff file: {handoff_path}")
+    if parts:
+        lines.append(" | ".join(parts))
+
+    parts = []
+    instructions = project_files.get("instructions") or []
+    if instructions:
+        parts.append(f"instructions {', '.join(instructions)}")
+    targets = project_files.get("make_targets") or []
+    if targets:
+        parts.append(f"gates: make {', '.join(targets[:5])}")
+    workflows = project_files.get("ci_workflows") or []
+    if workflows:
+        parts.append(f"CI {workflows[0]}")
+    if facts_file.get("present"):
+        stale = facts_file.get("stale_sources") or []
+        facts_state = f"{facts_file['path']} current"
+        if stale:
+            facts_state = (f"{facts_file['path']} STALE ({len(stale)} sources changed; "
+                           "run `ghflow facts` for live state)")
+        parts.append(f"project facts {facts_state}")
+    else:
+        parts.append("project facts: none")
+    lines.append(" | ".join(parts))
+
+    if first is None:
+        first = "read the handoff file and follow it" if handoff_path else "follow the request in this prompt"
+    lines.append(f"first: {first}")
+    lines.append(PREAMBLE_DO_NOT_ASK)
+    lines.append(PREAMBLE_NEVER)
+    return "\n".join(lines)
+
+
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
                   branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
@@ -1969,8 +2086,15 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     defaults_file.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
     prompt = (f"Operation: {operation} for {subject}. Your complete handoff is the file {out}; "
               "read it first and follow it. This short prompt is not a placeholder.")
+    errors = list(info.get("errors") or [])
+    # The first prompt carries the compact preamble inline; the handoff file holds the details.
+    try:
+        prompt += "\n\n" + preamble_text(info, operation=operation, limits=limits, review_plan=review_plan,
+                                         notes=notes, handoff_path=str(out), branch=branch)
+    except ValueError as error:
+        errors.append({"part": "preamble", "error": str(error)})
     return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "facts_path": facts_line,
-            "reused": reused, "errors": info.get("errors", [])}, 0
+            "reused": reused, "errors": errors}, 0
 
 
 def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
@@ -2674,6 +2798,14 @@ def main(argv=None):
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
     facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    preamble_cmd = commands.add_parser("preamble", help="Print a compact session-start block from live facts and the task context; a view, never a stored file.")
+    preamble_cmd.add_argument("issue", nargs="?", help="issue URL, or issue number with --repo, for the task block")
+    preamble_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    preamble_cmd.add_argument("--operation", help="worker operation name, such as implement-issue")
+    preamble_cmd.add_argument("--limits", help="flow endpoint and authorization limits")
+    preamble_cmd.add_argument("--review-plan", help="review method and exception")
+    preamble_cmd.add_argument("--notes", metavar="PATH", help="task notes path")
+    preamble_cmd.add_argument("--first", help="first action for the agent; defaults to the request in the prompt or the handoff file")
     ident = commands.add_parser("identity", help="Report or export the configured agent identity.")
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
@@ -2749,6 +2881,21 @@ def main(argv=None):
     elif args.command == "facts":
         issue = parse_issue(args.issue, args.repo) if args.issue else None
         result, status = project_facts(issue=issue, bare_login=bare_gh_login)
+    elif args.command == "preamble":
+        issue = parse_issue(args.issue, args.repo) if args.issue else None
+        info, _ = project_facts(issue=issue, bare_login=bare_gh_login)
+        try:
+            text = preamble_text(info, operation=args.operation, limits=args.limits,
+                                 review_plan=args.review_plan, notes=args.notes, first=args.first)
+        except ValueError as error:
+            sys.stderr.write(f"{error}\n")
+            return 1
+        sys.stdout.write(text + "\n")
+        tokens = estimate_tokens(text)
+        if tokens > PREAMBLE_TOKEN_BUDGET:
+            sys.stderr.write(f"warning: the preamble is about {tokens} tokens, above the "
+                             f"{PREAMBLE_TOKEN_BUDGET} budget; shorten the context it carries\n")
+        return 0
     elif args.command == "identity":
         try:
             identity = resolve_identity()
