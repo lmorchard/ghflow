@@ -25,7 +25,8 @@ BARE_GH_WRITE = re.compile(
 EXEC_PREFIX = re.compile(r'(?:ghflow|\$GHFLOW_CLI"?)\s+exec\s+--\s*$')
 # Marks a line whose bare `gh` write is deliberate, with the reason recorded.
 ALLOW_MARKER = "allow-bare-gh"
-# The read tool truncates a prose line longer than this and asks for a raw re-read.
+# The read tool truncates a prose line at this many UTF-8 bytes and asks for a
+# raw re-read.
 MAX_PROSE_LINE = 768
 
 
@@ -215,10 +216,11 @@ def check_line_width(root=ROOT):
                 continue
             if in_code or stripped.startswith("|"):
                 continue
-            if len(line) > MAX_PROSE_LINE:
+            width = len(line.encode("utf-8"))
+            if width > MAX_PROSE_LINE:
                 errors.append(
-                    f"{name}:{number}: prose line is {len(line)} characters;"
-                    f" limit is {MAX_PROSE_LINE}")
+                    f"{name}:{number}: prose line is {width} bytes; the read tool"
+                    f" truncates a line over {MAX_PROSE_LINE} bytes")
     return errors
 
 

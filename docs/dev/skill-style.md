@@ -41,7 +41,7 @@ Use one word for one meaning across all skills. Write instructions as commands, 
 
 There is no fixed sentence-length limit. Split a sentence when it holds two separate instructions, not merely because it is long.
 
-Keep each prose line in `SKILL.md` and `references/**/*.md` at or below 768 characters, so the read tool does not truncate it. Break a paragraph at a sentence boundary. The `scripts/check.py` check measures these files and ignores fenced code blocks and table rows.
+Keep each prose line in `SKILL.md` and `references/**/*.md` at or below 768 UTF-8 bytes, so the read tool does not truncate it. The limit is bytes, not characters, because the read tool truncates by bytes: a line of 400 emoji is 400 characters but 1,600 bytes, and it truncates. Break a paragraph at a sentence boundary. The `scripts/check.py` check measures these files and ignores fenced code blocks and table rows.
 
 ## Rules and prohibitions
 

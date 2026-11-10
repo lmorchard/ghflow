@@ -97,10 +97,22 @@ class LineWidthTests(unittest.TestCase):
         errors = self.lint({"references/tasks/a.md": "x" * 769 + "\n"})
         self.assertEqual(len(errors), 1)
         self.assertIn("references/tasks/a.md:1", errors[0])
-        self.assertIn("769 characters", errors[0])
+        self.assertIn("769 bytes", errors[0])
+        self.assertIn("read tool", errors[0])
 
     def test_accepts_a_prose_line_at_the_limit(self):
         self.assertEqual(self.lint({"SKILL.md": "x" * 768 + "\n"}), [])
+
+    def test_flags_a_multibyte_line_that_exceeds_the_byte_limit(self):
+        # 400 characters but 800 bytes: only a byte count catches this line.
+        errors = self.lint({"references/tasks/a.md": "é" * 400 + "\n"})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("references/tasks/a.md:1", errors[0])
+        self.assertIn("800 bytes", errors[0])
+        self.assertIn("768 bytes", errors[0])
+
+    def test_accepts_a_multibyte_line_at_the_byte_limit(self):
+        self.assertEqual(self.lint({"SKILL.md": "é" * 384 + "\n"}), [])
 
     def test_skips_fenced_code_blocks(self):
         text = "Prose.\n```text\n" + "x" * 900 + "\n```\n"
