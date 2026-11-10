@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -3578,29 +3578,195 @@ class QueueParkedTests(unittest.TestCase):
         self.assertEqual([e["number"] for e in result["selection"]], [7])
 
 
+def summary_gh(issues, deliveries, fail=()):
+    """Route summary issue reads and each linked PR's pr_state reads to fixtures."""
+    by_head = {entry["pr"]["headRefOid"]: entry for entry in deliveries.values()}
+
+    def gh(args):
+        if args[0] == "api" and args[1] == "graphql" and any("closedByPullRequestsReferences" in a for a in args):
+            number = next(a.split("=", 1)[1] for a in args if a.startswith("number="))
+            return issues[number]
+        if args[:2] == ["pr", "view"]:
+            return deliveries[int(args[2])]["pr"]
+        if "/compare/" in args[1]:
+            head = args[1].rsplit("...", 1)[1]
+            return {"behind_by": by_head[head].get("behind_by", 0), "ahead_by": 1}
+        raise AssertionError(f"Unexpected gh call: {args}")
+
+    def gh_paginated(path):
+        if "/rules/branches/" in path:
+            if "rules" in fail:
+                raise GhError("HTTP 403")
+            return rules("test")
+        parts = path.split("/")
+        if len(parts) == 6 and parts[-3] in ("pulls", "issues"):
+            entry = deliveries[int(parts[-2])]
+            if parts[-3] == "pulls" and parts[-1] == "reviews":
+                if "reviews" in fail:
+                    raise GhError("HTTP 502")
+                return list(entry.get("reviews", ()))
+            if parts[-3] == "pulls":
+                return list(entry.get("review_comments", ()))
+            return list(entry.get("timeline" if parts[-1] == "timeline" else "issue_comments", ()))
+        raise AssertionError(f"Unexpected paginated call: {path}")
+
+    return gh, gh_paginated
+
+
+def stated_review(author, commit, submitted, state="COMMENTED"):
+    """Build a review record as pr_state reports it."""
+    return {"author": author, "state": state, "commit": commit, "submitted_at": submitted,
+            "covers_head": commit == HEAD, "inline_comments": 0, "body": ""}
+
+
+class ReviewSummaryTests(unittest.TestCase):
+    def test_unanswered_request_is_pending(self):
+        review_state = review_summary([], [{"reviewer": "alice", "requested_at": "2026-11-09T10:00:00Z", "answered": False}], [])
+        self.assertEqual((review_state["state"], review_state["pending"]), ("pending", ["alice"]))
+
+    def test_answered_request_with_approval_is_approved(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:05:00Z", state="APPROVED")],
+            [{"reviewer": "alice", "requested_at": "2026-11-09T10:00:00Z", "answered": True}],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["pending"]), ("approved", []))
+
+    def test_live_request_without_a_review_is_pending(self):
+        review_state = review_summary([], [], ["alice"])
+        self.assertEqual((review_state["state"], review_state["requested"]), ("pending", ["alice"]))
+
+    def test_changes_requested_at_the_head_outranks_an_earlier_approval(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("bob", HEAD, "2026-11-09T09:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
+
+    def test_comment_after_a_change_request_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
+
+    def test_approval_after_a_change_request_clears_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="APPROVED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("approved", []))
+
+    def test_dismissed_change_request_no_longer_blocks(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="DISMISSED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("commented", []))
+
+    def test_comment_after_an_approval_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual(review_state["state"], "approved")
+
+    def test_reviews_before_the_head_are_stale_and_not_completed(self):
+        review_state = review_summary(
+            [stated_review("alice", OLD, "2026-11-09T10:00:00Z", state="APPROVED")], [], []
+        )
+        self.assertEqual((review_state["state"], review_state["completed"]), ("stale", []))
+
+    def test_no_reviews_or_requests_is_none(self):
+        review_state = review_summary([], [], [])
+        self.assertEqual(review_state["state"], "none")
+
+    def test_unread_parts_are_incomplete(self):
+        for reviews, latest in ((None, []), ([], None)):
+            with self.subTest(latest=latest):
+                self.assertEqual(review_summary(reviews, latest, [])["state"], "incomplete")
+
+
 class QueueSummaryTests(unittest.TestCase):
-    def test_reports_open_pr_head_board_and_parked_label(self):
-        responses = {
+    def test_reports_current_head_ci_and_review_state(self):
+        issues = {
             "1": summary_issue(prs=[{"url": "pr/9", "number": 9, "state": "CLOSED", "isDraft": False, "headRefOid": "aaaaaaa1"},
-                                    {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": "bbbbbbb2"}]),
+                                    {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}]),
             "2": summary_issue(labels=["triage:needs-input"], status="In progress",
-                               prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "ccccccc3"}]),
+                               prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "c" * 40}]),
         }
-        gh = lambda args: responses[next(a.split("=")[1] for a in args if a.startswith("number="))]
-        result, status = queue_summary([("o/r", 1), ("o/r", 2)], "o", 6, gh=gh)
+        deliveries = {
+            10: {"pr": pr(number=10, url="pr/10"),
+                 "reviews": [review(1, "alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED")]},
+            11: {"pr": pr(number=11, url="pr/11", headRefOid="c" * 40, isDraft=True,
+                          reviewRequests=[{"login": "bob"}],
+                          statusCheckRollup=[{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
+                                              "conclusion": None}]),
+                 "timeline": [requested("bob", "2026-11-09T11:00:00Z")]},
+        }
+        gh, gh_paginated = summary_gh(issues, deliveries)
+        result, status = queue_summary([("o/r", 1), ("o/r", 2)], "o", 6, gh=gh, gh_paginated=gh_paginated)
         self.assertEqual(status, 0)
         first, second = result["rows"]
         self.assertEqual((first["pr"]["url"], first["other_prs"]), ("pr/10", ["pr/9"]))
+        self.assertEqual(first["ci"], "green")
+        self.assertEqual(first["required_checks"], ["test"])
+        self.assertEqual(first["review"]["state"], "approved")
+        self.assertEqual(first["review"]["completed"], [{"author": "alice", "state": "APPROVED", "commit": HEAD,
+                                                         "submitted_at": "2026-11-09T10:00:00Z"}])
+        self.assertEqual(second["ci"], "pending")
+        self.assertEqual(second["review"]["state"], "pending")
+        self.assertEqual(second["review"]["pending"], ["bob"])
         self.assertTrue(second["parked"])
-        self.assertIn("| pr/10 | bbbbbbb | open | In review |", result["table"])
-        self.assertIn("| draft | In progress, parked (triage:needs-input) |", result["table"])
+        self.assertIn("| pr/10 | aaaaaaa | open | green (test) | approved: alice | In review |", result["table"])
+        self.assertIn("| pr/11 | ccccccc | draft | pending: test | pending: bob | "
+                      "In progress, parked (triage:needs-input) |", result["table"])
+
+    def test_unread_review_is_incomplete_with_exit_2(self):
+        issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}])}
+        deliveries = {10: {"pr": pr(number=10, url="pr/10")}}
+        gh, gh_paginated = summary_gh(issues, deliveries, fail={"reviews"})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["rows"][0]["ci"], "green")
+        self.assertEqual(result["rows"][0]["review"]["state"], "incomplete")
+        self.assertIn("o/r#1 reviews", [error["part"] for error in result["errors"]])
+
+    def test_unread_required_checks_mark_ci_incomplete(self):
+        issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}])}
+        deliveries = {10: {"pr": pr(number=10, url="pr/10")}}
+        gh, gh_paginated = summary_gh(issues, deliveries, fail={"rules"})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["rows"][0]["ci"], "incomplete")
+        self.assertEqual(result["rows"][0]["review"]["state"], "none")
+        self.assertIn("o/r#1 required_checks", [error["part"] for error in result["errors"]])
+
+    def test_issue_without_a_linked_pr_reports_none(self):
+        issues = {"1": summary_issue()}
+        gh, gh_paginated = summary_gh(issues, {})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 0)
+        self.assertEqual((result["rows"][0]["ci"], result["rows"][0]["review"]), (None, None))
+        self.assertIn("| none |  | none | none | none | In review |", result["table"])
 
     def test_unread_issue_is_reported_with_exit_2(self):
         def gh(args):
             raise GhError("not found")
         result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh)
         self.assertEqual(status, 2)
-        self.assertIn("unread", result["table"])
+        self.assertIn("| unread | | | | | |", result["table"])
 
 
 class BudgetTests(unittest.TestCase):
