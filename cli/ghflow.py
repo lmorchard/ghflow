@@ -2620,7 +2620,7 @@ def identity_env(identity, base_env=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ghflow", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    state = commands.add_parser("pr-state", help="Report CI, review requests, and reviews for a PR's current head.")
+    state = commands.add_parser("pr-state", help="Report CI, reviews, and author readback for a PR's current head.")
     state.add_argument("pr", help="PR URL, or PR number with --repo")
     state.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     verify = commands.add_parser("verify-commit", help="Resolve a published commit and check that it is the one you expect.")
