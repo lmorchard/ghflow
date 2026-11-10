@@ -53,6 +53,19 @@ Local times come from session timestamps and the `budget` log.
 | 20:49 to 21:56 | #994 implementation, in research and notes, no commit. |
 | 21:56:14 | The OpenCode client exited with status 1. The #994 worker's step ended with "Step interrupted", and the coordinator's dispatch call with "Tool execution interrupted". The run log has no stderr line, and `opencode.log` has no error, only the run's location evicted after its event stream closed. The power log shows no sleep; `caffeinate` ended because its child exited. |
 
+## Coordinator preparation before dispatch
+
+The #77 text in `express-issue.md` says to confirm the paths of task references before dispatch and not to read a worker's procedure. The session export shows that the coordinator read 9 references and `.ghflow/project.md` before it dispatched #24 at 14:47:56, 16 min 45 s after the 14:31 launch. The 9 references were `burndown-ready-queue`, `context`, `identity`, `express-issue`, `coordination`, `review`, `task-notes`, `decisions`, and `pr-lifecycle`.
+
+The coordinator ran `ls -1` on `implement-issue`, `review-changes`, `submit-pr`, `address-pr-review`, and `prepare-project-facts`. The `ls` confirmed their paths, and the coordinator did not read those dispatched procedures. The change is shown, so the done condition in [issue #78](https://github.com/lmorchard/ghflow/issues/78) is satisfied and no cost acceptance is needed.
+
+| | [#1012 run](2026-10-12-issue-1012-qwen-delivery.md) | Run 6 |
+| --- | --- | --- |
+| Reference files read before first dispatch | 15, including three task references it would only dispatch | 9 references and `.ghflow/project.md`; no dispatched task reference read |
+| Preparation before first dispatch | 27 min | 16 min 45 s |
+
+Both runs used the local model. The #1012 run delivered on the text after PRs #63 through #71; this run used `1d93227`. Each is one run, so the table shows the difference in these two records and does not measure an effect of the #77 text.
+
 ## What held
 
 - **The non-gate rule held in its first live test.** The worker tried the eval once, recorded the environment failure as an evidence limit, and moved on in 8 minutes, against about 70 minutes in run 5.
