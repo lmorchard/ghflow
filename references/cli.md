@@ -8,6 +8,8 @@ These commands apply the configured [agent identity](shared/identity.md) to thei
 
 Read a PR's state with `python3 "$GHFLOW_CLI" pr-state PR_URL`, run from the target project directory. It reports the current head, each check's state with required checks from rulesets, review requests from the timeline, and reviews with their commits. It matches a Copilot request to reviews authored by `copilot-pull-request-reviewer[bot]`.
 
+`author` is the PR author's login. `commit_authors` is the sorted unique login among every commit in the PR, read from all pages of the commit list. A commit that GitHub attributes to no account, or a failed page read, leaves `commit_authors` `null` with an entry in `errors`; the tool never reports a partial author set as complete. Compare both fields with the configured login to see whether a delivery used the machine account.
+
 `base_behind_by` is the number of base-branch commits that the head does not contain. A value of 0 means the head contains the current base tip.
 
 `effective_gh_login` is the login that a plain `gh` call in the same environment uses, without the selected identity. `identity_mismatch` is `true` when that login differs from the selected login, `false` when it matches, and `null` when the check could not run, which is not an error. A `true` value means a `gh` write outside the identity tools would use the wrong account; see [Write under the selected identity](shared/identity.md#write-under-the-selected-identity).
@@ -41,11 +43,14 @@ A valid local result establishes local existence only; it does not establish pub
 
 For a published commit, current PR head, or merge claim, run `python3 "$GHFLOW_CLI" verify-commit SHA --repo OWNER/NAME` from the target project directory.
 Add the facts that you expect: `--subject` with the first line of the commit message, `--on BRANCH` for the branch that should contain it, and `--pr-head PR_URL` when it should be the PR's current head.
+Add `--author LOGIN` or `--committer LOGIN` when the commit should belong to that GitHub account. Login comparison ignores case.
 Use the full SHA that the tool reports.
+
+The result reports `author` and `committer` objects with `login`, `name`, `email`, and `date`. `login` is the GitHub account, and it is `null` when GitHub attributes the commit to no account. The names, email, and date come from the commit record.
 
 Exit status 0 means the commit exists and each expectation holds. Exit status 3 means an expectation is false. Exit status 1 means GitHub did not find the commit, which can mean it is not pushed. Do not pass on an identifier that failed. Read the branch again or return the mismatch to the agent that reported it.
 
-An invalid primary commit response also exits 1. An invalid expectation response leaves that expectation `null` with an error. It exits 2 unless another expectation is false, which retains exit status 3. If GitHub provides no commit author or author date, `author_date` is `null` without an error, as the [GitHub REST response schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json) permits.
+An invalid primary commit response also exits 1. An invalid expectation response leaves that expectation `null` with an error. It exits 2 unless another expectation is false, which retains exit status 3. If GitHub provides no commit author or author date, `author_date` is `null` without an error, as the [GitHub REST response schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json) permits. A commit with a `null` account login under `--author` or `--committer` is a false expectation and exits 3.
 
 ## Marking a PR ready
 
@@ -77,13 +82,24 @@ Three parts describe the session rather than the project:
 
 The command reads only. A part it could not read is `null` with an entry in `errors`, and the command exits 2; outside a Git repository it exits 1. `local_default_behind` counts commits as of the last fetch, so check `fetch_head_age_seconds` before you rely on it.
 
+## Generating a session preamble
+
+Run `python3 "$GHFLOW_CLI" preamble` from the subject checkout to print a compact session-start block from the same reads as `facts`. Add the issue URL for the task block: its number, title, state, board status, open PRs, and the branches and worktrees that name its number. `--operation`, `--limits`, `--review-plan`, `--notes`, and `--first` add the dispatch fields that a handoff otherwise carries. Paste the block at the start of a local-model session, so the model does not spend turns rediscovering these facts.
+
+The header line names the generation time and the revision the facts describe. The block states the project facts file's path and whether it is current or stale. It does not copy the file's content, the issue body, or a task reference. A part that `facts` could not read prints as `unknown`, and the block still prints.
+
+The normal case stays at or below about 400 tokens, estimated at four characters per token. Above that budget the command prints a warning on standard error and still prints the block. Exit status 0 means the block was generated. Exit status 1 means the checkout itself could not be read.
+
+`handoff` appends the same block to its printed dispatch prompt, below the line that names the handoff file. `unattended-burndown.sh` appends the project-only block, without an issue, to its first prompt, and launches without it when the read fails.
+
 ## Delivery helpers
 
 `worktree create ISSUE_URL --branch BRANCH` creates `.claude/worktrees/BRANCH` in the primary checkout from `origin/<default>`, copies each `--copy` file from the primary checkout, runs each `--setup` command in the worktree, and with `--notes` writes `docs/dev-sessions/STAMP-BRANCH/notes.md` with a Resume here skeleton. With `--owner` and `--project` it moves the issue In progress through `board set-status`. It exits 3 and writes nothing when the branch or path already exists, 2 when a setup command or the board move fails, and reports each setup command's exit status and output tail.
 
 `pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
 
-`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
+`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file, with the [session preamble](#generating-a-session-preamble) below it. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path.
+`handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
 
 `board set-status` refuses In review with exit 3 while every open PR linked to the issue is a draft. `pr ready` moves the board after it marks the PR ready and is not affected.
 
@@ -95,6 +111,11 @@ The command reads only. A part it could not read is `null` with an entry in `err
 
 `queue select --owner OWNER --project NUMBER [--status Ready]` reads every board page and validates each one: no GraphQL errors, the selected project, every item with `status`, `priority`, and `size` keys, and a cursor on every page that claims a next page. It lists that column's issues under `selection` in burndown order, with `below_tier` for issues below `P1`, `unresolved` for items that are not issues, and `status_counts` for every column. `parked` lists issues In progress whose open PR holds a "Parked (time budget)" section, in the same order; it exits 2 when that check fails for an issue. It exits 1 on incomplete discovery and then returns no selection.
 
-`queue summary ISSUE_URL... --owner OWNER --project NUMBER` reads each issue's linked PR, preferring an open one, with its head, draft state, board Status, and `triage:needs-input` label, and prints them as a Markdown `table`. Review evidence and unattended decisions are not GitHub facts and are not included. It exits 2 when an issue could not be read.
+`queue summary ISSUE_URL... --owner OWNER --project NUMBER` reads each issue's linked PR, preferring an open one, with its head, draft state, board Status, and `triage:needs-input` label, and prints them as a Markdown `table`. For the linked PR it also reads the current head's check and review state through the same reads as `pr-state`: `ci`, `checks`, `required_checks`, and `review`. The review read uses every page of the reviews and review requests. A cell or row field the tool could not read is marked `unread` or `incomplete`, never as empty or green. A linked PR with no checks reports `none`.
+
+The CI cell names the checks that are not passed or skipped, such as `failing: test` or `pending: test`. When none is outstanding, it names the required checks, such as `green (test)`. The review cell reports `none`, `stale` for reviews that do not cover the current head, `pending` with the requested reviewers, `changes_requested` with the reviewers, `approved`, `commented`, or `incomplete`.
+`review.pending` includes a live request and a latest request that no later review by that reviewer answers. `review.completed` lists the latest review by each author that covers the current head. `review.changes_requested` names the authors whose current-head change request still stands: a later comment does not clear it, while a later approval by that author or a dismissal does. Each `checks` entry carries `required` when required-check discovery succeeded.
+
+Review evidence and unattended decisions are not GitHub facts and are not included. It exits 2 when an issue, or a part of its linked PR's checks or review state, could not be read.
 
 `budget --log FILE` reads the clock and reports `remaining_minutes` to the recorded deadline, finished spans, open spans, and the last and longest duration of each kind. `--deadline T` records the deadline, as ISO 8601 or the launcher's `YYYY-MM-DD HH:MM ZONE`, read as local time. `--start KIND:ID` and `--end KIND:ID` mark a task, such as `review:164`. `--need review,ready` adds the sum of each kind's longest duration and `fits`, which is null when a kind is not measured yet or no deadline is recorded. It exits 1 for an end without a start.

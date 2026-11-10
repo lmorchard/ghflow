@@ -17,8 +17,9 @@ when the write's read-back does not match.
 pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
 queue select exits 1 on incomplete discovery and then returns no selection.
-queue summary exits 2 when an issue could not be read. budget exits 1 for an
-end mark without a start.
+queue summary exits 2 when an issue, or part of its linked PR's check or review
+state, could not be read. budget exits 1 for an end mark without a start. preamble
+prints plain text and exits 1 when the checkout itself could not be read.
 """
 
 import argparse
@@ -31,7 +32,7 @@ import shutil
 import sys
 import tempfile
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 CHECK_RUN_STATES = {
@@ -304,7 +305,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
             errors.append({"part": name, "error": str(error)})
             return None
 
-    fields = "number,url,state,isDraft,mergeable,headRefOid,headRefName,baseRefName,reviewRequests,statusCheckRollup"
+    fields = "number,url,state,isDraft,mergeable,headRefOid,headRefName,baseRefName,author,reviewRequests,statusCheckRollup"
     required_pr_fields = ("number", "url", "state", "isDraft", "mergeable", "headRefOid", "headRefName", "baseRefName")
     try:
         pr = gh(["pr", "view", str(number), "--repo", repo, "--json", fields])
@@ -348,6 +349,37 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
 
     head = pr["headRefOid"]
     base = pr["baseRefName"]
+
+    def read_author():
+        value = pr.get("author")
+        if value is None:
+            raise ValueError("The PR author is missing or null.")
+        response_type(value, dict, "The PR author")
+        return response_string(value.get("login"), "The PR author login")
+
+    author = part("author", read_author)
+
+    def read_commit_authors():
+        commits = response_type(gh_paginated(f"repos/{repo}/pulls/{number}/commits"), list, "The PR commits")
+        logins = set()
+        unattributed = []
+        for commit in commits:
+            response_type(commit, dict, "A PR commit")
+            sha = response_string(commit.get("sha"), "A PR commit sha")
+            account = commit.get("author")
+            if account is None:
+                unattributed.append(sha)
+                continue
+            response_type(account, dict, "A PR commit author")
+            logins.add(response_string(account.get("login"), "A PR commit author login"))
+        if unattributed:
+            raise ValueError(
+                f"GitHub attributed no account to {len(unattributed)} PR commit(s): {', '.join(unattributed)}."
+                " The author set is incomplete."
+            )
+        return sorted(logins)
+
+    commit_authors = part("commit_authors", read_commit_authors)
 
     def read_required():
         rules = gh_paginated(f"repos/{repo}/rules/branches/{base}")
@@ -492,6 +524,8 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "state": pr["state"],
         "is_draft": pr["isDraft"],
         "mergeable": pr["mergeable"],
+        "author": author,
+        "commit_authors": commit_authors,
         "head": head,
         "head_branch": pr["headRefName"],
         "base": base,
@@ -519,7 +553,30 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
     return result, 2 if errors else 0
 
 
-def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
+def login_matches(actual, expected):
+    """Compare GitHub logins without case sensitivity; an absent login never matches."""
+    return actual is not None and actual.lower() == expected.strip().lower()
+
+
+def commit_person(account, record, label):
+    """Build the login and recorded identity for a commit author or committer."""
+    login = None
+    if account is not None:
+        response_type(account, dict, f"The commit {label} account")
+        login = response_string(account.get("login"), f"The commit {label} login")
+    name = email = date = None
+    if record is not None:
+        response_type(record, dict, f"The commit {label} record")
+        for key in ("name", "email"):
+            value = record.get(key)
+            if value is not None:
+                response_string(value, f"The commit {label} {key}", empty=True)
+        name, email = record.get("name"), record.get("email")
+        date = response_string(record.get("date"), f"The commit {label} date", nullable=True)
+    return {"login": login, "name": name, "email": email, "date": date}
+
+
+def verify_commit(repo, rev, subject=None, on=None, pr_head=None, author=None, committer=None, gh=run_gh):
     """Resolve a published commit and compare it with what the caller expects it to be."""
     errors = []
     expectations = {}
@@ -536,11 +593,13 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
             raise ValueError("The commit response is missing its message.")
         if "author" not in body:
             raise ValueError("The commit response is missing its author.")
-        author = body["author"]
+        author_record = body["author"]
         author_date = None
-        if author is not None:
-            response_type(author, dict, "The commit author")
-            author_date = response_string(author.get("date"), "The commit author date", nullable=True)
+        if author_record is not None:
+            response_type(author_record, dict, "The commit author")
+            author_date = response_string(author_record.get("date"), "The commit author date", nullable=True)
+        author_person = commit_person(commit.get("author"), author_record, "author")
+        committer_person = commit_person(commit.get("committer"), body.get("committer"), "committer")
         sha = response_string(commit["sha"], "The commit sha")
         message = body["message"]
         if not isinstance(message, str):
@@ -566,6 +625,8 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
          "sha": sha,
          "subject": message.splitlines()[0] if message else "",
          "author_date": author_date,
+         "author": author_person,
+         "committer": committer_person,
          "parents": [parent["sha"] for parent in parents],
          "expectations": expectations,
          "errors": errors,
@@ -573,6 +634,12 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
 
     if subject is not None:
         expectations["subject_matches"] = result["subject"] == subject.strip()
+
+    if author is not None:
+        expectations["author_matches"] = login_matches(result["author"]["login"], author)
+
+    if committer is not None:
+        expectations["committer_matches"] = login_matches(result["committer"]["login"], committer)
 
     if on is not None:
         try:
@@ -1855,6 +1922,122 @@ HANDOFF_DEADLINE = ("Deadline: {deadline}. At the deadline, start nothing new: c
                     "so that the coordinator can park the delivery and a later run can resume it.")
 
 
+PREAMBLE_TOKEN_BUDGET = 400
+PREAMBLE_HEADER = "--- ghflow preamble {stamp} facts@{rev} ---"
+PREAMBLE_DO_NOT_ASK = ("do not ask for: repository, checkout, branch, base, identity, gates, endpoint, "
+                       "review plan, or notes. Ask only for product decisions, missing scope, conflicts, "
+                       "or actions beyond authorization.")
+PREAMBLE_NEVER = "never: bare `gh` writes outside `ghflow exec --`, `gh auth login`, `gh auth switch`, `gh auth logout`"
+
+
+def estimate_tokens(text):
+    """Estimate a token count at about four characters per token."""
+    return max(1, (len(text) + 3) // 4)
+
+
+def preamble_text(info, operation=None, limits=None, review_plan=None, notes=None,
+                  handoff_path=None, branch=None, first=None, now=None):
+    """Build the compact session-start block from one facts read plus the task context.
+
+    A view over `facts`, the project facts file state, and the issue or handoff.
+    Never a stored file. Raises ValueError when the facts read has no checkout.
+    """
+    checkout = info.get("checkout") if isinstance(info, dict) else None
+    if not isinstance(checkout, dict) or not checkout.get("root"):
+        raise ValueError("The facts read has no checkout; run `ghflow facts` and report its errors.")
+    stamp = (now or datetime.now(timezone.utc)).strftime("%Y-%m-%dT%H:%M:%SZ")
+    repository = info.get("repository") or {}
+    project_files = info.get("project_files") or {}
+    facts_file = info.get("project_facts") or {}
+    identity = info.get("identity") or {}
+    issue = info.get("issue") or {}
+    base_ci = info.get("base_ci") or {}
+
+    def value(text, fallback="unknown"):
+        return text if text else fallback
+
+    lines = [PREAMBLE_HEADER.format(stamp=stamp, rev=value(checkout.get("head"))[:12])]
+    parts = [f"repo {value(repository.get('remote'))}",
+             f"checkout {checkout['root']}"
+             + (f" (of {checkout['primary_root']})" if checkout.get("is_linked_worktree") else ""),
+             f"branch {value(checkout.get('branch'))}" + (" dirty" if checkout.get("dirty") else "")]
+    if repository.get("default_branch"):
+        base_part = (f"base origin/{repository['default_branch']}"
+                     f"@{value(repository.get('origin_default_head'))[:12]}")
+        if base_ci.get("summary"):
+            base_part += f" CI {base_ci['summary']}" + (" (stale fetch)" if base_ci.get("stale") else "")
+        parts.append(base_part)
+    if branch and branch != checkout.get("branch"):
+        parts.append(f"task branch {branch}")
+    lines.append(" | ".join(parts))
+
+    if issue.get("url"):
+        number = str(issue["url"]).rstrip("/").split("/")[-1]
+        board = next((item.get("status") for item in issue.get("board_items") or []
+                      if isinstance(item, dict) and item.get("status")), None)
+        title = str(issue.get("title") or "")[:80]
+        task = f"task #{number} {title} ({value(issue.get('state'), 'unknown state')}"
+        if board:
+            task += f", board {board}"
+        task += ")"
+        open_prs = [f"PR #{pr['number']} (draft)" if pr.get("is_draft") else f"PR #{pr['number']}"
+                    for pr in issue.get("prs") or []
+                    if isinstance(pr, dict) and pr.get("state") == "OPEN" and pr.get("number")]
+        if open_prs:
+            task += " | " + ", ".join(open_prs[:2])
+        lines.append(task)
+        worktrees = issue.get("worktrees") or []
+        if worktrees:
+            lines.append(f"task worktrees: {', '.join(worktrees[:2])}")
+
+    parts = []
+    if operation:
+        parts.append(f"operation {operation}")
+    if limits:
+        parts.append(f"endpoint: {limits}")
+    if review_plan:
+        parts.append(f"review: {review_plan}")
+    if identity.get("login"):
+        state_text = "ready" if identity.get("ready") else "not ready"
+        parts.append(f"identity {identity['login']} ({state_text}); writes only via ghflow write commands or `ghflow exec --`")
+    else:
+        parts.append("identity: unconfigured; GitHub writes are unavailable")
+    if notes:
+        parts.append(f"notes: {notes}")
+    if handoff_path:
+        parts.append(f"handoff file: {handoff_path}")
+    if parts:
+        lines.append(" | ".join(parts))
+
+    parts = []
+    instructions = project_files.get("instructions") or []
+    if instructions:
+        parts.append(f"instructions {', '.join(instructions)}")
+    targets = project_files.get("make_targets") or []
+    if targets:
+        parts.append(f"gates: make {', '.join(targets[:5])}")
+    workflows = project_files.get("ci_workflows") or []
+    if workflows:
+        parts.append(f"CI {workflows[0]}")
+    if facts_file.get("present"):
+        stale = facts_file.get("stale_sources") or []
+        facts_state = f"{facts_file['path']} current"
+        if stale:
+            facts_state = (f"{facts_file['path']} STALE ({len(stale)} sources changed; "
+                           "run `ghflow facts` for live state)")
+        parts.append(f"project facts {facts_state}")
+    else:
+        parts.append("project facts: none")
+    lines.append(" | ".join(parts))
+
+    if first is None:
+        first = "read the handoff file and follow it" if handoff_path else "follow the request in this prompt"
+    lines.append(f"first: {first}")
+    lines.append(PREAMBLE_DO_NOT_ASK)
+    lines.append(PREAMBLE_NEVER)
+    return "\n".join(lines)
+
+
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
                   branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
@@ -1969,8 +2152,15 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     defaults_file.write_text(json.dumps(defaults, indent=2) + "\n", encoding="utf-8")
     prompt = (f"Operation: {operation} for {subject}. Your complete handoff is the file {out}; "
               "read it first and follow it. This short prompt is not a placeholder.")
+    errors = list(info.get("errors") or [])
+    # The first prompt carries the compact preamble inline; the handoff file holds the details.
+    try:
+        prompt += "\n\n" + preamble_text(info, operation=operation, limits=limits, review_plan=review_plan,
+                                         notes=notes, handoff_path=str(out), branch=branch)
+    except ValueError as error:
+        errors.append({"part": "preamble", "error": str(error)})
     return {"out": str(out), "chars": len(text), "dispatch_prompt": prompt, "facts_path": facts_line,
-            "reused": reused, "errors": info.get("errors", [])}, 0
+            "reused": reused, "errors": errors}, 0
 
 
 def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
@@ -2283,15 +2473,102 @@ SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 }"""
 
 
-def queue_summary(issues, owner, project, gh=run_gh):
-    """Read each delivered issue's linked PR, head, draft state, board Status, and parked label.
+def review_summary(reviews, latest_requests, pending_requests):
+    """Condense a linked PR's review records into the delivery endpoint's review state.
 
-    Review evidence and unattended decisions are not GitHub facts; the coordinator adds them.
+    A live request, or a latest request with no later review by that reviewer, is
+    pending. A review is completed only when it covers the current head. An unread
+    review part makes the state incomplete, not none.
+
+    An author's current-head reviews are read in submission order: a change
+    request stands until that author approves or the request is dismissed. A
+    comment or pending review does not clear it, and a later change request
+    outranks an approval.
+    """
+    if reviews is None or latest_requests is None:
+        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
+    requested = sorted({name for name in pending_requests if name})
+    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
+    pending = sorted(set(requested) | set(unanswered))
+    latest_by_author = {}
+    for entry in reviews:
+        author = entry["author"]
+        if author is None:
+            continue
+        earlier = latest_by_author.get(author)
+        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
+            latest_by_author[author] = entry
+    completed = [
+        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
+         "submitted_at": entry["submitted_at"]}
+        for entry in latest_by_author.values() if entry["covers_head"]
+    ]
+    completed.sort(key=lambda entry: entry["author"] or "")
+    verdicts = {}
+    for entry in sorted(
+        (review for review in reviews if review["author"] is not None and review["covers_head"]),
+        key=lambda review: review["submitted_at"] or "",
+    ):
+        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
+            verdicts[entry["author"]] = entry["state"]
+    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
+    if pending:
+        state = "pending"
+    elif changes_requested:
+        state = "changes_requested"
+    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
+        state = "approved"
+    elif completed:
+        state = "commented"
+    elif reviews:
+        state = "stale"
+    else:
+        state = "none"
+    return {"state": state, "requested": requested, "pending": pending,
+            "changes_requested": changes_requested, "completed": completed}
+
+
+def ci_cell(row):
+    """Name the checks that block a green current head, or the required checks when none does."""
+    if not row.get("pr"):
+        return "none"
+    if row.get("ci") is None:
+        return "unread"
+    outstanding = [check["name"] for check in row.get("checks") or [] if check["state"] not in ("passed", "skipped")]
+    if outstanding:
+        return f"{row['ci']}: {', '.join(outstanding)}"
+    required = sorted(check["name"] for check in row.get("checks") or [] if check["required"])
+    return f"{row['ci']} ({', '.join(required)})" if required else row["ci"]
+
+
+def review_cell(review):
+    """Name the reviewers that the review state concerns, or the state alone."""
+    if review is None:
+        return "none"
+    state = review["state"]
+    if state == "pending":
+        names = review["pending"]
+    elif state == "changes_requested":
+        names = review["changes_requested"]
+    elif state in ("approved", "commented"):
+        names = sorted({entry["author"] for entry in review["completed"] if entry["author"]})
+    else:
+        names = []
+    return f"{state}: {', '.join(names)}" if names else state
+
+
+def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginated):
+    """Read each delivered issue's linked PR with its head, draft state, board Status, parked label,
+    current-head required checks, and review state.
+
+    The check and review reads reuse pr-state, which reads every page of the reviews and review
+    requests or records the failed part. Review evidence and unattended decisions are not GitHub
+    facts; the coordinator adds them.
     """
     rows, errors = [], []
     for repo, number in issues:
         repo_owner, name = repo.split("/")
-        row = {"issue": f"{repo}#{number}"}
+        row = {"issue": f"{repo}#{number}", "ci": None, "checks": None, "required_checks": None, "review": None}
         try:
             data = response_type(gh(["api", "graphql", "-f", f"query={SUMMARY_QUERY}", "-f", f"owner={repo_owner}",
                                      "-f", f"name={name}", "-F", f"number={number}"]), dict, "The issue response")
@@ -2314,16 +2591,31 @@ def queue_summary(issues, owner, project, gh=run_gh):
                    pr=pr and {"url": pr.get("url"), "state": pr.get("state"), "draft": pr.get("isDraft"),
                               "head": pr.get("headRefOid")},
                    other_prs=[p.get("url") for p in prs if p is not pr])
+        if pr and isinstance(pr.get("number"), int):
+            delivery, _ = pr_state(f"{repo_owner}/{name}", pr["number"], gh=gh, gh_paginated=gh_paginated)
+            for error in delivery.get("errors") or []:
+                errors.append({"part": f"{row['issue']} {error['part']}", "error": error["error"]})
+            if delivery.get("head"):
+                row["pr"]["head"] = delivery["head"]
+            row.update(ci=delivery.get("ci"), checks=delivery.get("checks"),
+                       required_checks=delivery.get("required_checks"),
+                       review=review_summary(delivery.get("reviews"), delivery.get("latest_review_requests"),
+                                             delivery.get("pending_review_requests") or []))
+        elif pr:
+            errors.append({"part": row["issue"], "error": "The linked PR has no readable number."})
+            row["review"] = review_summary(None, None, [])
         rows.append(row)
-    lines = ["| Issue | Pull request | Head | PR state | Board |", "| --- | --- | --- | --- | --- |"]
+    lines = ["| Issue | Pull request | Head | PR state | CI | Review | Board |",
+             "| --- | --- | --- | --- | --- | --- | --- |"]
     for row in rows:
         if "title" not in row:
-            lines.append(f"| {row['issue']} | unread | | | |")
+            lines.append(f"| {row['issue']} | unread | | | | | |")
             continue
         pr = row["pr"] or {}
         pr_state_text = ("draft" if pr.get("draft") else (pr.get("state") or "").lower()) if pr else "none"
         board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-input)" if row["parked"] else "")
-        lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | {pr_state_text} | {board_text} |")
+        lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | "
+                     f"{pr_state_text} | {ci_cell(row)} | {review_cell(row['review'])} | {board_text} |")
     result = {"rows": rows, "table": "\n".join(lines) + "\n", "errors": errors,
               "not_included": "Review evidence and decisions taken unattended; add them from the workers' reports."}
     return result, (2 if errors else 0)
@@ -2554,7 +2846,7 @@ def identity_env(identity, base_env=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ghflow", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    state = commands.add_parser("pr-state", help="Report CI, review requests, and reviews for a PR's current head.")
+    state = commands.add_parser("pr-state", help="Report CI, reviews, and author readback for a PR's current head.")
     state.add_argument("pr", help="PR URL, or PR number with --repo")
     state.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     verify = commands.add_parser("verify-commit", help="Resolve a published commit and check that it is the one you expect.")
@@ -2563,6 +2855,8 @@ def main(argv=None):
     verify.add_argument("--subject", help="expected first line of the commit message")
     verify.add_argument("--on", metavar="BRANCH", help="branch whose history should contain the commit")
     verify.add_argument("--pr-head", metavar="PR", help="PR URL or number whose current head should be the commit")
+    verify.add_argument("--author", metavar="LOGIN", help="expected GitHub account login of the commit author")
+    verify.add_argument("--committer", metavar="LOGIN", help="expected GitHub account login of the commit committer")
     board = commands.add_parser("board", help="Project board operations.")
     board_commands = board.add_subparsers(dest="board_command", required=True)
     set_status = board_commands.add_parser("set-status", help="Move one issue to a board status, refusing backward moves, and read it back.")
@@ -2659,7 +2953,7 @@ def main(argv=None):
     q_select.add_argument("--owner", required=True, help="project owner login")
     q_select.add_argument("--project", required=True, type=int, help="project number")
     q_select.add_argument("--status", default="Ready", help="Status column to select (default Ready)")
-    q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, and parked label, as a table.")
+    q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, parked label, current-head checks, and review state, as a table.")
     q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers with --repo")
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
     q_summary.add_argument("--owner", required=True, help="project owner login")
@@ -2674,6 +2968,14 @@ def main(argv=None):
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
     facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    preamble_cmd = commands.add_parser("preamble", help="Print a compact session-start block from live facts and the task context; a view, never a stored file.")
+    preamble_cmd.add_argument("issue", nargs="?", help="issue URL, or issue number with --repo, for the task block")
+    preamble_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    preamble_cmd.add_argument("--operation", help="worker operation name, such as implement-issue")
+    preamble_cmd.add_argument("--limits", help="flow endpoint and authorization limits")
+    preamble_cmd.add_argument("--review-plan", help="review method and exception")
+    preamble_cmd.add_argument("--notes", metavar="PATH", help="task notes path")
+    preamble_cmd.add_argument("--first", help="first action for the agent; defaults to the request in the prompt or the handoff file")
     ident = commands.add_parser("identity", help="Report or export the configured agent identity.")
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
@@ -2685,7 +2987,7 @@ def main(argv=None):
         result, status = pr_state(repo, number, bare_login=bare_gh_login, identity=resolve_identity_or_none())
     elif args.command == "verify-commit":
         pr_head = parse_pr(args.pr_head, args.repo) if args.pr_head else None
-        result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head)
+        result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head, args.author, args.committer)
     elif args.command == "board":
         repo, number = parse_issue(args.issue, args.repo)
         if args.board_command == "set-field":
@@ -2749,6 +3051,21 @@ def main(argv=None):
     elif args.command == "facts":
         issue = parse_issue(args.issue, args.repo) if args.issue else None
         result, status = project_facts(issue=issue, bare_login=bare_gh_login)
+    elif args.command == "preamble":
+        issue = parse_issue(args.issue, args.repo) if args.issue else None
+        info, _ = project_facts(issue=issue, bare_login=bare_gh_login)
+        try:
+            text = preamble_text(info, operation=args.operation, limits=args.limits,
+                                 review_plan=args.review_plan, notes=args.notes, first=args.first)
+        except ValueError as error:
+            sys.stderr.write(f"{error}\n")
+            return 1
+        sys.stdout.write(text + "\n")
+        tokens = estimate_tokens(text)
+        if tokens > PREAMBLE_TOKEN_BUDGET:
+            sys.stderr.write(f"warning: the preamble is about {tokens} tokens, above the "
+                             f"{PREAMBLE_TOKEN_BUDGET} budget; shorten the context it carries\n")
+        return 0
     elif args.command == "identity":
         try:
             identity = resolve_identity()

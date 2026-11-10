@@ -8,12 +8,12 @@ import sys
 import tempfile
 import time
 import unittest
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, queue_select, queue_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -29,6 +29,7 @@ def pr(**overrides):
         "headRefOid": HEAD,
         "headRefName": "task",
         "baseRefName": "main",
+        "author": {"login": "FakeBot"},
         "reviewRequests": [],
         "statusCheckRollup": [
             {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
@@ -42,7 +43,7 @@ def rules(*contexts):
     return [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": c} for c in contexts]}}]
 
 
-def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0, issue_comments=()):
+def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0, issue_comments=(), commits=()):
     def gh(args):
         if args[0] == "pr":
             if "pr" in fail:
@@ -69,6 +70,10 @@ def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=()
             return list(issue_comments)
         if path.endswith("/comments"):
             return list(comments)
+        if "/pulls/" in path and path.endswith("/commits"):
+            if "commits" in fail:
+                raise GhError("HTTP 502")
+            return list(commits)
         if "timeline" in fail:
             raise GhError("rate limited")
         return list(timeline)
@@ -259,7 +264,8 @@ class PrTests(unittest.TestCase):
         self.assertEqual(result["errors"][0]["part"], "pr")
 
 
-def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD, fail=()):
+def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD, fail=(),
+                author="FakeBot", committer="FakeBot"):
     def gh(args):
         path = args[1] if args[0] == "api" else None
         if args[0] == "pr":
@@ -272,7 +278,17 @@ def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD
             return {"status": compare}
         if "commit" in fail:
             raise GhError("No commit found for SHA: abc (HTTP 422)")
-        return {"sha": HEAD, "commit": {"message": message, "author": {"date": "2026-10-02T12:00:00Z"}}, "parents": [{"sha": OLD}]}
+        return {
+            "sha": HEAD,
+            "author": None if author is None else {"login": author},
+            "committer": None if committer is None else {"login": committer},
+            "commit": {
+                "message": message,
+                "author": {"name": "Fake Bot", "email": "bot@example.com", "date": "2026-10-02T12:00:00Z"},
+                "committer": {"name": "Fake Bot", "email": "bot@example.com", "date": "2026-10-02T12:00:00Z"},
+            },
+            "parents": [{"sha": OLD}],
+        }
 
     return {"gh": gh}
 
@@ -325,6 +341,109 @@ class VerifyCommitTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertNotIn("sha", result)
         self.assertIn("full SHA", result["note"])
+
+
+class AuthorshipTests(unittest.TestCase):
+    """Readback names the PR author and every account among the PR commits."""
+
+    def test_clean_pr_reports_the_author_and_commit_author(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}},
+                   {"sha": "b" * 40, "author": {"login": "FakeBot"}}]
+        result, status = pr_state("o/r", 7, **fake(pr(), commits=commits))
+        self.assertEqual((result["author"], result["commit_authors"], result["errors"]), ("FakeBot", ["FakeBot"], []))
+        self.assertEqual(status, 0)
+
+    def test_mixed_author_pr_reports_each_login_once(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "MokaGnome"}},
+                   {"sha": "b" * 40, "author": {"login": "lmorchard"}},
+                   {"sha": "c" * 40, "author": {"login": "MokaGnome"}}]
+        result, status = pr_state("o/r", 7, **fake(pr(author={"login": "MokaGnome"}), commits=commits))
+        self.assertEqual(result["commit_authors"], ["MokaGnome", "lmorchard"])
+        self.assertEqual(status, 0)
+
+    def test_commit_without_an_account_leaves_the_author_set_unread(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}},
+                   {"sha": "c" * 40, "author": None}]
+        result, status = pr_state("o/r", 7, **fake(pr(), commits=commits))
+        self.assertIsNone(result["commit_authors"])
+        self.assertEqual(result["errors"][0]["part"], "commit_authors")
+        self.assertIn("c" * 40, result["errors"][0]["error"])
+        self.assertEqual(result["author"], "FakeBot")
+        self.assertEqual(status, 2)
+
+    def test_unreadable_commit_read_leaves_the_author_set_unread(self):
+        result, status = pr_state("o/r", 7, **fake(pr(), fail={"commits"}))
+        self.assertIsNone(result["commit_authors"])
+        self.assertEqual(result["errors"][0]["part"], "commit_authors")
+        self.assertEqual(result["head"], HEAD)
+        self.assertEqual(status, 2)
+
+    def test_invalid_commit_entry_leaves_the_author_set_unread(self):
+        for entry in (None, {"sha": 123, "author": {"login": "FakeBot"}},
+                      {"sha": "a" * 40, "author": {"login": None}}):
+            with self.subTest(entry=entry):
+                result, status = pr_state("o/r", 7, **fake(pr(), commits=[entry]))
+                self.assertIsNone(result["commit_authors"])
+                self.assertEqual(result["errors"][0]["part"], "commit_authors")
+                self.assertEqual(status, 2)
+
+    def test_missing_pr_author_is_reported_and_commits_stay_readable(self):
+        null_author = pr(author=None)
+        absent_author = pr()
+        del absent_author["author"]
+        for name, data in (("null", null_author), ("absent", absent_author)):
+            with self.subTest(name=name):
+                commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}}]
+                result, status = pr_state("o/r", 7, **fake(data, commits=commits))
+                self.assertIsNone(result["author"])
+                self.assertEqual(result["errors"][0]["part"], "author")
+                self.assertEqual(result["commit_authors"], ["FakeBot"])
+                self.assertEqual(status, 2)
+
+
+class VerifyCommitAuthorshipTests(unittest.TestCase):
+    """verify-commit reports the account behind each identity and checks an expectation."""
+
+    def test_reports_author_and_committer_objects(self):
+        expected = {"login": "FakeBot", "name": "Fake Bot", "email": "bot@example.com",
+                    "date": "2026-10-02T12:00:00Z"}
+        result, status = verify_commit("o/r", "aaaaaaa", author="FakeBot", committer="FakeBot", **commit_fake())
+        self.assertEqual(result["author"], expected)
+        self.assertEqual(result["committer"], expected)
+        self.assertEqual(result["expectations"], {"author_matches": True, "committer_matches": True})
+        self.assertEqual(status, 0)
+
+    def test_wrong_author_exits_3(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="MokaGnome", **commit_fake())
+        self.assertFalse(result["expectations"]["author_matches"])
+        self.assertEqual((result["author"]["login"], status), ("FakeBot", 3))
+
+    def test_wrong_committer_exits_3(self):
+        result, status = verify_commit("o/r", "aaaaaaa", committer="lmorchard", **commit_fake())
+        self.assertFalse(result["expectations"]["committer_matches"])
+        self.assertEqual(status, 3)
+
+    def test_login_comparison_ignores_case(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="fakebot", **commit_fake())
+        self.assertTrue(result["expectations"]["author_matches"])
+        self.assertEqual(status, 0)
+
+    def test_unattributed_commit_fails_the_expectation_without_a_read_error(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="FakeBot", **commit_fake(author=None))
+        self.assertIsNone(result["author"]["login"])
+        self.assertFalse(result["expectations"]["author_matches"])
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(status, 3)
+
+    def test_malformed_commit_account_is_unread(self):
+        for key, value in (("author", "FakeBot"), ("committer", {"login": 123})):
+            with self.subTest(key=key):
+                data = {"sha": HEAD, "commit": {"message": "fix", "author": {"date": "d"}}, "parents": []}
+                data[key] = value
+                result, status = verify_commit("o/r", "abc", author="FakeBot", gh=lambda args: data)
+                self.assertEqual(status, 1)
+                self.assertEqual(result["errors"][0]["part"], "commit")
+                self.assertNotIn("author", result)
 
 
 BOARD_OPTIONS = ["Backlog", "Ready", "In progress", "In review", "Done"]
@@ -1671,6 +1790,7 @@ def pr_view_out(**overrides):
         "headRefOid": HEAD,
         "headRefName": "task",
         "baseRefName": "main",
+        "author": {"login": "FakeBot"},
         "reviewRequests": [],
         "statusCheckRollup": [
             {"__typename": "CheckRun", "name": "test",
@@ -1811,7 +1931,8 @@ class PrWriteCommandTests(unittest.TestCase):
 
 class PrStateSubprocessTests(unittest.TestCase):
     def _harness(self, head=HEAD, reviews=None, comments=None, issue_comments=None,
-                 timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=()):
+                 timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=(),
+                 commits=None, commit_pages=None):
         replies = {
             "pr.view:o/r:7": {"out": pr_view_out(headRefOid=head)},
             "api.paginate:repos/o/r/rules/branches/main": {
@@ -1819,6 +1940,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             "api:repos/o/r/compare/main...%s" % head: {"out": {"behind_by": behind_by}},
             "api.paginate:repos/o/r/pulls/7/reviews": {"out": [list(reviews or [])]},
             "api.paginate:repos/o/r/pulls/7/comments": {"out": [list(comments or [])]},
+            "api.paginate:repos/o/r/pulls/7/commits": {"out": commit_pages if commit_pages is not None else [list(commits or [])]},
             "api.paginate:repos/o/r/issues/7/comments": {"out": [list(issue_comments or [])]},
             "api.paginate:repos/o/r/issues/7/timeline": {"out": [list(timeline or [])]},
         }
@@ -1841,6 +1963,27 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(out["base"], "main")
         self.assertEqual(out["ci"], "green")
         self.assertIsNotNone(out["reviews"])
+
+    def test_pr_state_reads_commit_authors_across_pages(self):
+        h = self._harness(commit_pages=[
+            [{"sha": "a" * 40, "author": {"login": "MokaGnome"}}],
+            [{"sha": "b" * 40, "author": {"login": "lmorchard"}}],
+        ])
+        result, out, calls = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["author"], "FakeBot")
+        self.assertEqual(out["commit_authors"], ["MokaGnome", "lmorchard"])
+        commit_call = next(c for c in FakeGhHarness.calls_by_cmd(calls, "api") if "pulls/7/commits" in " ".join(c))
+        self.assertIn("--paginate", commit_call)
+        self.assertIn("--slurp", commit_call)
+
+    def test_pr_state_incomplete_commit_page_read_is_null(self):
+        h = self._harness()
+        h.replies["api.paginate:repos/o/r/pulls/7/commits"] = {"code": 1, "err": "HTTP 502"}
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(out["commit_authors"])
+        self.assertEqual(out["errors"][0]["part"], "commit_authors")
 
     def test_unfinished_gh_checks_preserve_head_and_pending_ci(self):
         for state in ("IN_PROGRESS", "QUEUED"):
@@ -2001,6 +2144,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             ("api.paginate:repos/o/r/rules/branches/main", [[None]], "required_checks"),
             ("api:repos/o/r/compare/main...%s" % HEAD, {"behind_by": "0"}, "base_behind_by"),
             ("api.paginate:repos/o/r/pulls/7/reviews", [None], "reviews"),
+            ("api.paginate:repos/o/r/pulls/7/commits", [None], "commit_authors"),
             ("api.paginate:repos/o/r/pulls/7/comments", {"message": "not pages"}, "reviews"),
             ("api.paginate:repos/o/r/issues/7/comments", [None], "comments"),
             ("api.paginate:repos/o/r/issues/7/timeline", [[None]], "review_request_events"),
@@ -2070,8 +2214,14 @@ class VerifyCommitSubprocessTests(unittest.TestCase):
                  head=HEAD, fail_commit=False, rev="aaaaaaa"):
         replies = {
             "api:repos/o/r/commits/%s" % rev: {
-                  "out": {"sha": HEAD, "commit": {"message": message,
-                           "author": {"date": "2026-10-02T12:00:00Z"}},
+                  "out": {"sha": HEAD,
+                          "author": {"login": "FakeBot"},
+                          "committer": {"login": "FakeBot"},
+                          "commit": {"message": message,
+                                     "author": {"name": "Fake Bot", "email": "bot@example.com",
+                                                "date": "2026-10-02T12:00:00Z"},
+                                     "committer": {"name": "Fake Bot", "email": "bot@example.com",
+                                                   "date": "2026-10-02T12:00:00Z"}},
                            "parents": [{"sha": OLD}]},
               },
               "pr.view:o/r:7": {"out": {"headRefOid": head}},
@@ -2113,6 +2263,24 @@ class VerifyCommitSubprocessTests(unittest.TestCase):
          ])
         self.assertEqual(result.returncode, 3)
         self.assertFalse(out["expectations"]["subject_matches"])
+
+    def test_verify_commit_author_and_committer_flags(self):
+        h = self._harness()
+        result, out, _ = h.run([
+             "verify-commit", "aaaaaaa", "--repo", "o/r",
+             "--author", "FakeBot", "--committer", "FakeBot",
+         ])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["expectations"], {"author_matches": True, "committer_matches": True})
+        self.assertEqual(out["author"]["login"], "FakeBot")
+        self.assertEqual(out["committer"]["login"], "FakeBot")
+
+    def test_verify_commit_false_author_exit_3(self):
+        h = self._harness()
+        result, out, _ = h.run(["verify-commit", "aaaaaaa", "--repo", "o/r", "--author", "MokaGnome"])
+        self.assertEqual(result.returncode, 3)
+        self.assertFalse(out["expectations"]["author_matches"])
+        self.assertEqual(out["author"]["login"], "FakeBot")
 
     def test_verify_commit_missing_commit_exit_1(self):
         h = self._harness(fail_commit=True, rev="abc")
@@ -2881,7 +3049,8 @@ class PrBodyTests(unittest.TestCase):
 class HandoffTests(unittest.TestCase):
     def facts(self, issue=None):
         return {"skill_source": {"path": "/skills/ghflow", "head": "c" * 40},
-                "checkout": {"primary_root": "/work/repo"},
+                "checkout": {"root": "/work/repo", "primary_root": "/work/repo", "is_linked_worktree": False,
+                             "branch": "main", "head": "d" * 40, "dirty": False},
                 "repository": {"default_branch": "main", "origin_default_head": "d" * 40},
                 "project_files": {"instructions": ["AGENTS.md"]},
                 "project_facts": {"path": ".ghflow/project.md", "present": True},
@@ -2903,8 +3072,15 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("- Keep the message wording.", text)
         self.assertIn("Do not mark the PR ready", text)
         self.assertIn("model ID your runtime states to you", text)
-        self.assertIn(str(tmp / "h" / "handoff.md"), result["dispatch_prompt"])
-        self.assertLess(len(result["dispatch_prompt"]), 300)
+        prompt = result["dispatch_prompt"]
+        self.assertIn(str(tmp / "h" / "handoff.md"), prompt)
+        self.assertLess(len(prompt.split("\n\n")[0]), 300)
+        # The dispatch prompt carries the compact preamble inline, with the handoff file for details.
+        self.assertIn("ghflow preamble", prompt)
+        self.assertIn("checkout /work/repo", prompt)
+        self.assertIn("task branch issue-5-fix", prompt)
+        self.assertIn("do not ask for:", prompt)
+        self.assertLess(len(prompt), 2000)
 
     def test_write_handoff_names_the_identity_and_the_exec_path(self):
         tmp = Path(tempfile.mkdtemp())
@@ -3021,6 +3197,120 @@ class HandoffDeadlineTests(unittest.TestCase):
         self.assertIn("publish it to the draft PR", (tmp / "fix.md").read_text())
         write_handoff("review-changes", issue, tmp / "review.md", facts=self.facts)
         self.assertNotIn("Deadline:", (tmp / "review.md").read_text())
+
+
+class PreambleTests(unittest.TestCase):
+    """The generated session-start block: a view over facts, never a stored file."""
+
+    def facts(self):
+        return {"skill_source": {"path": "/skills/ghflow", "head": "c" * 40},
+                "checkout": {"root": "/work/repo/.claude/worktrees/issue-5", "primary_root": "/work/repo",
+                             "is_linked_worktree": True, "branch": "issue-5", "head": "d" * 40, "dirty": False},
+                "repository": {"remote": "o/r", "default_branch": "main", "origin_default_head": "d" * 40},
+                "project_files": {"instructions": ["AGENTS.md"], "make_targets": ["check", "test"],
+                                  "ci_workflows": [".github/workflows/ci.yml"]},
+                "project_facts": {"path": ".ghflow/project.md", "present": True, "stale_sources": []},
+                "identity": {"login": "MokaGnome", "configured": True, "ready": True},
+                "issue": {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "state": "OPEN",
+                          "board_items": [{"project": "r", "status": "In progress"}],
+                          "branches": ["issue-5"], "worktrees": ["/work/repo/.claude/worktrees/issue-5"], "prs": []},
+                "base_ci": {"summary": "green", "stale": False},
+                "errors": []}
+
+    def test_generation_names_revision_time_and_fields(self):
+        now = datetime(2026, 11, 9, 16, 50, 7, tzinfo=timezone.utc)
+        text = preamble_text(self.facts(), operation="implement-issue", limits="unattended, no merge",
+                             review_plan="different-model local review", notes="/notes/n.md",
+                             handoff_path="/run/h.md", now=now)
+        self.assertIn("--- ghflow preamble 2026-11-09T16:50:07Z facts@" + "d" * 12 + " ---", text)
+        self.assertIn("repo o/r", text)
+        self.assertIn("checkout /work/repo/.claude/worktrees/issue-5 (of /work/repo)", text)
+        self.assertIn("branch issue-5", text)
+        self.assertIn("base origin/main@" + "d" * 12 + " CI green", text)
+        self.assertIn("task #5 Fix it (OPEN, board In progress)", text)
+        self.assertIn("operation implement-issue", text)
+        self.assertIn("endpoint: unattended, no merge", text)
+        self.assertIn("review: different-model local review", text)
+        self.assertIn("identity MokaGnome (ready); writes only via ghflow write commands or `ghflow exec --`", text)
+        self.assertIn("notes: /notes/n.md", text)
+        self.assertIn("handoff file: /run/h.md", text)
+        self.assertIn("instructions AGENTS.md", text)
+        self.assertIn("gates: make check, test", text)
+        self.assertIn("CI .github/workflows/ci.yml", text)
+        self.assertIn("project facts .ghflow/project.md current", text)
+        self.assertIn("first: read the handoff file and follow it", text)
+        self.assertIn("do not ask for:", text)
+        self.assertIn("never: bare `gh` writes", text)
+        self.assertNotIn("task branch", text)
+
+    def test_missing_identity_reports_unconfigured(self):
+        info = self.facts()
+        info["identity"] = None
+        text = preamble_text(info)
+        self.assertIn("identity: unconfigured; GitHub writes are unavailable", text)
+        self.assertNotIn("MokaGnome", text)
+
+    def test_stale_project_facts_are_flagged(self):
+        info = self.facts()
+        info["project_facts"] = {"path": ".ghflow/project.md", "present": True,
+                                 "stale_sources": [{"path": "Makefile", "reason": "changed"}]}
+        text = preamble_text(info)
+        self.assertIn("project facts .ghflow/project.md STALE (1 sources changed; run `ghflow facts` for live state)", text)
+
+    def test_absent_live_fields_still_generate(self):
+        info = self.facts()
+        info.update({"repository": None, "project_files": None, "project_facts": None,
+                     "base_ci": None, "identity": None, "issue": None})
+        info["checkout"]["branch"] = None
+        text = preamble_text(info)
+        self.assertIn("repo unknown", text)
+        self.assertIn("branch unknown", text)
+        self.assertNotIn("base origin/", text)
+        self.assertIn("identity: unconfigured", text)
+        self.assertIn("project facts: none", text)
+
+    def test_output_length_stays_within_the_token_budget(self):
+        text = preamble_text(self.facts(), operation="implement-issue", limits="unattended, no merge",
+                             review_plan="different-model local review", notes="/notes/n.md")
+        self.assertLessEqual(estimate_tokens(text), PREAMBLE_TOKEN_BUDGET)
+
+    def test_open_draft_pr_is_named_and_closed_prs_are_not(self):
+        info = self.facts()
+        info["issue"]["prs"] = [{"number": 9, "state": "OPEN", "is_draft": True, "head": "a"},
+                                {"number": 8, "state": "MERGED", "is_draft": False, "head": "b"}]
+        text = preamble_text(info)
+        self.assertIn("PR #9 (draft)", text)
+        self.assertNotIn("#8", text)
+
+    def test_no_checkout_raises(self):
+        with self.assertRaises(ValueError):
+            preamble_text({"checkout": None})
+
+    def test_main_prints_the_preamble_and_warns_over_the_budget(self):
+        with patch("ghflow.project_facts", return_value=(self.facts(), 0)), \
+             patch("sys.stdout", new=io.StringIO()) as out, \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble", "https://github.com/o/r/issues/5"])
+        self.assertEqual(status, 0)
+        self.assertIn("ghflow preamble", out.getvalue())
+        self.assertIn("task #5 Fix it", out.getvalue())
+        self.assertEqual(err.getvalue(), "")
+        with patch("ghflow.project_facts", return_value=(self.facts(), 0)), \
+             patch("sys.stdout", new=io.StringIO()), \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble", "https://github.com/o/r/issues/5", "--limits", "x" * 3000])
+        self.assertEqual(status, 0)
+        self.assertIn("400", err.getvalue())
+
+    def test_main_exits_1_without_a_checkout(self):
+        info = self.facts()
+        info["checkout"] = None
+        with patch("ghflow.project_facts", return_value=(info, 1)), \
+             patch("sys.stdout", new=io.StringIO()), \
+             patch("sys.stderr", new=io.StringIO()) as err:
+            status = main(["preamble"])
+        self.assertEqual(status, 1)
+        self.assertIn("no checkout", err.getvalue())
 
 
 class BoardDraftGuardTests(unittest.TestCase):
@@ -3288,29 +3578,195 @@ class QueueParkedTests(unittest.TestCase):
         self.assertEqual([e["number"] for e in result["selection"]], [7])
 
 
+def summary_gh(issues, deliveries, fail=()):
+    """Route summary issue reads and each linked PR's pr_state reads to fixtures."""
+    by_head = {entry["pr"]["headRefOid"]: entry for entry in deliveries.values()}
+
+    def gh(args):
+        if args[0] == "api" and args[1] == "graphql" and any("closedByPullRequestsReferences" in a for a in args):
+            number = next(a.split("=", 1)[1] for a in args if a.startswith("number="))
+            return issues[number]
+        if args[:2] == ["pr", "view"]:
+            return deliveries[int(args[2])]["pr"]
+        if "/compare/" in args[1]:
+            head = args[1].rsplit("...", 1)[1]
+            return {"behind_by": by_head[head].get("behind_by", 0), "ahead_by": 1}
+        raise AssertionError(f"Unexpected gh call: {args}")
+
+    def gh_paginated(path):
+        if "/rules/branches/" in path:
+            if "rules" in fail:
+                raise GhError("HTTP 403")
+            return rules("test")
+        parts = path.split("/")
+        if len(parts) == 6 and parts[-3] in ("pulls", "issues"):
+            entry = deliveries[int(parts[-2])]
+            if parts[-3] == "pulls" and parts[-1] == "reviews":
+                if "reviews" in fail:
+                    raise GhError("HTTP 502")
+                return list(entry.get("reviews", ()))
+            if parts[-3] == "pulls":
+                return list(entry.get("review_comments", ()))
+            return list(entry.get("timeline" if parts[-1] == "timeline" else "issue_comments", ()))
+        raise AssertionError(f"Unexpected paginated call: {path}")
+
+    return gh, gh_paginated
+
+
+def stated_review(author, commit, submitted, state="COMMENTED"):
+    """Build a review record as pr_state reports it."""
+    return {"author": author, "state": state, "commit": commit, "submitted_at": submitted,
+            "covers_head": commit == HEAD, "inline_comments": 0, "body": ""}
+
+
+class ReviewSummaryTests(unittest.TestCase):
+    def test_unanswered_request_is_pending(self):
+        review_state = review_summary([], [{"reviewer": "alice", "requested_at": "2026-11-09T10:00:00Z", "answered": False}], [])
+        self.assertEqual((review_state["state"], review_state["pending"]), ("pending", ["alice"]))
+
+    def test_answered_request_with_approval_is_approved(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:05:00Z", state="APPROVED")],
+            [{"reviewer": "alice", "requested_at": "2026-11-09T10:00:00Z", "answered": True}],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["pending"]), ("approved", []))
+
+    def test_live_request_without_a_review_is_pending(self):
+        review_state = review_summary([], [], ["alice"])
+        self.assertEqual((review_state["state"], review_state["requested"]), ("pending", ["alice"]))
+
+    def test_changes_requested_at_the_head_outranks_an_earlier_approval(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("bob", HEAD, "2026-11-09T09:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
+
+    def test_comment_after_a_change_request_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
+
+    def test_approval_after_a_change_request_clears_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="APPROVED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("approved", []))
+
+    def test_dismissed_change_request_no_longer_blocks(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="DISMISSED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("commented", []))
+
+    def test_comment_after_an_approval_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual(review_state["state"], "approved")
+
+    def test_reviews_before_the_head_are_stale_and_not_completed(self):
+        review_state = review_summary(
+            [stated_review("alice", OLD, "2026-11-09T10:00:00Z", state="APPROVED")], [], []
+        )
+        self.assertEqual((review_state["state"], review_state["completed"]), ("stale", []))
+
+    def test_no_reviews_or_requests_is_none(self):
+        review_state = review_summary([], [], [])
+        self.assertEqual(review_state["state"], "none")
+
+    def test_unread_parts_are_incomplete(self):
+        for reviews, latest in ((None, []), ([], None)):
+            with self.subTest(latest=latest):
+                self.assertEqual(review_summary(reviews, latest, [])["state"], "incomplete")
+
+
 class QueueSummaryTests(unittest.TestCase):
-    def test_reports_open_pr_head_board_and_parked_label(self):
-        responses = {
+    def test_reports_current_head_ci_and_review_state(self):
+        issues = {
             "1": summary_issue(prs=[{"url": "pr/9", "number": 9, "state": "CLOSED", "isDraft": False, "headRefOid": "aaaaaaa1"},
-                                    {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": "bbbbbbb2"}]),
+                                    {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}]),
             "2": summary_issue(labels=["triage:needs-input"], status="In progress",
-                               prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "ccccccc3"}]),
+                               prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "c" * 40}]),
         }
-        gh = lambda args: responses[next(a.split("=")[1] for a in args if a.startswith("number="))]
-        result, status = queue_summary([("o/r", 1), ("o/r", 2)], "o", 6, gh=gh)
+        deliveries = {
+            10: {"pr": pr(number=10, url="pr/10"),
+                 "reviews": [review(1, "alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED")]},
+            11: {"pr": pr(number=11, url="pr/11", headRefOid="c" * 40, isDraft=True,
+                          reviewRequests=[{"login": "bob"}],
+                          statusCheckRollup=[{"__typename": "CheckRun", "name": "test", "status": "IN_PROGRESS",
+                                              "conclusion": None}]),
+                 "timeline": [requested("bob", "2026-11-09T11:00:00Z")]},
+        }
+        gh, gh_paginated = summary_gh(issues, deliveries)
+        result, status = queue_summary([("o/r", 1), ("o/r", 2)], "o", 6, gh=gh, gh_paginated=gh_paginated)
         self.assertEqual(status, 0)
         first, second = result["rows"]
         self.assertEqual((first["pr"]["url"], first["other_prs"]), ("pr/10", ["pr/9"]))
+        self.assertEqual(first["ci"], "green")
+        self.assertEqual(first["required_checks"], ["test"])
+        self.assertEqual(first["review"]["state"], "approved")
+        self.assertEqual(first["review"]["completed"], [{"author": "alice", "state": "APPROVED", "commit": HEAD,
+                                                         "submitted_at": "2026-11-09T10:00:00Z"}])
+        self.assertEqual(second["ci"], "pending")
+        self.assertEqual(second["review"]["state"], "pending")
+        self.assertEqual(second["review"]["pending"], ["bob"])
         self.assertTrue(second["parked"])
-        self.assertIn("| pr/10 | bbbbbbb | open | In review |", result["table"])
-        self.assertIn("| draft | In progress, parked (triage:needs-input) |", result["table"])
+        self.assertIn("| pr/10 | aaaaaaa | open | green (test) | approved: alice | In review |", result["table"])
+        self.assertIn("| pr/11 | ccccccc | draft | pending: test | pending: bob | "
+                      "In progress, parked (triage:needs-input) |", result["table"])
+
+    def test_unread_review_is_incomplete_with_exit_2(self):
+        issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}])}
+        deliveries = {10: {"pr": pr(number=10, url="pr/10")}}
+        gh, gh_paginated = summary_gh(issues, deliveries, fail={"reviews"})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["rows"][0]["ci"], "green")
+        self.assertEqual(result["rows"][0]["review"]["state"], "incomplete")
+        self.assertIn("o/r#1 reviews", [error["part"] for error in result["errors"]])
+
+    def test_unread_required_checks_mark_ci_incomplete(self):
+        issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}])}
+        deliveries = {10: {"pr": pr(number=10, url="pr/10")}}
+        gh, gh_paginated = summary_gh(issues, deliveries, fail={"rules"})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["rows"][0]["ci"], "incomplete")
+        self.assertEqual(result["rows"][0]["review"]["state"], "none")
+        self.assertIn("o/r#1 required_checks", [error["part"] for error in result["errors"]])
+
+    def test_issue_without_a_linked_pr_reports_none(self):
+        issues = {"1": summary_issue()}
+        gh, gh_paginated = summary_gh(issues, {})
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 0)
+        self.assertEqual((result["rows"][0]["ci"], result["rows"][0]["review"]), (None, None))
+        self.assertIn("| none |  | none | none | none | In review |", result["table"])
 
     def test_unread_issue_is_reported_with_exit_2(self):
         def gh(args):
             raise GhError("not found")
         result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh)
         self.assertEqual(status, 2)
-        self.assertIn("unread", result["table"])
+        self.assertIn("| unread | | | | | |", result["table"])
 
 
 class BudgetTests(unittest.TestCase):
