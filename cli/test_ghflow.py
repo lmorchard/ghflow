@@ -3478,6 +3478,42 @@ class ReviewSummaryTests(unittest.TestCase):
         )
         self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
 
+    def test_comment_after_a_change_request_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("changes_requested", ["alice"]))
+
+    def test_approval_after_a_change_request_clears_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="APPROVED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("approved", []))
+
+    def test_dismissed_change_request_no_longer_blocks(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="CHANGES_REQUESTED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="DISMISSED")],
+            [],
+            [],
+        )
+        self.assertEqual((review_state["state"], review_state["changes_requested"]), ("commented", []))
+
+    def test_comment_after_an_approval_does_not_clear_it(self):
+        review_state = review_summary(
+            [stated_review("alice", HEAD, "2026-11-09T10:00:00Z", state="APPROVED"),
+             stated_review("alice", HEAD, "2026-11-09T11:00:00Z", state="COMMENTED")],
+            [],
+            [],
+        )
+        self.assertEqual(review_state["state"], "approved")
+
     def test_reviews_before_the_head_are_stale_and_not_completed(self):
         review_state = review_summary(
             [stated_review("alice", OLD, "2026-11-09T10:00:00Z", state="APPROVED")], [], []

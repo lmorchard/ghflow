@@ -2413,6 +2413,11 @@ def review_summary(reviews, latest_requests, pending_requests):
     A live request, or a latest request with no later review by that reviewer, is
     pending. A review is completed only when it covers the current head. An unread
     review part makes the state incomplete, not none.
+
+    An author's current-head reviews are read in submission order: a change
+    request stands until that author approves or the request is dismissed. A
+    comment or pending review does not clear it, and a later change request
+    outranks an approval.
     """
     if reviews is None or latest_requests is None:
         return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
@@ -2433,12 +2438,19 @@ def review_summary(reviews, latest_requests, pending_requests):
         for entry in latest_by_author.values() if entry["covers_head"]
     ]
     completed.sort(key=lambda entry: entry["author"] or "")
-    changes_requested = sorted(entry["author"] for entry in completed if entry["state"] == "CHANGES_REQUESTED")
+    verdicts = {}
+    for entry in sorted(
+        (review for review in reviews if review["author"] is not None and review["covers_head"]),
+        key=lambda review: review["submitted_at"] or "",
+    ):
+        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
+            verdicts[entry["author"]] = entry["state"]
+    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
     if pending:
         state = "pending"
     elif changes_requested:
         state = "changes_requested"
-    elif any(entry["state"] == "APPROVED" for entry in completed):
+    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
         state = "approved"
     elif completed:
         state = "commented"
