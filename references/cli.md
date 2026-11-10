@@ -75,13 +75,23 @@ Three parts describe the session rather than the project:
 
 The command reads only. A part it could not read is `null` with an entry in `errors`, and the command exits 2; outside a Git repository it exits 1. `local_default_behind` counts commits as of the last fetch, so check `fetch_head_age_seconds` before you rely on it.
 
+## Generating a session preamble
+
+Run `python3 "$GHFLOW_CLI" preamble` from the subject checkout to print a compact session-start block from the same reads as `facts`. Add the issue URL for the task block: its number, title, state, board status, open PRs, and the branches and worktrees that name its number. `--operation`, `--limits`, `--review-plan`, `--notes`, and `--first` add the dispatch fields that a handoff otherwise carries. Paste the block at the start of a local-model session, so the model does not spend turns rediscovering these facts.
+
+The header line names the generation time and the revision the facts describe. The block states the project facts file's path and whether it is current or stale. It does not copy the file's content, the issue body, or a task reference. A part that `facts` could not read prints as `unknown`, and the block still prints.
+
+The normal case stays at or below about 400 tokens, estimated at four characters per token. Above that budget the command prints a warning on standard error and still prints the block. Exit status 0 means the block was generated. Exit status 1 means the checkout itself could not be read.
+
+`handoff` appends the same block to its printed dispatch prompt, below the line that names the handoff file. `unattended-burndown.sh` appends the project-only block, without an issue, to its first prompt, and launches without it when the read fails.
+
 ## Delivery helpers
 
 `worktree create ISSUE_URL --branch BRANCH` creates `.claude/worktrees/BRANCH` in the primary checkout from `origin/<default>`, copies each `--copy` file from the primary checkout, runs each `--setup` command in the worktree, and with `--notes` writes `docs/dev-sessions/STAMP-BRANCH/notes.md` with a Resume here skeleton. With `--owner` and `--project` it moves the issue In progress through `board set-status`. It exits 3 and writes nothing when the branch or path already exists, 2 when a setup command or the board move fails, and reports each setup command's exit status and output tail.
 
 `pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
 
-`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
+`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file, with the [session preamble](#generating-a-session-preamble) below it. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path. `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
 
 `board set-status` refuses In review with exit 3 while every open PR linked to the issue is a draft. `pr ready` moves the board after it marks the PR ready and is not affected.
 

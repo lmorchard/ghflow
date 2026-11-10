@@ -42,6 +42,15 @@ if [ "$EXCEPTION" = "yes" ]; then
   REQUEST="$REQUEST Use the same local model for implementation and review under my approved exception for OpenCode with the local model on this laptop."
 fi
 
+# Give the first prompt the compact project facts, so a slow local model does not
+# spend turns rediscovering them. A failed preamble read only loses the block.
+PREAMBLE=$(python3 "$SKILL_DIR/cli/ghflow.py" preamble 2>/dev/null || true)
+if [ -n "$PREAMBLE" ]; then
+  REQUEST="$REQUEST
+
+$PREAMBLE"
+fi
+
 # An OpenCode run keeps going on OpenCode's background service after its client exits, so a
 # finished launch does not prove the run ended. Refuse to start a second coordinator on the queue.
 active_opencode_runs() {
