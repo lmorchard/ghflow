@@ -29,6 +29,7 @@ def pr(**overrides):
         "headRefOid": HEAD,
         "headRefName": "task",
         "baseRefName": "main",
+        "author": {"login": "FakeBot"},
         "reviewRequests": [],
         "statusCheckRollup": [
             {"__typename": "CheckRun", "name": "test", "status": "COMPLETED", "conclusion": "SUCCESS"},
@@ -42,7 +43,7 @@ def rules(*contexts):
     return [{"type": "required_status_checks", "parameters": {"required_status_checks": [{"context": c} for c in contexts]}}]
 
 
-def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0, issue_comments=()):
+def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=(), behind_by=0, issue_comments=(), commits=()):
     def gh(args):
         if args[0] == "pr":
             if "pr" in fail:
@@ -69,6 +70,10 @@ def fake(pr_data, rules_data=None, reviews=(), comments=(), timeline=(), fail=()
             return list(issue_comments)
         if path.endswith("/comments"):
             return list(comments)
+        if "/pulls/" in path and path.endswith("/commits"):
+            if "commits" in fail:
+                raise GhError("HTTP 502")
+            return list(commits)
         if "timeline" in fail:
             raise GhError("rate limited")
         return list(timeline)
@@ -259,7 +264,8 @@ class PrTests(unittest.TestCase):
         self.assertEqual(result["errors"][0]["part"], "pr")
 
 
-def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD, fail=()):
+def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD, fail=(),
+                author="FakeBot", committer="FakeBot"):
     def gh(args):
         path = args[1] if args[0] == "api" else None
         if args[0] == "pr":
@@ -272,7 +278,17 @@ def commit_fake(message="Fix the thing\n\nDetails.", compare="behind", head=HEAD
             return {"status": compare}
         if "commit" in fail:
             raise GhError("No commit found for SHA: abc (HTTP 422)")
-        return {"sha": HEAD, "commit": {"message": message, "author": {"date": "2026-10-02T12:00:00Z"}}, "parents": [{"sha": OLD}]}
+        return {
+            "sha": HEAD,
+            "author": None if author is None else {"login": author},
+            "committer": None if committer is None else {"login": committer},
+            "commit": {
+                "message": message,
+                "author": {"name": "Fake Bot", "email": "bot@example.com", "date": "2026-10-02T12:00:00Z"},
+                "committer": {"name": "Fake Bot", "email": "bot@example.com", "date": "2026-10-02T12:00:00Z"},
+            },
+            "parents": [{"sha": OLD}],
+        }
 
     return {"gh": gh}
 
@@ -325,6 +341,109 @@ class VerifyCommitTests(unittest.TestCase):
         self.assertEqual(status, 1)
         self.assertNotIn("sha", result)
         self.assertIn("full SHA", result["note"])
+
+
+class AuthorshipTests(unittest.TestCase):
+    """Readback names the PR author and every account among the PR commits."""
+
+    def test_clean_pr_reports_the_author_and_commit_author(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}},
+                   {"sha": "b" * 40, "author": {"login": "FakeBot"}}]
+        result, status = pr_state("o/r", 7, **fake(pr(), commits=commits))
+        self.assertEqual((result["author"], result["commit_authors"], result["errors"]), ("FakeBot", ["FakeBot"], []))
+        self.assertEqual(status, 0)
+
+    def test_mixed_author_pr_reports_each_login_once(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "MokaGnome"}},
+                   {"sha": "b" * 40, "author": {"login": "lmorchard"}},
+                   {"sha": "c" * 40, "author": {"login": "MokaGnome"}}]
+        result, status = pr_state("o/r", 7, **fake(pr(author={"login": "MokaGnome"}), commits=commits))
+        self.assertEqual(result["commit_authors"], ["MokaGnome", "lmorchard"])
+        self.assertEqual(status, 0)
+
+    def test_commit_without_an_account_leaves_the_author_set_unread(self):
+        commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}},
+                   {"sha": "c" * 40, "author": None}]
+        result, status = pr_state("o/r", 7, **fake(pr(), commits=commits))
+        self.assertIsNone(result["commit_authors"])
+        self.assertEqual(result["errors"][0]["part"], "commit_authors")
+        self.assertIn("c" * 40, result["errors"][0]["error"])
+        self.assertEqual(result["author"], "FakeBot")
+        self.assertEqual(status, 2)
+
+    def test_unreadable_commit_read_leaves_the_author_set_unread(self):
+        result, status = pr_state("o/r", 7, **fake(pr(), fail={"commits"}))
+        self.assertIsNone(result["commit_authors"])
+        self.assertEqual(result["errors"][0]["part"], "commit_authors")
+        self.assertEqual(result["head"], HEAD)
+        self.assertEqual(status, 2)
+
+    def test_invalid_commit_entry_leaves_the_author_set_unread(self):
+        for entry in (None, {"sha": 123, "author": {"login": "FakeBot"}},
+                      {"sha": "a" * 40, "author": {"login": None}}):
+            with self.subTest(entry=entry):
+                result, status = pr_state("o/r", 7, **fake(pr(), commits=[entry]))
+                self.assertIsNone(result["commit_authors"])
+                self.assertEqual(result["errors"][0]["part"], "commit_authors")
+                self.assertEqual(status, 2)
+
+    def test_missing_pr_author_is_reported_and_commits_stay_readable(self):
+        null_author = pr(author=None)
+        absent_author = pr()
+        del absent_author["author"]
+        for name, data in (("null", null_author), ("absent", absent_author)):
+            with self.subTest(name=name):
+                commits = [{"sha": "a" * 40, "author": {"login": "FakeBot"}}]
+                result, status = pr_state("o/r", 7, **fake(data, commits=commits))
+                self.assertIsNone(result["author"])
+                self.assertEqual(result["errors"][0]["part"], "author")
+                self.assertEqual(result["commit_authors"], ["FakeBot"])
+                self.assertEqual(status, 2)
+
+
+class VerifyCommitAuthorshipTests(unittest.TestCase):
+    """verify-commit reports the account behind each identity and checks an expectation."""
+
+    def test_reports_author_and_committer_objects(self):
+        expected = {"login": "FakeBot", "name": "Fake Bot", "email": "bot@example.com",
+                    "date": "2026-10-02T12:00:00Z"}
+        result, status = verify_commit("o/r", "aaaaaaa", author="FakeBot", committer="FakeBot", **commit_fake())
+        self.assertEqual(result["author"], expected)
+        self.assertEqual(result["committer"], expected)
+        self.assertEqual(result["expectations"], {"author_matches": True, "committer_matches": True})
+        self.assertEqual(status, 0)
+
+    def test_wrong_author_exits_3(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="MokaGnome", **commit_fake())
+        self.assertFalse(result["expectations"]["author_matches"])
+        self.assertEqual((result["author"]["login"], status), ("FakeBot", 3))
+
+    def test_wrong_committer_exits_3(self):
+        result, status = verify_commit("o/r", "aaaaaaa", committer="lmorchard", **commit_fake())
+        self.assertFalse(result["expectations"]["committer_matches"])
+        self.assertEqual(status, 3)
+
+    def test_login_comparison_ignores_case(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="fakebot", **commit_fake())
+        self.assertTrue(result["expectations"]["author_matches"])
+        self.assertEqual(status, 0)
+
+    def test_unattributed_commit_fails_the_expectation_without_a_read_error(self):
+        result, status = verify_commit("o/r", "aaaaaaa", author="FakeBot", **commit_fake(author=None))
+        self.assertIsNone(result["author"]["login"])
+        self.assertFalse(result["expectations"]["author_matches"])
+        self.assertEqual(result["errors"], [])
+        self.assertEqual(status, 3)
+
+    def test_malformed_commit_account_is_unread(self):
+        for key, value in (("author", "FakeBot"), ("committer", {"login": 123})):
+            with self.subTest(key=key):
+                data = {"sha": HEAD, "commit": {"message": "fix", "author": {"date": "d"}}, "parents": []}
+                data[key] = value
+                result, status = verify_commit("o/r", "abc", author="FakeBot", gh=lambda args: data)
+                self.assertEqual(status, 1)
+                self.assertEqual(result["errors"][0]["part"], "commit")
+                self.assertNotIn("author", result)
 
 
 BOARD_OPTIONS = ["Backlog", "Ready", "In progress", "In review", "Done"]
@@ -1671,6 +1790,7 @@ def pr_view_out(**overrides):
         "headRefOid": HEAD,
         "headRefName": "task",
         "baseRefName": "main",
+        "author": {"login": "FakeBot"},
         "reviewRequests": [],
         "statusCheckRollup": [
             {"__typename": "CheckRun", "name": "test",
@@ -1811,7 +1931,8 @@ class PrWriteCommandTests(unittest.TestCase):
 
 class PrStateSubprocessTests(unittest.TestCase):
     def _harness(self, head=HEAD, reviews=None, comments=None, issue_comments=None,
-                 timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=()):
+                 timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=(),
+                 commits=None, commit_pages=None):
         replies = {
             "pr.view:o/r:7": {"out": pr_view_out(headRefOid=head)},
             "api.paginate:repos/o/r/rules/branches/main": {
@@ -1819,6 +1940,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             "api:repos/o/r/compare/main...%s" % head: {"out": {"behind_by": behind_by}},
             "api.paginate:repos/o/r/pulls/7/reviews": {"out": [list(reviews or [])]},
             "api.paginate:repos/o/r/pulls/7/comments": {"out": [list(comments or [])]},
+            "api.paginate:repos/o/r/pulls/7/commits": {"out": commit_pages if commit_pages is not None else [list(commits or [])]},
             "api.paginate:repos/o/r/issues/7/comments": {"out": [list(issue_comments or [])]},
             "api.paginate:repos/o/r/issues/7/timeline": {"out": [list(timeline or [])]},
         }
@@ -1841,6 +1963,27 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(out["base"], "main")
         self.assertEqual(out["ci"], "green")
         self.assertIsNotNone(out["reviews"])
+
+    def test_pr_state_reads_commit_authors_across_pages(self):
+        h = self._harness(commit_pages=[
+            [{"sha": "a" * 40, "author": {"login": "MokaGnome"}}],
+            [{"sha": "b" * 40, "author": {"login": "lmorchard"}}],
+        ])
+        result, out, calls = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["author"], "FakeBot")
+        self.assertEqual(out["commit_authors"], ["MokaGnome", "lmorchard"])
+        commit_call = next(c for c in FakeGhHarness.calls_by_cmd(calls, "api") if "pulls/7/commits" in " ".join(c))
+        self.assertIn("--paginate", commit_call)
+        self.assertIn("--slurp", commit_call)
+
+    def test_pr_state_incomplete_commit_page_read_is_null(self):
+        h = self._harness()
+        h.replies["api.paginate:repos/o/r/pulls/7/commits"] = {"code": 1, "err": "HTTP 502"}
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 2)
+        self.assertIsNone(out["commit_authors"])
+        self.assertEqual(out["errors"][0]["part"], "commit_authors")
 
     def test_unfinished_gh_checks_preserve_head_and_pending_ci(self):
         for state in ("IN_PROGRESS", "QUEUED"):
@@ -2001,6 +2144,7 @@ class PrStateSubprocessTests(unittest.TestCase):
             ("api.paginate:repos/o/r/rules/branches/main", [[None]], "required_checks"),
             ("api:repos/o/r/compare/main...%s" % HEAD, {"behind_by": "0"}, "base_behind_by"),
             ("api.paginate:repos/o/r/pulls/7/reviews", [None], "reviews"),
+            ("api.paginate:repos/o/r/pulls/7/commits", [None], "commit_authors"),
             ("api.paginate:repos/o/r/pulls/7/comments", {"message": "not pages"}, "reviews"),
             ("api.paginate:repos/o/r/issues/7/comments", [None], "comments"),
             ("api.paginate:repos/o/r/issues/7/timeline", [[None]], "review_request_events"),
@@ -2070,8 +2214,14 @@ class VerifyCommitSubprocessTests(unittest.TestCase):
                  head=HEAD, fail_commit=False, rev="aaaaaaa"):
         replies = {
             "api:repos/o/r/commits/%s" % rev: {
-                  "out": {"sha": HEAD, "commit": {"message": message,
-                           "author": {"date": "2026-10-02T12:00:00Z"}},
+                  "out": {"sha": HEAD,
+                          "author": {"login": "FakeBot"},
+                          "committer": {"login": "FakeBot"},
+                          "commit": {"message": message,
+                                     "author": {"name": "Fake Bot", "email": "bot@example.com",
+                                                "date": "2026-10-02T12:00:00Z"},
+                                     "committer": {"name": "Fake Bot", "email": "bot@example.com",
+                                                   "date": "2026-10-02T12:00:00Z"}},
                            "parents": [{"sha": OLD}]},
               },
               "pr.view:o/r:7": {"out": {"headRefOid": head}},
@@ -2113,6 +2263,24 @@ class VerifyCommitSubprocessTests(unittest.TestCase):
          ])
         self.assertEqual(result.returncode, 3)
         self.assertFalse(out["expectations"]["subject_matches"])
+
+    def test_verify_commit_author_and_committer_flags(self):
+        h = self._harness()
+        result, out, _ = h.run([
+             "verify-commit", "aaaaaaa", "--repo", "o/r",
+             "--author", "FakeBot", "--committer", "FakeBot",
+         ])
+        self.assertEqual(result.returncode, 0)
+        self.assertEqual(out["expectations"], {"author_matches": True, "committer_matches": True})
+        self.assertEqual(out["author"]["login"], "FakeBot")
+        self.assertEqual(out["committer"]["login"], "FakeBot")
+
+    def test_verify_commit_false_author_exit_3(self):
+        h = self._harness()
+        result, out, _ = h.run(["verify-commit", "aaaaaaa", "--repo", "o/r", "--author", "MokaGnome"])
+        self.assertEqual(result.returncode, 3)
+        self.assertFalse(out["expectations"]["author_matches"])
+        self.assertEqual(out["author"]["login"], "FakeBot")
 
     def test_verify_commit_missing_commit_exit_1(self):
         h = self._harness(fail_commit=True, rev="abc")
