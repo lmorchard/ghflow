@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from check import check_bare_gh_writes
+from check import check_bare_gh_writes, check_line_width
 
 
 class BareGhWriteLintTests(unittest.TestCase):
@@ -82,6 +82,36 @@ class BareGhWriteLintTests(unittest.TestCase):
             "evals/scenarios/fixture.md": "Situation with `gh pr edit 7`.\n",
         })
         self.assertEqual(errors, [])
+
+
+class LineWidthTests(unittest.TestCase):
+    def lint(self, files):
+        root = Path(tempfile.mkdtemp(prefix="ghflow-width-"))
+        for name, text in files.items():
+            path = root / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+        return check_line_width(root)
+
+    def test_flags_a_prose_line_over_the_limit(self):
+        errors = self.lint({"references/tasks/a.md": "x" * 769 + "\n"})
+        self.assertEqual(len(errors), 1)
+        self.assertIn("references/tasks/a.md:1", errors[0])
+        self.assertIn("769 characters", errors[0])
+
+    def test_accepts_a_prose_line_at_the_limit(self):
+        self.assertEqual(self.lint({"SKILL.md": "x" * 768 + "\n"}), [])
+
+    def test_skips_fenced_code_blocks(self):
+        text = "Prose.\n```text\n" + "x" * 900 + "\n```\n"
+        self.assertEqual(self.lint({"references/cli.md": text}), [])
+
+    def test_skips_table_rows(self):
+        self.assertEqual(
+            self.lint({"references/shared/a.md": "|" + "x" * 900 + "|\n"}), [])
+
+    def test_ignores_files_outside_the_skill(self):
+        self.assertEqual(self.lint({"docs/dev/a.md": "x" * 900 + "\n"}), [])
 
 
 if __name__ == "__main__":

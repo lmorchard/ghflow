@@ -25,6 +25,8 @@ BARE_GH_WRITE = re.compile(
 EXEC_PREFIX = re.compile(r'(?:ghflow|\$GHFLOW_CLI"?)\s+exec\s+--\s*$')
 # Marks a line whose bare `gh` write is deliberate, with the reason recorded.
 ALLOW_MARKER = "allow-bare-gh"
+# The read tool truncates a prose line longer than this and asks for a raw re-read.
+MAX_PROSE_LINE = 768
 
 
 def frontmatter(text):
@@ -197,8 +199,32 @@ def check_bare_gh_writes(root=ROOT):
     return errors
 
 
+def check_line_width(root=ROOT):
+    """Fail on a prose line that the read tool would truncate."""
+    errors = []
+    files = [root / "SKILL.md", *sorted((root / "references").rglob("*.md"))]
+    for path in files:
+        if not path.is_file():
+            continue
+        name = path.relative_to(root).as_posix()
+        in_code = False
+        for number, line in enumerate(path.read_text().splitlines(), start=1):
+            stripped = line.lstrip()
+            if stripped.startswith("```"):
+                in_code = not in_code
+                continue
+            if in_code or stripped.startswith("|"):
+                continue
+            if len(line) > MAX_PROSE_LINE:
+                errors.append(
+                    f"{name}:{number}: prose line is {len(line)} characters;"
+                    f" limit is {MAX_PROSE_LINE}")
+    return errors
+
+
 def main():
-    errors = check_skills() + check_links() + check_scenario_skills() + check_bare_gh_writes()
+    errors = (check_skills() + check_links() + check_scenario_skills()
+              + check_bare_gh_writes() + check_line_width())
     for error in errors:
         print(error, file=sys.stderr)
     return 1 if errors else 0
