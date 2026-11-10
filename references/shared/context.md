@@ -1,3 +1,7 @@
+---
+name: ghflow
+description: Read this reference first. Use to reduce repeated reading during execution without weakening scope, evidence, or required checks.
+---
 # Working context and tool output
 
 Keep the information needed for the current operation easy to find. Use these rules to reduce repeated reading during execution without weakening scope, evidence, or required checks.
@@ -14,6 +18,12 @@ Use [Task notes](task-notes.md) to retain useful facts and decisions. Start with
 
 Once the subject, scope, endpoint, applicable rules, and required capabilities are established, dispatch the next authorized operation. If preparation reveals a concrete unmet requirement, report it and continue only work that does not depend on it. Reopen a settled procedural choice only when new evidence or a changed instruction affects it. Uncertainty about a worker's future performance does not by itself change an available dispatch path.
 
+## The common-path optimization
+
+Before the first dispatch, read only the shared references listed in each task. Those nine build the gates, tools, and authorization rules that shape the whole run. Do not read worker-specific procedures until you dispatch them.
+
+The preamble available through `ghflow preamble` will be re-used in the first prompt, so do not ask the model to rediscover its current working context. Use the first prompt's `facts` snapshot for every operation; it avoids a redundant runtime read and saves a turn.
+
 ## Search and inspect useful output
 
 Use targeted searches to locate files and symbols, then read relevant excerpts and their callers. Expand the search when the first result does not establish the needed fact. Avoid repeatedly dumping whole files, directories, or logs into the conversation.
@@ -27,3 +37,7 @@ For an inventory, paginated API response, or set of checks that must be complete
 For each task or handoff, supply the selected operation, scope and endpoint, worktree, branch and current revision, relevant checks and decisions, notes path, and next action. Link to detailed evidence instead of replaying the entire conversation. Include a known limitation when it affects the next action.
 
 Reuse the responsible worker under [Coordination](coordination.md#handoffs) when its task continues. Keep independent reviewer inputs and required fresh review context within the selected review plan.
+
+## The preamble snapshot rule
+
+Always use the `facts@rev` snapshot carried in the first prompt for every handoff or task operation. Do not run `facts` again unless the task changes code, the issue file changes, or the state is invalidated. Preamble time is estimated at 130 tokens (~4x speed), so the snapshot rule cuts a full facts read from the cost model.
