@@ -17,9 +17,9 @@ when the write's read-back does not match.
 pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
 queue select exits 1 on incomplete discovery and then returns no selection.
-queue summary exits 2 when an issue could not be read. budget exits 1 for an
-end mark without a start. preamble prints plain text and exits 1 when the
-checkout itself could not be read.
+queue summary exits 2 when an issue, or part of its linked PR's check or review
+state, could not be read. budget exits 1 for an end mark without a start. preamble
+prints plain text and exits 1 when the checkout itself could not be read.
 """
 
 import argparse
@@ -2407,15 +2407,90 @@ SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 }"""
 
 
-def queue_summary(issues, owner, project, gh=run_gh):
-    """Read each delivered issue's linked PR, head, draft state, board Status, and parked label.
+def review_summary(reviews, latest_requests, pending_requests):
+    """Condense a linked PR's review records into the delivery endpoint's review state.
 
-    Review evidence and unattended decisions are not GitHub facts; the coordinator adds them.
+    A live request, or a latest request with no later review by that reviewer, is
+    pending. A review is completed only when it covers the current head. An unread
+    review part makes the state incomplete, not none.
+    """
+    if reviews is None or latest_requests is None:
+        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
+    requested = sorted({name for name in pending_requests if name})
+    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
+    pending = sorted(set(requested) | set(unanswered))
+    latest_by_author = {}
+    for entry in reviews:
+        author = entry["author"]
+        if author is None:
+            continue
+        earlier = latest_by_author.get(author)
+        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
+            latest_by_author[author] = entry
+    completed = [
+        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
+         "submitted_at": entry["submitted_at"]}
+        for entry in latest_by_author.values() if entry["covers_head"]
+    ]
+    completed.sort(key=lambda entry: entry["author"] or "")
+    changes_requested = sorted(entry["author"] for entry in completed if entry["state"] == "CHANGES_REQUESTED")
+    if pending:
+        state = "pending"
+    elif changes_requested:
+        state = "changes_requested"
+    elif any(entry["state"] == "APPROVED" for entry in completed):
+        state = "approved"
+    elif completed:
+        state = "commented"
+    elif reviews:
+        state = "stale"
+    else:
+        state = "none"
+    return {"state": state, "requested": requested, "pending": pending,
+            "changes_requested": changes_requested, "completed": completed}
+
+
+def ci_cell(row):
+    """Name the checks that block a green current head, or the required checks when none does."""
+    if not row.get("pr"):
+        return "none"
+    if row.get("ci") is None:
+        return "unread"
+    outstanding = [check["name"] for check in row.get("checks") or [] if check["state"] not in ("passed", "skipped")]
+    if outstanding:
+        return f"{row['ci']}: {', '.join(outstanding)}"
+    required = sorted(check["name"] for check in row.get("checks") or [] if check["required"])
+    return f"{row['ci']} ({', '.join(required)})" if required else row["ci"]
+
+
+def review_cell(review):
+    """Name the reviewers that the review state concerns, or the state alone."""
+    if review is None:
+        return "none"
+    state = review["state"]
+    if state == "pending":
+        names = review["pending"]
+    elif state == "changes_requested":
+        names = review["changes_requested"]
+    elif state in ("approved", "commented"):
+        names = sorted({entry["author"] for entry in review["completed"] if entry["author"]})
+    else:
+        names = []
+    return f"{state}: {', '.join(names)}" if names else state
+
+
+def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginated):
+    """Read each delivered issue's linked PR with its head, draft state, board Status, parked label,
+    current-head required checks, and review state.
+
+    The check and review reads reuse pr-state, which reads every page of the reviews and review
+    requests or records the failed part. Review evidence and unattended decisions are not GitHub
+    facts; the coordinator adds them.
     """
     rows, errors = [], []
     for repo, number in issues:
         repo_owner, name = repo.split("/")
-        row = {"issue": f"{repo}#{number}"}
+        row = {"issue": f"{repo}#{number}", "ci": None, "checks": None, "required_checks": None, "review": None}
         try:
             data = response_type(gh(["api", "graphql", "-f", f"query={SUMMARY_QUERY}", "-f", f"owner={repo_owner}",
                                      "-f", f"name={name}", "-F", f"number={number}"]), dict, "The issue response")
@@ -2438,16 +2513,31 @@ def queue_summary(issues, owner, project, gh=run_gh):
                    pr=pr and {"url": pr.get("url"), "state": pr.get("state"), "draft": pr.get("isDraft"),
                               "head": pr.get("headRefOid")},
                    other_prs=[p.get("url") for p in prs if p is not pr])
+        if pr and isinstance(pr.get("number"), int):
+            delivery, _ = pr_state(f"{repo_owner}/{name}", pr["number"], gh=gh, gh_paginated=gh_paginated)
+            for error in delivery.get("errors") or []:
+                errors.append({"part": f"{row['issue']} {error['part']}", "error": error["error"]})
+            if delivery.get("head"):
+                row["pr"]["head"] = delivery["head"]
+            row.update(ci=delivery.get("ci"), checks=delivery.get("checks"),
+                       required_checks=delivery.get("required_checks"),
+                       review=review_summary(delivery.get("reviews"), delivery.get("latest_review_requests"),
+                                             delivery.get("pending_review_requests") or []))
+        elif pr:
+            errors.append({"part": row["issue"], "error": "The linked PR has no readable number."})
+            row["review"] = review_summary(None, None, [])
         rows.append(row)
-    lines = ["| Issue | Pull request | Head | PR state | Board |", "| --- | --- | --- | --- | --- |"]
+    lines = ["| Issue | Pull request | Head | PR state | CI | Review | Board |",
+             "| --- | --- | --- | --- | --- | --- | --- |"]
     for row in rows:
         if "title" not in row:
-            lines.append(f"| {row['issue']} | unread | | | |")
+            lines.append(f"| {row['issue']} | unread | | | | | |")
             continue
         pr = row["pr"] or {}
         pr_state_text = ("draft" if pr.get("draft") else (pr.get("state") or "").lower()) if pr else "none"
         board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-input)" if row["parked"] else "")
-        lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | {pr_state_text} | {board_text} |")
+        lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | "
+                     f"{pr_state_text} | {ci_cell(row)} | {review_cell(row['review'])} | {board_text} |")
     result = {"rows": rows, "table": "\n".join(lines) + "\n", "errors": errors,
               "not_included": "Review evidence and decisions taken unattended; add them from the workers' reports."}
     return result, (2 if errors else 0)
@@ -2783,7 +2873,7 @@ def main(argv=None):
     q_select.add_argument("--owner", required=True, help="project owner login")
     q_select.add_argument("--project", required=True, type=int, help="project number")
     q_select.add_argument("--status", default="Ready", help="Status column to select (default Ready)")
-    q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, and parked label, as a table.")
+    q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, parked label, current-head checks, and review state, as a table.")
     q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers with --repo")
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
     q_summary.add_argument("--owner", required=True, help="project owner login")
