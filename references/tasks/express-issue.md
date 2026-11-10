@@ -77,3 +77,13 @@ For an authorized merge endpoint, the parent dispatches [merge-pr](merge-pr.md) 
 Report the issue and PR URLs, the current or merged commit, test and review evidence, and remaining limits, including required post-merge checks not yet done. Take these from the responsible worker's read-back, not from your own subject-repository reads.
 
 Stop at the endpoint or at a concrete blocker. Preserve the worktree and enough information to resume. Do not deploy, remove branches, or select the next issue unless the request includes it.
+
+## The preamble-snapshot rule
+
+Always use the `facts@rev` snapshot carried in the first prompt for every handoff or task operation. Do not run `facts` again unless:
+- The task changes code in the subject repository
+- The issue file changes its state
+- A board or review decision changes
+
+The preamble snapshot is the source of truth for gates, checks, and paths. Do not re-read `facts` unless the task explicitly requires fresh state or sources were invalidated.
+

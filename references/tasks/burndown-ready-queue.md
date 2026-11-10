@@ -8,27 +8,41 @@ Coordinate the sequential delivery of issues in the project board's `Ready` colu
 
 Read this reference first.
 
-Open the shared references when their conditions apply, as [Working context and tool output](../shared/context.md) states: [Agent identity](../shared/identity.md) for the identity check before the first issue; [express-issue](express-issue.md) and [Handoffs](../shared/coordination.md#handoffs) before the first dispatch, because express-issue is your own procedure for each issue, not a worker's; [Review](../shared/review.md) when you prepare the review plan; [Authorization](../shared/authorization.md) when the endpoint or a limit is in question; [Evidence](../shared/evidence.md) when you read a worker's report; [Board status](../shared/board-status.md) and [GitHub writes](../shared/github-writes.md) before you change a GitHub record yourself, which the ghflow commands do for you in the usual flow; [Triage labels](../shared/triage-labels.md) only when you change a label by hand, which `park` does for you; [Task notes](../shared/task-notes.md) when you start your notes.
+## The facts file is required
+
+Before the first dispatch, the coordinator MUST read `.ghflow/project.md`. This file is the source of truth for gates, tests, and note locations. Workers need explicit facts about what tests to run, which branch to use, and where to write notes.
+
+If `.ghflow/project.md` is absent from the default branch, the coordinator must park the delivery with a note that the facts file is missing. The facts file must be provided before the first issue is dispatched. A later delivery can request and include the facts file in its PR before resuming.
+
+Open shared references when their conditions apply, as [Working context and tool output](../shared/context.md) states: [Agent identity](../shared/identity.md) for the identity check before the first issue; [express-issue](express-issue.md) and [Handoffs](../shared/coordination.md#handoffs) before the first dispatch, because express-issue is your own procedure for each issue, not a worker's; [Review](../shared/review.md) when you prepare the review plan; [Authorization](../shared/authorization.md) when the endpoint or a limit is in question; [Evidence](../shared/evidence.md) when you read a worker's report; [Board status](../shared/board-status.md) and [GitHub writes](../shared/github-writes.md) before you change a GitHub record yourself, which the ghflow commands do for you in the usual flow; [Triage labels](../shared/triage-labels.md) only when you change a label by hand, which `park` does for you; [Task notes](../shared/task-notes.md) when you start your notes.
 
 Confirm the paths of the worker task references, implement-issue, review-changes, and submit-pr, without reading their procedures; the workers read them. Reading every reference before the first dispatch delays it and changes no decision.
 
 ## Before the first dispatch
 
-The first dispatch is the slowest worker call. Open the shared references below to define the gates, tools, and authorization rules that shape the whole run. Do not read worker-specific procedures until the implementation, review, or submission steps begin.
+The first dispatch is the slowest worker call. Before that dispatch, the coordinator must complete the following:
 
-| Reference | When to open |
+1. **Read the facts file**: `.ghflow/project.md` must exist and have no stale sources. Run `facts --issue` to verify. If stale, flag or skip.
+2. **Open the nine shared references**: These nine references name the gates, tools, and authorization rules that shape the whole run.
+3. **Dispatch the first issue**: Only after the two above is complete.
+
+Do not read worker-specific procedures (`implement-issue`, `submit-pr`, `review-changes`) until their handoffs.
+
+### The nine shared references
+
+Open exactly these nine references before the first dispatch:
+
+| Reference | Purpose |
 | --- | --- |
-| [Agent identity](../shared/identity.md) | Before the first issue |
-| [express-issue](express-issue.md) and [Handoffs](../shared/coordination.md#handoffs) | Before the first dispatch |
-| [Review](../shared/review.md) | When you prepare the review plan |
-| [Authorization](../shared/authorization.md) | When the endpoint or a limit is in question |
-| [Evidence](../shared/evidence.md) | When you read a worker's report |
-| [Board status](../shared/board-status.md) and [GitHub writes](../shared/github-writes.md) | Before you change a GitHub record yourself |
-| [Triage labels](../shared/triage-labels.md) | Only when you change a label by hand |
-| [Task notes](../shared/task-notes.md) | When you start your notes |
+| [Agent identity](../shared/identity.md) | Identity check pass/fail, write gate definition |
+| [express-issue](express-issue.md) and [Handoffs](../shared/coordination.md#handoffs) | Callouts, `ghflow exec --`, and `handoff --` contracts |
+| [Review](../shared/review.md) | Independent review selection, review limits, and resolution paths |
+| [Authorization](../shared/authorization.md) | Merge and endorsement policies |
+| [Evidence](../shared/evidence.md) | Final result vs incomplete handoff, what counts as closure |
+| [Board status](../shared/board-status.md) and [GitHub writes](../shared/github-writes.md) | Status columns, automatic gain rules, tools the commands use |
+| [Triage labels](../shared/triage-labels.md) | Time park, scope park, `triage:needs-input` meanings |
+| [Task notes](../shared/task-notes.md) | Notes directory layout and handoff structure |
 
-### Why only nine reads
-
-The old instruction asked the coordinator to read the full contents of all nine references plus the worker task references before the first dispatch. That cost the coordinator tens of extra minutes on local models. Each new issue requires some of the shared references, so you reuse them across the whole run and never more than once.
+These nine define the gates, tools, and authorization rules that shape the whole run. Once the first dispatch is under way, read the worker-specific procedures for responsible gates and checks.
 
 ## Resume an interrupted queue
