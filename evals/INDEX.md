@@ -48,6 +48,7 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [context-reuse-implementation-worker](scenarios/context-reuse-implementation-worker.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Borderline: notes path and current revision not named as handoff fields. Selected and runtime-reported model match. |
 | [coordinator-notes-outside-checkout](scenarios/coordinator-notes-outside-checkout.md) | 2026-10-13 | f5f565b | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-10-13-notes-and-time-park.md](results/2026-10-13-notes-and-time-park.md) |
 | [coordinator-ready-to-dispatch](scenarios/coordinator-ready-to-dispatch.md) | 2026-10-13 | 836c20e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-coordinator-discipline.md](results/2026-10-13-coordinator-discipline.md) |
+| [coordinator-runtime-model](scenarios/coordinator-runtime-model.md) | 2026-11-10 | a0d2f9d | claude | claude-sonnet-5-5 | Pass (2/2) | new text | [2026-11-10-coordinator-runtime-model.md](results/2026-11-10-coordinator-runtime-model.md): Two cloud samples; local-model run not performed because the endpoint did not answer. |
 | [coordinator-settles-review-notes](scenarios/coordinator-settles-review-notes.md) | 2026-10-19 | cbeb970 | claude | claude-sonnet-5-5 | Pass | updated | [2026-10-19-fresh-session-later-steps.md](results/2026-10-19-fresh-session-later-steps.md) |
 | [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md) | 2026-10-14 | 9176ab6 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-base-ci-stale.md](results/2026-10-14-base-ci-stale.md) |
 | [coordinator-uses-session-facts](scenarios/coordinator-uses-session-facts.md) | 2026-10-14 | b5e4e31 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-identity-self-report.md](results/2026-10-14-identity-self-report.md) |
@@ -216,7 +217,6 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [coordinator-runtime-model](scenarios/coordinator-runtime-model.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [express-single-session-endpoint](scenarios/express-single-session-endpoint.md)
 - [local-model-single-session](scenarios/local-model-single-session.md)
