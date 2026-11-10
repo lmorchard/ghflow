@@ -14,7 +14,7 @@ Read the selected issue, repository instructions, existing work, and user decisi
 
 Use the endpoint agreed in the conversation. If none was given, state the default: through PR review follow-up, without merge. A narrower request takes precedence. A request through merge authorizes that step, subject to the merge rules in [merge-pr](merge-pr.md). When the request says the run is unattended, apply [Decide in an unattended flow](../shared/decisions.md#decide-in-an-unattended-flow): take a supported recommendation and record it, park the issue when no answer is supported, and do not call an interactive question tool. A merge endpoint does not run unattended.
 
-Confirm the paths of the linked task references before dispatch. Do not read a worker's procedure: the handoff names it, and the worker reads it. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure.
+Confirm the paths of the linked task references before dispatch. Do not read a worker's procedure: the handoff names it, and the worker reads it. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure. The handoff subject is the issue: give its URL, or a bare number resolved through the subject checkout, not a PR URL.
 
 ## Resume from evidence
 
