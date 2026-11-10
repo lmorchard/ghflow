@@ -4,7 +4,7 @@ Three Claude Code samples of the [coordinator-runtime-model](../scenarios/coordi
 
 ## Source and method
 
-The changed source is `e6bd8fb62763eaf1c5ad47b9d30cfa5fc1c0f477` on branch `issue-81-coordinator-model`. Its skill text is identical to `a0d2f9d1ff942c805567e740fef67d195684af75`, which added the rule: the source fingerprint is `5d49ed015a8ec665ba03f4210889609d4a3d9b327a851bdef2cbc232abf0d643` in both runs, and `e6bd8fb` only corrects the scenario Situation. The baseline commit is `9ee0c4c5c6cfcff66dc03a52819471d119f0ca48` on the local scratch branch `baseline-coordinator-runtime-model`, which holds `main` (`f11e096`) plus the same scenario file. It is not for merge.
+The changed source is `e6bd8fb62763eaf1c5ad47b9d30cfa5fc1c0f477` on branch `issue-81-coordinator-model`. Its skill text is identical to `9f6ddffd3652bdf6049738ce16172bd78e072b52`, which added the rule: the source fingerprint is `5d49ed015a8ec665ba03f4210889609d4a3d9b327a851bdef2cbc232abf0d643` in both runs, and `e6bd8fb` only corrects the scenario Situation. The baseline commit is `9ee0c4c5c6cfcff66dc03a52819471d119f0ca48` on the local scratch branch `baseline-coordinator-runtime-model`, which holds `main` (`f11e096`) plus the same scenario file. It is not for merge.
 
 Runs used Claude Code `2.1.322` under the `claude` runner with `--safe-mode --restricted --tools Read,Glob,Grep --allowedTools "Read Glob Grep" --strict-mcp-config --permission-prompts none --add-dir SOURCE_SNAPSHOT --no-session-persistence`. The selected model was `claude-sonnet-5-5`, and every run reported the same model at runtime. The model that wrote the change is unresolved: the implementing worker's runtime stated no model ID to it, and no configured or default model is recorded as its identity.
 
