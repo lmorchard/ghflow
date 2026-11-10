@@ -237,8 +237,25 @@ def run_gh_paginated(path):
     return [item for page in pages for item in page]
 
 
+PR_URL_PATTERN = r"https://github\.com/([^/]+/[^/]+)/pull/(\d+)"
+ISSUE_URL_PATTERN = r"https://github\.com/([^/]+/[^/]+)/issues/(\d+)"
+PR_URL_ERROR = "That is a PR URL. Give the issue URL, or use `pr-state` for the PR."
+ISSUE_URL_ERROR = "Give an issue URL, or an issue number with --repo OWNER/NAME."
+
+
+def checkout_repo(cwd=None, git=None):
+    """Return OWNER/NAME from the checkout that contains cwd, or None outside a checkout."""
+    git = git or run_git
+    try:
+        root = git(["rev-parse", "--show-toplevel"], Path.cwd() if cwd is None else cwd).strip()
+        url = git(["remote", "get-url", "origin"], root).strip()
+    except (GhError, OSError):
+        return None
+    return parse_remote(url)
+
+
 def parse_pr(ref, repo):
-    match = re.match(r"https://github\.com/([^/]+/[^/]+)/pull/(\d+)", ref)
+    match = re.match(PR_URL_PATTERN, ref)
     if match:
         return match.group(1), int(match.group(2))
     if ref.isdigit() and repo:
@@ -246,13 +263,22 @@ def parse_pr(ref, repo):
     raise SystemExit("Give a PR URL, or a PR number with --repo OWNER/NAME.")
 
 
-def parse_issue(ref, repo):
-    match = re.match(r"https://github\.com/([^/]+/[^/]+)/issues/(\d+)", ref)
+def parse_issue(ref, repo, cwd=None, git=None):
+    """Resolve an issue URL, or a bare number through --repo or the current checkout.
+
+    A PR URL is refused, because a PR can close no issue or several issues; the caller
+    uses the PR operations instead.
+    """
+    match = re.match(ISSUE_URL_PATTERN, ref)
     if match:
         return match.group(1), int(match.group(2))
-    if ref.isdigit() and repo:
-        return repo, int(ref)
-    raise SystemExit("Give an issue URL, or an issue number with --repo OWNER/NAME.")
+    if re.match(PR_URL_PATTERN, ref):
+        raise SystemExit(PR_URL_ERROR)
+    if ref.isdigit():
+        repo = repo or checkout_repo(cwd, git)
+        if repo:
+            return repo, int(ref)
+    raise SystemExit(ISSUE_URL_ERROR)
 
 
 def check_state(item):
@@ -2860,14 +2886,14 @@ def main(argv=None):
     board = commands.add_parser("board", help="Project board operations.")
     board_commands = board.add_subparsers(dest="board_command", required=True)
     set_status = board_commands.add_parser("set-status", help="Move one issue to a board status, refusing backward moves, and read it back.")
-    set_status.add_argument("issue", help="issue URL, or issue number with --repo")
+    set_status.add_argument("issue", help="issue URL, or issue number from the subject checkout or with --repo")
     set_status.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     set_status.add_argument("--owner", required=True, help="login that owns the project board")
     set_status.add_argument("--project", required=True, type=int, help="project board number")
     set_status.add_argument("--status", required=True, help="target Status option name")
     set_status.add_argument("--allow-backward", action="store_true", help="permit a backward move; use only with a reason and authorization")
     set_field = board_commands.add_parser("set-field", help="Set a single-select field such as Priority or Size on an issue already on the board, and read it back.")
-    set_field.add_argument("issue", help="issue URL, or issue number with --repo")
+    set_field.add_argument("issue", help="issue URL, or issue number from the subject checkout or with --repo")
     set_field.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     set_field.add_argument("--owner", required=True, help="login that owns the project board")
     set_field.add_argument("--project", required=True, type=int, help="project board number")
@@ -2880,7 +2906,7 @@ def main(argv=None):
     ready.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     ready.add_argument("--body-file", metavar="FILE", help="UTF-8 file with the final description; omit to keep the current body")
     ready.add_argument("--expect-head", metavar="SHA", help="refuse to write unless the current head is this reviewed commit")
-    ready.add_argument("--issue", help="issue URL to move on the board; needs --owner and --project")
+    ready.add_argument("--issue", help="issue URL, or issue number from the subject checkout, to move on the board; needs --owner and --project")
     ready.add_argument("--owner", help="login that owns the project board")
     ready.add_argument("--project", type=int, help="project board number")
     ready.add_argument("--status", default="In review", help='target Status option name (default "In review")')
@@ -2920,7 +2946,7 @@ def main(argv=None):
     pr_merge_cmd.add_argument("--expect-head", required=True, metavar="SHA", help="refuse to merge unless the current head is this commit")
     handoff_cmd = commands.add_parser("handoff", help="Write a dispatch handoff file from live facts and your decisions, and print the one-line prompt that points to it.")
     handoff_cmd.add_argument("operation", choices=sorted(HANDOFF_SCOPE), help="the worker's task reference")
-    handoff_cmd.add_argument("issue", nargs="?", help="issue URL; prepare-project-facts takes none")
+    handoff_cmd.add_argument("issue", nargs="?", help="issue URL, or issue number from the subject checkout; prepare-project-facts takes none")
     handoff_cmd.add_argument("--out", required=True, metavar="FILE", help="handoff file to write")
     handoff_cmd.add_argument("--decisions", metavar="FILE", help="Markdown with the confirmed decisions and findings the worker must act on")
     handoff_cmd.add_argument("--review-plan", help="review method, configuration, and exception")
@@ -2942,7 +2968,7 @@ def main(argv=None):
     rv_cleanup.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     rv_cleanup.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
     park = commands.add_parser("park", help="Park an unattended delivery: label, issue comment, and a Parked section on the PR, each read back.")
-    park.add_argument("issue", help="issue URL")
+    park.add_argument("issue", help="issue URL, or issue number from the subject checkout")
     park.add_argument("--pr", required=True, help="PR URL")
     park.add_argument("--kind", required=True, choices=("time", "question", "blocker"), help="why the delivery is parked")
     park.add_argument("--text", required=True, metavar="FILE", help="Markdown with the question or blocker, or the remaining steps for a time park")
@@ -2954,7 +2980,7 @@ def main(argv=None):
     q_select.add_argument("--project", required=True, type=int, help="project number")
     q_select.add_argument("--status", default="Ready", help="Status column to select (default Ready)")
     q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, parked label, current-head checks, and review state, as a table.")
-    q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers with --repo")
+    q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers from the subject checkout or with --repo")
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
     q_summary.add_argument("--owner", required=True, help="project owner login")
     q_summary.add_argument("--project", required=True, type=int, help="project number")
@@ -2966,10 +2992,10 @@ def main(argv=None):
     budget_cmd.add_argument("--need", metavar="KIND,KIND", help="kinds to fit before the deadline, such as review,ready")
 
     facts = commands.add_parser("facts", help="Report live checkout, repository, tooling, identity, and issue facts for a handoff; reads only.")
-    facts.add_argument("--issue", help="issue URL, or issue number with --repo, to include its branches, worktrees, PRs, and board items")
+    facts.add_argument("--issue", help="issue URL, or issue number from the subject checkout or with --repo, to include its branches, worktrees, PRs, and board items")
     facts.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     preamble_cmd = commands.add_parser("preamble", help="Print a compact session-start block from live facts and the task context; a view, never a stored file.")
-    preamble_cmd.add_argument("issue", nargs="?", help="issue URL, or issue number with --repo, for the task block")
+    preamble_cmd.add_argument("issue", nargs="?", help="issue URL, or issue number from the subject checkout or with --repo, for the task block")
     preamble_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     preamble_cmd.add_argument("--operation", help="worker operation name, such as implement-issue")
     preamble_cmd.add_argument("--limits", help="flow endpoint and authorization limits")

@@ -4,6 +4,12 @@ Read this reference when using `pr-state`, local Git verification, `verify-commi
 The entry skill resolves `GHFLOW_CLI` to the source checkout CLI. Run commands from the target project directory.
 These commands apply the configured [agent identity](shared/identity.md) to their GitHub reads.
 
+## Issue inputs
+
+`facts --issue`, `preamble`, `handoff`, `board`, `park`, `queue summary`, and `pr ready --issue` take an issue reference. The reference is an issue URL or a bare issue number. A bare number resolves through the `origin` remote of the checkout that runs the command. Pass `--repo OWNER/NAME` to name another repository. Outside a checkout, a bare number needs `--repo`.
+
+These commands refuse a PR URL with: ``That is a PR URL. Give the issue URL, or use `pr-state` for the PR.`` They do not resolve a PR to an issue, because a PR can close no issue or several. Read the PR with [pr-state](#reading-pr-state) instead.
+
 ## Reading PR state
 
 Read a PR's state with `python3 "$GHFLOW_CLI" pr-state PR_URL`, run from the target project directory. It reports the current head, each check's state with required checks from rulesets, review requests from the timeline, and reviews with their commits. It matches a Copilot request to reviews authored by `copilot-pull-request-reviewer[bot]`.
@@ -70,7 +76,7 @@ Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` wi
 
 ## Reading project facts
 
-Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live facts that a handoff would otherwise restate. It reports the checkout root, branch, head, dirty state, and worktrees; the remote, default branch, how far the local default branch is behind `origin`, recent commit subjects, and the age of the last fetch; the tracked instruction files, Makefile targets, `conftest.py` paths, CI workflows, PR template, environment example, and lockfiles; the identity's login and readiness without secrets; and the required checks for the default branch. Add `--issue ISSUE_URL` to include the issue's title, state, labels, board items with their status, and the branches, worktrees, and PRs that name its number.
+Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live facts that a handoff would otherwise restate. It reports the checkout root, branch, head, dirty state, and worktrees; the remote, default branch, how far the local default branch is behind `origin`, recent commit subjects, and the age of the last fetch; the tracked instruction files, Makefile targets, `conftest.py` paths, CI workflows, PR template, environment example, and lockfiles; the identity's login and readiness without secrets; and the required checks for the default branch. Add `--issue` with an issue URL or a bare number from the checkout to include the issue's title, state, labels, board items with their status, and the branches, worktrees, and PRs that name its number.
 
 `project_facts` reports whether `.ghflow/project.md` exists. When it does, `written` and `sources` come from its frontmatter, and `stale_sources` lists each recorded source whose current blob hash differs or that no longer exists. An empty list means every source is unchanged. Those values describe the working copy. `project_facts.origin` repeats the check on the remote default branch, as of the last fetch, with the facts file and sources that a worker branching from it will see; use it when the working copy may lag. [prepare-project-facts](tasks/prepare-project-facts.md) writes and refreshes the file.
 
@@ -84,7 +90,7 @@ The command reads only. A part it could not read is `null` with an entry in `err
 
 ## Generating a session preamble
 
-Run `python3 "$GHFLOW_CLI" preamble` from the subject checkout to print a compact session-start block from the same reads as `facts`. Add the issue URL for the task block: its number, title, state, board status, open PRs, and the branches and worktrees that name its number. `--operation`, `--limits`, `--review-plan`, `--notes`, and `--first` add the dispatch fields that a handoff otherwise carries. Paste the block at the start of a local-model session, so the model does not spend turns rediscovering these facts.
+Run `python3 "$GHFLOW_CLI" preamble` from the subject checkout to print a compact session-start block from the same reads as `facts`. Add the issue URL, or a bare number from the checkout, for the task block: its number, title, state, board status, open PRs, and the branches and worktrees that name its number. `--operation`, `--limits`, `--review-plan`, `--notes`, and `--first` add the dispatch fields that a handoff otherwise carries. Paste the block at the start of a local-model session, so the model does not spend turns rediscovering these facts.
 
 The header line names the generation time and the revision the facts describe. The block states the project facts file's path and whether it is current or stale. It does not copy the file's content, the issue body, or a task reference. A part that `facts` could not read prints as `unknown`, and the block still prints.
 
@@ -98,7 +104,7 @@ The normal case stays at or below about 400 tokens, estimated at four characters
 
 `pr body PR_URL --out FILE` writes a description: the `--summary` file, the PR's commits, the CI summary and checks on the current head from `pr-state`, the `--review` file, the `--decisions` file under "Decisions taken unattended", and `Closes #N` with `--issue-number`. Pass the file to `pr ready --body-file`.
 
-`handoff OPERATION ISSUE_URL --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. It prints `dispatch_prompt`, a one-line prompt that names the file, with the [session preamble](#generating-a-session-preamble) below it. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path.
+`handoff OPERATION ISSUE --out FILE` writes a dispatch handoff from `facts --issue` and the options for decisions, review plan, limits, notes, branch, a facts path, and extra text. The subject is the issue: give its URL, or a bare number resolved through the subject checkout. A PR URL is refused; read the PR with `pr-state`. It prints `dispatch_prompt`, a one-line prompt that names the file, with the [session preamble](#generating-a-session-preamble) below it. `--deadline T` adds an instruction to implementation and correction handoffs to stop, commit, and publish at the deadline, and is reused like the facts path.
 `handoff prepare-project-facts --out FILE` takes no issue, lists the stale sources on `origin`, and states a ready PR without agent review. It keeps the facts path and each issue's decisions file in `handoff-defaults.json` beside the handoff, reuses them when a later handoff omits them, and lists them under `reused`.
 
 `board set-status` refuses In review with exit 3 while every open PR linked to the issue is a draft. `pr ready` moves the board after it marks the PR ready and is not affected.
