@@ -305,7 +305,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
             errors.append({"part": name, "error": str(error)})
             return None
 
-    fields = "number,url,state,isDraft,mergeable,headRefOid,headRefName,baseRefName,reviewRequests,statusCheckRollup"
+    fields = "number,url,state,isDraft,mergeable,headRefOid,headRefName,baseRefName,author,reviewRequests,statusCheckRollup"
     required_pr_fields = ("number", "url", "state", "isDraft", "mergeable", "headRefOid", "headRefName", "baseRefName")
     try:
         pr = gh(["pr", "view", str(number), "--repo", repo, "--json", fields])
@@ -349,6 +349,37 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
 
     head = pr["headRefOid"]
     base = pr["baseRefName"]
+
+    def read_author():
+        value = pr.get("author")
+        if value is None:
+            raise ValueError("The PR author is missing or null.")
+        response_type(value, dict, "The PR author")
+        return response_string(value.get("login"), "The PR author login")
+
+    author = part("author", read_author)
+
+    def read_commit_authors():
+        commits = response_type(gh_paginated(f"repos/{repo}/pulls/{number}/commits"), list, "The PR commits")
+        logins = set()
+        unattributed = []
+        for commit in commits:
+            response_type(commit, dict, "A PR commit")
+            sha = response_string(commit.get("sha"), "A PR commit sha")
+            account = commit.get("author")
+            if account is None:
+                unattributed.append(sha)
+                continue
+            response_type(account, dict, "A PR commit author")
+            logins.add(response_string(account.get("login"), "A PR commit author login"))
+        if unattributed:
+            raise ValueError(
+                f"GitHub attributed no account to {len(unattributed)} PR commit(s): {', '.join(unattributed)}."
+                " The author set is incomplete."
+            )
+        return sorted(logins)
+
+    commit_authors = part("commit_authors", read_commit_authors)
 
     def read_required():
         rules = gh_paginated(f"repos/{repo}/rules/branches/{base}")
@@ -493,6 +524,8 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "state": pr["state"],
         "is_draft": pr["isDraft"],
         "mergeable": pr["mergeable"],
+        "author": author,
+        "commit_authors": commit_authors,
         "head": head,
         "head_branch": pr["headRefName"],
         "base": base,
@@ -520,7 +553,30 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
     return result, 2 if errors else 0
 
 
-def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
+def login_matches(actual, expected):
+    """Compare GitHub logins without case sensitivity; an absent login never matches."""
+    return actual is not None and actual.lower() == expected.strip().lower()
+
+
+def commit_person(account, record, label):
+    """Build the login and recorded identity for a commit author or committer."""
+    login = None
+    if account is not None:
+        response_type(account, dict, f"The commit {label} account")
+        login = response_string(account.get("login"), f"The commit {label} login")
+    name = email = date = None
+    if record is not None:
+        response_type(record, dict, f"The commit {label} record")
+        for key in ("name", "email"):
+            value = record.get(key)
+            if value is not None:
+                response_string(value, f"The commit {label} {key}", empty=True)
+        name, email = record.get("name"), record.get("email")
+        date = response_string(record.get("date"), f"The commit {label} date", nullable=True)
+    return {"login": login, "name": name, "email": email, "date": date}
+
+
+def verify_commit(repo, rev, subject=None, on=None, pr_head=None, author=None, committer=None, gh=run_gh):
     """Resolve a published commit and compare it with what the caller expects it to be."""
     errors = []
     expectations = {}
@@ -537,11 +593,13 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
             raise ValueError("The commit response is missing its message.")
         if "author" not in body:
             raise ValueError("The commit response is missing its author.")
-        author = body["author"]
+        author_record = body["author"]
         author_date = None
-        if author is not None:
-            response_type(author, dict, "The commit author")
-            author_date = response_string(author.get("date"), "The commit author date", nullable=True)
+        if author_record is not None:
+            response_type(author_record, dict, "The commit author")
+            author_date = response_string(author_record.get("date"), "The commit author date", nullable=True)
+        author_person = commit_person(commit.get("author"), author_record, "author")
+        committer_person = commit_person(commit.get("committer"), body.get("committer"), "committer")
         sha = response_string(commit["sha"], "The commit sha")
         message = body["message"]
         if not isinstance(message, str):
@@ -567,6 +625,8 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
          "sha": sha,
          "subject": message.splitlines()[0] if message else "",
          "author_date": author_date,
+         "author": author_person,
+         "committer": committer_person,
          "parents": [parent["sha"] for parent in parents],
          "expectations": expectations,
          "errors": errors,
@@ -574,6 +634,12 @@ def verify_commit(repo, rev, subject=None, on=None, pr_head=None, gh=run_gh):
 
     if subject is not None:
         expectations["subject_matches"] = result["subject"] == subject.strip()
+
+    if author is not None:
+        expectations["author_matches"] = login_matches(result["author"]["login"], author)
+
+    if committer is not None:
+        expectations["committer_matches"] = login_matches(result["committer"]["login"], committer)
 
     if on is not None:
         try:
@@ -2678,7 +2744,7 @@ def identity_env(identity, base_env=None):
 def main(argv=None):
     parser = argparse.ArgumentParser(prog="ghflow", description=__doc__.splitlines()[0])
     commands = parser.add_subparsers(dest="command", required=True)
-    state = commands.add_parser("pr-state", help="Report CI, review requests, and reviews for a PR's current head.")
+    state = commands.add_parser("pr-state", help="Report CI, reviews, and author readback for a PR's current head.")
     state.add_argument("pr", help="PR URL, or PR number with --repo")
     state.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     verify = commands.add_parser("verify-commit", help="Resolve a published commit and check that it is the one you expect.")
@@ -2687,6 +2753,8 @@ def main(argv=None):
     verify.add_argument("--subject", help="expected first line of the commit message")
     verify.add_argument("--on", metavar="BRANCH", help="branch whose history should contain the commit")
     verify.add_argument("--pr-head", metavar="PR", help="PR URL or number whose current head should be the commit")
+    verify.add_argument("--author", metavar="LOGIN", help="expected GitHub account login of the commit author")
+    verify.add_argument("--committer", metavar="LOGIN", help="expected GitHub account login of the commit committer")
     board = commands.add_parser("board", help="Project board operations.")
     board_commands = board.add_subparsers(dest="board_command", required=True)
     set_status = board_commands.add_parser("set-status", help="Move one issue to a board status, refusing backward moves, and read it back.")
@@ -2817,7 +2885,7 @@ def main(argv=None):
         result, status = pr_state(repo, number, bare_login=bare_gh_login, identity=resolve_identity_or_none())
     elif args.command == "verify-commit":
         pr_head = parse_pr(args.pr_head, args.repo) if args.pr_head else None
-        result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head)
+        result, status = verify_commit(args.repo, args.rev, args.subject, args.on, pr_head, args.author, args.committer)
     elif args.command == "board":
         repo, number = parse_issue(args.issue, args.repo)
         if args.board_command == "set-field":

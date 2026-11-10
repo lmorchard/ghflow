@@ -22,6 +22,12 @@ Green CI counts only when the head contains the current tip of the base branch: 
 
 A clean update from the base adds no change of its own, so it does not need another independent review. It does need green CI on the new head.
 
+## Check authorship
+
+Read `author` and `commit_authors` with `pr-state`, and read the configured login from `identity`. Compare both with that login.
+
+Report a PR whose author differs from the configured login. Report a commit author outside the expected accounts. A mixed-author PR needs an explicit decision from the user before merge; do not merge it silently. A `null` author field is unread, not a match. A `null` `commit_authors` is an incomplete read; report it and do not present the attribution check as passed.
+
 ## Require review evidence or permission
 
 Apply the review-source policy in [Review](../shared/review.md). Read the review body, inline discussions, and relevant top-level comments, including all result pages.
@@ -53,7 +59,7 @@ Move the completed issue to Done, following [Board status](../shared/board-statu
 
 Close only issues that this PR completes. Leave a broader parent and its board status unchanged unless its full scope is complete and the update is authorized. Do not add comments that repeat the merge record.
 
-Return the PR URL, merge commit, CI evidence, the review or permission that supported the merge, and the confirmed issue and board states. Report required post-merge checks that remain incomplete. Do not claim a live application test that you did not perform.
+Return the PR URL, merge commit, CI evidence, the review or permission that supported the merge, the PR and commit author readback with each difference from the configured login, and the confirmed issue and board states. Report required post-merge checks that remain incomplete. Do not claim a live application test that you did not perform.
 
 Keep local worktrees and branches unless cleanup was requested or project rules require it. Merge authorization does not permit discarding unrelated files.
 

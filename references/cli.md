@@ -8,6 +8,8 @@ These commands apply the configured [agent identity](shared/identity.md) to thei
 
 Read a PR's state with `python3 "$GHFLOW_CLI" pr-state PR_URL`, run from the target project directory. It reports the current head, each check's state with required checks from rulesets, review requests from the timeline, and reviews with their commits. It matches a Copilot request to reviews authored by `copilot-pull-request-reviewer[bot]`.
 
+`author` is the PR author's login. `commit_authors` is the sorted unique login among every commit in the PR, read from all pages of the commit list. A commit that GitHub attributes to no account, or a failed page read, leaves `commit_authors` `null` with an entry in `errors`; the tool never reports a partial author set as complete. Compare both fields with the configured login to see whether a delivery used the machine account.
+
 `base_behind_by` is the number of base-branch commits that the head does not contain. A value of 0 means the head contains the current base tip.
 
 `effective_gh_login` is the login that a plain `gh` call in the same environment uses, without the selected identity. `identity_mismatch` is `true` when that login differs from the selected login, `false` when it matches, and `null` when the check could not run, which is not an error. A `true` value means a `gh` write outside the identity tools would use the wrong account; see [Write under the selected identity](shared/identity.md#write-under-the-selected-identity).
@@ -41,11 +43,14 @@ A valid local result establishes local existence only; it does not establish pub
 
 For a published commit, current PR head, or merge claim, run `python3 "$GHFLOW_CLI" verify-commit SHA --repo OWNER/NAME` from the target project directory.
 Add the facts that you expect: `--subject` with the first line of the commit message, `--on BRANCH` for the branch that should contain it, and `--pr-head PR_URL` when it should be the PR's current head.
+Add `--author LOGIN` or `--committer LOGIN` when the commit should belong to that GitHub account. Login comparison ignores case.
 Use the full SHA that the tool reports.
+
+The result reports `author` and `committer` objects with `login`, `name`, `email`, and `date`. `login` is the GitHub account, and it is `null` when GitHub attributes the commit to no account. The names, email, and date come from the commit record.
 
 Exit status 0 means the commit exists and each expectation holds. Exit status 3 means an expectation is false. Exit status 1 means GitHub did not find the commit, which can mean it is not pushed. Do not pass on an identifier that failed. Read the branch again or return the mismatch to the agent that reported it.
 
-An invalid primary commit response also exits 1. An invalid expectation response leaves that expectation `null` with an error. It exits 2 unless another expectation is false, which retains exit status 3. If GitHub provides no commit author or author date, `author_date` is `null` without an error, as the [GitHub REST response schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json) permits.
+An invalid primary commit response also exits 1. An invalid expectation response leaves that expectation `null` with an error. It exits 2 unless another expectation is false, which retains exit status 3. If GitHub provides no commit author or author date, `author_date` is `null` without an error, as the [GitHub REST response schema](https://github.com/github/rest-api-description/blob/main/descriptions/api.github.com/api.github.com.json) permits. A commit with a `null` account login under `--author` or `--committer` is a false expectation and exits 3.
 
 ## Marking a PR ready
 
