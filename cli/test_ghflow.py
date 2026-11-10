@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2966,6 +2966,59 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual(captured["issue"], ("o/r", 5))
         self.assertTrue(json.loads(out.getvalue())["ok"])
+
+
+class IssueInputTests(unittest.TestCase):
+    """A bare issue number resolves through the checkout; a PR URL names pr-state instead."""
+
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.checkout = os.path.join(self.tmp, "clone")
+        subprocess.run(["git", "init", "-q", self.checkout], check=True)
+        git(["remote", "add", "origin", "git@github.com:lmorchard/decafclaw.git"], self.checkout)
+
+    def enter(self, path):
+        previous = os.getcwd()
+        os.chdir(path)
+        self.addCleanup(os.chdir, previous)
+
+    def test_facts_resolves_a_bare_number_through_the_checkout(self):
+        captured = {}
+
+        def fake_facts(issue=None, bare_login=None):
+            captured["issue"] = issue
+            return {"ok": True}, 0
+
+        self.enter(self.checkout)
+        with patch("ghflow.project_facts", fake_facts), patch("sys.stdout", new=io.StringIO()):
+            status = main(["facts", "--issue", "1155"])
+        self.assertEqual(status, 0)
+        self.assertEqual(captured["issue"], ("lmorchard/decafclaw", 1155))
+
+    def test_bare_number_outside_a_checkout_keeps_the_current_error(self):
+        self.enter(self.tmp)
+        with self.assertRaises(SystemExit) as caught:
+            main(["facts", "--issue", "1155"])
+        self.assertEqual(str(caught.exception), "Give an issue URL, or an issue number with --repo OWNER/NAME.")
+
+    def test_facts_rejects_a_pr_url_and_names_pr_state(self):
+        self.enter(self.checkout)
+        with self.assertRaises(SystemExit) as caught:
+            main(["facts", "--issue", "https://github.com/o/r/pull/7"])
+        self.assertEqual(str(caught.exception),
+                         "That is a PR URL. Give the issue URL, or use `pr-state` for the PR.")
+
+    def test_handoff_does_not_use_a_pr_url_as_the_issue(self):
+        out = Path(self.tmp) / "handoff.md"
+        self.enter(self.checkout)
+        with self.assertRaises(SystemExit) as caught:
+            main(["handoff", "review-changes", "https://github.com/o/r/pull/7", "--out", str(out)])
+        self.assertEqual(str(caught.exception),
+                         "That is a PR URL. Give the issue URL, or use `pr-state` for the PR.")
+        self.assertFalse(out.exists())
+
+    def test_repo_option_still_wins_over_the_checkout(self):
+        self.assertEqual(parse_issue("1155", "o/other", cwd=self.checkout), ("o/other", 1155))
 
 
 class WorktreeCreateTests(unittest.TestCase):
