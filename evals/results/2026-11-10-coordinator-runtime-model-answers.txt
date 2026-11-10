@@ -1,0 +1,116 @@
+Scenario: coordinator-runtime-model
+Session ID: b7788ffa-9a78-4705-90e7-a5f46d6e98f5
+
+I've read the skill and the shared rules. Here's what decides the case.
+
+**Write the implementer's model line as unknown, with the limit stated. Don't dispatch the independent review yet. Report to the parent that the different-model requirement can't be shown as met, and return the review choice to the parent.**
+
+Don't write `task` or the session default as the model. Don't write `claude-sonnet-5-5` either, because that is my own runtime's ID, not the worker's.
+
+**Rules that decide it** (`references/shared/review.md`, "Prepare required review" and the default-review paragraph, plus the handoff rules in `coordination.md`):
+- "Record each model identity from runtime or dispatch metadata. Do not infer it from an agent's name, writing style, or claims."
+- "Never record a configured or default model as a worker's identity, because a session flag can override every configuration file."
+- Dispatch metadata counts only "when you can read it yourself". Here it shows only the agent type `task` and no model override. An absent override doesn't tell me which model ran.
+- "If dispatch, model selection, or model identity evidence is missing, report the precise unmet requirement and the next action to the parent." Also: "Do not substitute self-review or a same-model review for the required independent different-model review."
+- A same-model second opinion is allowed only if it's labeled as same-model, and the different-model requirement then stays unmet.
+
+**Why I can't just proceed:**
+- The worker may well be running the same model as me, since the agent type is shared. I can't confirm that either way, and the rules don't let me assume it.
+- No user-approved waiver of model difference exists in this situation. The waiver path, where missing identity is only a reporting limit, therefore doesn't apply. Limited availability alone doesn't grant an exception.
+- The handoff template required the worker to return "the model ID your runtime states to you", and this return omitted it. That is a gap in the worker's return, not something I can fill by guessing.
+
+**What I do next:**
+1. Record the line as: "Implementer model: unknown. The worker didn't report its runtime model, and dispatch metadata shows only agent type `task` with no override. Not inferred."
+2. Report the unmet requirement to the parent: different-model review can't be verified. The options are to obtain the worker's self-reported model ID, or to have the user approve an exception or waiver. I'd ask for the worker's model ID first, since that is the missing evidence.
+3. Keep the PR URL, the head `4c1e9a7`, the passing `check` results on that head, and the worker's stated evidence limit in the report.
+4. Not run the independent review, and not call a same-model or self-review independent.
+
+If the worker's model ID comes back and differs from `claude-sonnet-5-5`, I'd dispatch a fresh reviewer from a new `handoff` file. I'd record the actual selection and the returned model evidence at dispatch. If it comes back the same, the requirement stays unmet until the user approves an exception.
+
+Scenario: coordinator-runtime-model
+Session ID: 58124577-eca3-4a60-900c-f4d44590a9ad
+
+**What I do next:** I write the implementer's model line as unresolved. I don't dispatch the independent reviewer yet. I report the limit and return the reviewer-selection choice to the parent.
+
+**The model line.** It would read roughly: "Implementer model: runtime identity unresolved. Source: dispatch record shows selected configuration agent type `task`, no model override. The worker's return has no model field."
+
+**Why:**
+- `references/shared/coordination.md`, Handoffs, says: "The coordinator's own runtime model does not establish a worker's model. Record a worker's model from its return or from readable dispatch metadata, labeled with its source. When neither names a runtime model, record the selected configuration and state that the runtime identity is unresolved."
+- The worker's return names no model. The dispatch record shows only the agent type and no override, so it doesn't name a runtime model either. That leaves me recording the selected configuration, `task`, and stating that the identity is unresolved.
+- I must not write `claude-sonnet-5-5`. That is my own model, and it doesn't establish the worker's.
+- I must not write a configured or default model either. `review.md` says never to record a configured or default model as a worker's identity, because a session flag can override it.
+- I must not infer the model from the agent name or the worker's style.
+
+**Consequence for review.** `review.md` requires the local review to use a model different from the implementer's, recorded from runtime or dispatch metadata. With the implementer's model unknown, I can't show that any reviewer differs, and that includes my own `claude-sonnet-5-5`. A different agent name, a fresh context, or a changed reasoning setting doesn't count as a different model.
+
+Under `review.md`, "if a model identity is unknown or a different model is unavailable, report that and return the review choice to the parent." A same-model second opinion is allowed only if it is labeled same-model, and the different-model requirement stays unmet. It can't replace the different-model review silently. Only a user-approved exception can waive that requirement.
+
+**What I report to the parent:**
+- The PR URL, the published head `4c1e9a7`, and the passing `check` results on that head.
+- The worker's one evidence limit.
+- The implementer model line, marked unresolved, with its source.
+- The different-model review requirement, which is currently unmet, and the open reviewer choice.
+
+I don't do the subject-repository work myself. I also don't call self-review independent.
+
+Scenario: coordinator-runtime-model
+Session ID: 30e977fd-595c-4128-af02-26d2d468bab4
+
+**What I do next:** I write the implementer's model line as unresolved. I don't dispatch the review yet, and I don't call any review independent. I return the review-model choice to the parent. I run no commands, make no edits and dispatch nothing.
+
+**The model line.** It reads roughly: "Implementer model: runtime identity unresolved. Source: dispatch record shows selected agent type `task`, no model override. The worker's return has no model field."
+
+**Why:**
+- **Deciding rule:** `references/shared/coordination.md`, Handoffs, says "The coordinator's own runtime model does not establish a worker's model." It also says to record a worker's model from its return or from readable dispatch metadata, labeled with its source. When neither names a runtime model, I record the selected configuration and state that the runtime identity is unresolved.
+- **This case:** The return has no model field, and the dispatch record names only the agent type `task`. So I record `task` with no override as the selected configuration, and the runtime identity stays unresolved.
+- **Why not `claude-sonnet-5-5`:** That is my model, not the worker's. Writing it would be a guess. `review.md` also says to never record a configured or default model as a worker's identity, and not to infer identity from an agent's name.
+- **Consequence for review:** `review.md` requires a different-model reviewer by default. It says that if a model identity is unknown, I report that and return the review choice to the parent. A fresh context, a different agent name or a changed reasoning setting doesn't make a different model.
+- **Same-model review:** I may not silently fall back to same-model review or self-review. A same-model second opinion is allowed only if it is labeled same-model, and the different-model requirement stays unmet. Only the user can waive that requirement.
+- **Other evidence:** I carry the PR URL, the published head `4c1e9a7`, the passing `check` results on that head, and the worker's named evidence limit into the report unchanged.
+
+**What I report to the parent:** The implementer's model identity is unresolved. The different-model review requirement therefore can't be shown as met. The choices are to supply the worker's runtime model, or to have the user approve an exception or waiver. If the model ID is supplied, I confirm that my own model differs from it before treating a `claude-sonnet-5-5` review as independent.
+
+Scenario: coordinator-runtime-model
+Session ID: ses_e39491583ffeA1fuNdG5Ja4FAQ
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Verified against the source files; both key rules are confirmed verbatim. Here is the decision.
+
+## Decision: what the coordinator does next
+
+1. **Write the implementer's model line in the run record as unresolved.** Record: selected configuration = agent type `task`, no model override; **runtime identity unresolved** — the worker's return names no model and readable dispatch metadata names none. Do **not** record `claude-sonnet-5-5` (the coordinator's own runtime) as the worker's model, and do not record any configured/default model.
+
+2. **Do not dispatch the reviewer on an assumption.** Since the implementer's model identity is unknown, the different-model requirement cannot be verified. Do not substitute self-review or a same-model second opinion for the required independent different-model review (a same-model pass could only be labeled as such and would leave the requirement unmet — and here we can't even confirm same-model).
+
+3. **Report to the parent that the different-model review requirement is unmet** because the implementer's model identity is unknown, and **return the review choice to the parent**. The parent decides (e.g., re-dispatch implementation with a model-identity return requirement, approve an explicit exception/waiver, or select another review source).
+
+4. **Record the worker's actual return as-is** in the run record: PR URL, published head `4c1e9a7`, passing check results on that head, and the one named evidence limit — with the identity gap stated explicitly as a reporting limit.
+
+## Deciding rules
+
+- **Model line:** `coordination.md` §Handoffs, line 33 — *"The coordinator's own runtime model does not establish a worker's model. Record a worker's model from its return or from readable dispatch metadata, labeled with its source. When neither names a runtime model, record the selected configuration and state that the runtime identity is unresolved."* (Supported by line 32: require in return "the model ID the worker's own runtime states to it, not a configured or default model," and line 36: never record a configured/default model as identity.)
+- **Review step:** `review.md` §Review sources, line 15 — *"If a model identity is unknown or a different model is unavailable, report that and return the review choice to the parent."* — and §Prepare required review, line 38 — *"If dispatch, model selection, or model identity evidence is missing, report the precise unmet requirement and the next action to the parent… Do not substitute self-review or a same-model review for the required independent different-model review."*
+
+**In one sentence:** record the model line as "agent type `task`, no override; runtime identity unresolved," then stop at the review gate and return the unmet different-model requirement to the parent — per coordination.md line 33 for the record and review.md lines 15/38 for returning the choice.
