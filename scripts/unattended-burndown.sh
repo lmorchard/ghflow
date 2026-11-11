@@ -6,6 +6,7 @@ set -eu
 OWNER=""; PROJECT=""; HOURS="8"; AGENT="opencode"; MODEL=""; EXCEPTION="no"; DRY_RUN="no"; LOG=""; ALLOW_CONCURRENT="no"
 SKILL_DIR="${GHFLOW_SKILL_DIR:-$HOME/.agents/skills/ghflow}"
 
+REPO=$(git remote get-url origin 2>/dev/null | sed -E 's#.*github\.com[:/]([^/]+/[^/.]+)(\.git)?/?$#\1#') || true
 [ -n "$REPO" ] || { echo "not in a checkout with a GitHub origin" >&2; exit 1; }
 STAMP=$(date +%Y%m%d-%H%M%S)
 [ -n "$LOG" ] || LOG="unattended-burndown-$STAMP.log"
