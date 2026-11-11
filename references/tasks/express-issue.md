@@ -86,4 +86,3 @@ Always use the `facts@rev` snapshot carried in the first prompt for every handof
 - A board or review decision changes
 
 The preamble snapshot is the source of truth for gates, checks, and paths. Do not re-read `facts` unless the task explicitly requires fresh state or sources were invalidated.
-

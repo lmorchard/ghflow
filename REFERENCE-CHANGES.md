@@ -14,17 +14,20 @@ These changes address the four highest-value local-model runtime costs identifie
 The preamble command has been replaced with a warning output. Previously, the launcher silently swallowed the exit code with `2>/dev/null || true`. Now, a warning prints if the command exits with reference to missing capabilities:
 
 ```sh
-PREAMBLE=$(python3 "$SKILL_DIR/cli/ghflow.py" preamble 2>&1 1>/dev/null || true)
-WARNING=0
-if echo "$PREAMBLE" | grep -q -e "cannot be read" -e "does not exist" -e "ModuleNotFoundError"; then
-  WARNING=1
+PREAMBLE=""
+if [ -f "$SKILL_DIR/cli/ghflow.py" ]; then
+  PREAMBLE=$(python3 "$SKILL_DIR/cli/ghflow.py" preamble 2>/dev/null || true)
+  if [ -z "$PREAMBLE" ]; then
+    PREAMBLE_ERR=$(python3 "$SKILL_DIR/cli/ghflow.py" preamble 2>&1 1>/dev/null || true)
+    if echo "$PREAMBLE_ERR" | grep -q -e "cannot be read" -e "does not exist" -e "ModuleNotFoundError" -e "invalid choice"; then
+      echo "warning: the installed ghflow lacks the preamble command; startup and first-dispatch will be slower" >&2
+    fi
+  fi
 fi
 if [ -n "$PREAMBLE" ]; then
   REQUEST="$REQUEST
+
 $PREAMBLE"
-fi
-if [ "$WARNING" -eq 1 ]; then
-  echo "warning: the installed ghflow lacks the preamble command; startup and first-dispatch will be slower" >&2
 fi
 ```
 
