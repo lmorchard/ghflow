@@ -30,13 +30,20 @@ def run_cli(*args, cwd=None, cli_path=None):
     cli = str(cli_path or find_cli())
     cmd = [sys.executable, cli, *args]
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
-    out = None
     if proc.stdout.strip():
         try:
             out = json.loads(proc.stdout)
         except json.JSONDecodeError:
             out = {"raw": proc.stdout}
-    return out or {}, proc.returncode
+    if not out:
+        out = {}
+    if proc.returncode != 0:
+        err = proc.stderr.strip()
+        if err:
+            out["stderr"] = err
+            if "error" not in out:
+                out["error"] = err
+    return out, proc.returncode
 
 
 def discover_project(owner_project=None, cwd=None, gh_cmd="gh"):
@@ -273,6 +280,8 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         cmd = ["caffeinate", "-i", *cmd]
 
     env = dict(os.environ, OPENCODE_DISABLE_AUTOUPDATE="1")
+    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
+                          cwd=options.get("cwd"), env=env, timeout=options.get("session_timeout", 3600))
     session_log = notes_dir / f"session-{step}-{stamp}.log"
     session_log.write_text((proc.stdout or "") + ("\n--- stderr ---\n" + proc.stderr if proc.stderr else ""), encoding="utf-8")
     session_id = None
@@ -344,7 +353,7 @@ def main(argv=None):
         if item is None:
             print(f"[{time.strftime('%X')}] No more actionable items on board.")
             break
-        issue_ref = item.get("issue") or item.get("url") or item.get("number")
+        issue_ref = item.get("url") or str(item.get("number")) or item.get("issue")
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
 

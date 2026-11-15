@@ -272,6 +272,9 @@ def parse_issue(ref, repo, cwd=None, git=None):
     match = re.match(ISSUE_URL_PATTERN, ref)
     if match:
         return match.group(1), int(match.group(2))
+    shorthand = re.match(r"^([^/#\s]+/[^/#\s]+)#([0-9]+)$", ref)
+    if shorthand:
+        return shorthand.group(1), int(shorthand.group(2))
     if re.match(PR_URL_PATTERN, ref):
         raise SystemExit(PR_URL_ERROR)
     if ref.isdigit():
