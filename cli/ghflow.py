@@ -320,6 +320,59 @@ def same_reviewer(requested, author):
         return True
     return requested == "copilot" and author.startswith("copilot")
 
+def review_summary(reviews, latest_requests, pending_requests):
+    """Condense a linked PR's review records into the delivery endpoint's review state.
+
+    A live request, or a latest request with no later review by that reviewer, is
+    pending. A review is completed only when it covers the current head. An unread
+    review part makes the state incomplete, not none.
+
+    An author's current-head reviews are read in submission order: a change
+    request stands until that author approves or the request is dismissed. A
+    comment or pending review does not clear it, and a later change request
+    outranks an approval.
+    """
+    if reviews is None or latest_requests is None:
+        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
+    requested = sorted({name for name in pending_requests if name})
+    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
+    pending = sorted(set(requested) | set(unanswered))
+    latest_by_author = {}
+    for entry in reviews:
+        author = entry["author"]
+        if author is None:
+            continue
+        earlier = latest_by_author.get(author)
+        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
+            latest_by_author[author] = entry
+    completed = [
+        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
+         "submitted_at": entry["submitted_at"]}
+        for entry in latest_by_author.values() if entry["covers_head"]
+    ]
+    completed.sort(key=lambda entry: entry["author"] or "")
+    verdicts = {}
+    for entry in sorted(
+        (review for review in reviews if review["author"] is not None and review["covers_head"]),
+        key=lambda review: review["submitted_at"] or "",
+    ):
+        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
+            verdicts[entry["author"]] = entry["state"]
+    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
+    if pending:
+        state = "pending"
+    elif changes_requested:
+        state = "changes_requested"
+    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
+        state = "approved"
+    elif completed:
+        state = "commented"
+    elif reviews:
+        state = "stale"
+    else:
+        state = "none"
+    return {"state": state, "requested": requested, "pending": pending,
+            "changes_requested": changes_requested, "completed": completed}
 def parse_review_verdicts(comments):
     """Extract review verdict markers from PR top-level comments."""
     if not isinstance(comments, list):
@@ -588,6 +641,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "review_request_events": request_events,
         "reviews": reviews,
         "comments": comments,
+        "review_summary": review_summary(reviews, latest_requests, [r.get("login") or r.get("slug") or r.get("name") for r in pr.get("reviewRequests") or []]),
         "review_verdicts": parse_review_verdicts(comments),
         "errors": errors,
     }
@@ -2555,59 +2609,6 @@ SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 }"""
 
 
-def review_summary(reviews, latest_requests, pending_requests):
-    """Condense a linked PR's review records into the delivery endpoint's review state.
-
-    A live request, or a latest request with no later review by that reviewer, is
-    pending. A review is completed only when it covers the current head. An unread
-    review part makes the state incomplete, not none.
-
-    An author's current-head reviews are read in submission order: a change
-    request stands until that author approves or the request is dismissed. A
-    comment or pending review does not clear it, and a later change request
-    outranks an approval.
-    """
-    if reviews is None or latest_requests is None:
-        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
-    requested = sorted({name for name in pending_requests if name})
-    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
-    pending = sorted(set(requested) | set(unanswered))
-    latest_by_author = {}
-    for entry in reviews:
-        author = entry["author"]
-        if author is None:
-            continue
-        earlier = latest_by_author.get(author)
-        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
-            latest_by_author[author] = entry
-    completed = [
-        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
-         "submitted_at": entry["submitted_at"]}
-        for entry in latest_by_author.values() if entry["covers_head"]
-    ]
-    completed.sort(key=lambda entry: entry["author"] or "")
-    verdicts = {}
-    for entry in sorted(
-        (review for review in reviews if review["author"] is not None and review["covers_head"]),
-        key=lambda review: review["submitted_at"] or "",
-    ):
-        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
-            verdicts[entry["author"]] = entry["state"]
-    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
-    if pending:
-        state = "pending"
-    elif changes_requested:
-        state = "changes_requested"
-    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
-        state = "approved"
-    elif completed:
-        state = "commented"
-    elif reviews:
-        state = "stale"
-    else:
-        state = "none"
-    return {"state": state, "requested": requested, "pending": pending,
-            "changes_requested": changes_requested, "completed": completed}
 
 
 def ci_cell(row):

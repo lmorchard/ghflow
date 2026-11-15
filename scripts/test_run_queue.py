@@ -58,6 +58,31 @@ class NextStepTableTests(unittest.TestCase):
         }
         self.assertEqual(run_queue.next_step(state, correction_limit=2), "park-blocker")
 
+    def test_human_changes_requested_on_draft_triggers_address_review(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
+            "reviews": [{"author": "lmorchard", "state": "CHANGES_REQUESTED", "commit": "abc", "covers_head": True}],
+            "review_summary": {"state": "changes_requested", "changes_requested": ["lmorchard"]},
+        }
+        self.assertEqual(run_queue.next_step(state), "address-pr-review")
+
+    def test_human_changes_requested_on_ready_pr_triggers_address_review(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": False},
+            "ci": "green",
+            "reviews": [{"author": "lmorchard", "state": "CHANGES_REQUESTED", "commit": "abc", "covers_head": True}],
+            "review_summary": {"state": "changes_requested", "changes_requested": ["lmorchard"]},
+        }
+        self.assertEqual(run_queue.next_step(state), "address-pr-review")
+
+    def test_human_approved_on_draft_triggers_submit_pr(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
+            "reviews": [{"author": "lmorchard", "state": "APPROVED", "commit": "abc", "covers_head": True}],
+            "review_summary": {"state": "approved", "changes_requested": []},
+        }
+        self.assertEqual(run_queue.next_step(state), "submit-pr")
+
     def test_ready_pr_pending_ci_waits(self):
         state = {
             "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": False},

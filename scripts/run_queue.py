@@ -89,7 +89,7 @@ def check_active_runs(opencode_cmd="opencode"):
                            "\n  ".join(active) + "\nPass --allow-concurrent to override.")
 
 
-def next_step(state, correction_limit=CORRECTION_LIMIT):
+def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome"):
     """Pure function returning the next operation for an observed issue state."""
     labels = state.get("labels") or []
     if "triage:needs-input" in labels:
@@ -97,18 +97,35 @@ def next_step(state, correction_limit=CORRECTION_LIMIT):
     pr = state.get("pr")
     if not pr or not pr.get("url"):
         return "implement-issue"
+
     current_head = pr.get("head")
+    is_draft = pr.get("is_draft", pr.get("draft", False))
+    reviews = state.get("reviews") or []
+    rev_summary = state.get("review_summary") or {}
+
+    # Native GitHub reviews covering the current head
+    head_reviews = [r for r in reviews if r.get("covers_head") or r.get("commit") == current_head]
+    changes_requested = rev_summary.get("changes_requested") or [
+        r.get("author") for r in head_reviews if r.get("state") == "CHANGES_REQUESTED"
+    ]
+    approved = (rev_summary.get("state") == "approved") or any(r.get("state") == "APPROVED" for r in head_reviews)
+
+    # Also check review verdicts (fallback for automated inter-agent comment markers)
     verdicts = state.get("review_verdicts") or []
     head_verdict = next((v for v in verdicts if v.get("head") == current_head), None)
-    is_draft = pr.get("is_draft", pr.get("draft", False))
+    verdict_blocking = head_verdict and (head_verdict.get("verdict") in ("findings", "blocked"))
+    verdict_clean = head_verdict and (head_verdict.get("verdict") == "clean")
+
+    has_blocking_feedback = bool(changes_requested) or verdict_blocking
+    earlier_blocking = sum(1 for r in reviews if r.get("state") == "CHANGES_REQUESTED") + \
+                       sum(1 for v in verdicts if v.get("verdict") in ("findings", "blocked"))
+
     if is_draft:
-        if not head_verdict:
+        if not head_reviews and not head_verdict:
             return "review-changes"
-        v_type = (head_verdict.get("verdict") or "").lower()
-        if v_type in ("findings", "blocked"):
-            earlier_blocking = sum(1 for v in verdicts if v.get("verdict") in ("findings", "blocked"))
+        if has_blocking_feedback:
             return "park-blocker" if earlier_blocking >= correction_limit else "address-pr-review"
-        if v_type == "clean":
+        if approved or verdict_clean or head_reviews:
             return "submit-pr"
         return "review-changes"
 
@@ -118,6 +135,8 @@ def next_step(state, correction_limit=CORRECTION_LIMIT):
         return "wait-ci"
     if ci in ("failing", "failed", "error") or state.get("unresolved_threads"):
         return "address-pr-review"
+    if has_blocking_feedback:
+        return "park-blocker" if earlier_blocking >= correction_limit else "address-pr-review"
     if state.get("pending_review_requests"):
         return "WAITING"
     if ci in ("green", "passed"):
@@ -186,6 +205,9 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
             "head": pr_st.get("head") or pr.get("head"),
             "is_draft": pr_st.get("is_draft", pr.get("is_draft", False)),
         }
+        state["reviews"] = pr_st.get("reviews") or []
+        state["review_summary"] = pr_st.get("review_summary") or {}
+        state["comments"] = pr_st.get("comments") or []
         state["review_verdicts"] = pr_st.get("review_verdicts") or []
         state["pending_review_requests"] = pr_st.get("pending_review_requests") or []
     return state
