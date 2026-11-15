@@ -273,8 +273,8 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         cmd = ["caffeinate", "-i", *cmd]
 
     env = dict(os.environ, OPENCODE_DISABLE_AUTOUPDATE="1")
-    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                          cwd=options.get("cwd"), env=env, timeout=options.get("session_timeout", 3600))
+    session_log = notes_dir / f"session-{step}-{stamp}.log"
+    session_log.write_text((proc.stdout or "") + ("\n--- stderr ---\n" + proc.stderr if proc.stderr else ""), encoding="utf-8")
     session_id = None
     if proc.stdout:
         m = re.search(r'"session_id":\s*"([^"]+)"', proc.stdout) or re.search(r'"id":\s*"([^"]+)"', proc.stdout)
@@ -338,21 +338,27 @@ def main(argv=None):
     while True:
         if time.time() >= deadline_time:
             break
+        print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
         board = observe_board(owner, project)
         item = next_item(board, attempted)
         if item is None:
+            print(f"[{time.strftime('%X')}] No more actionable items on board.")
             break
         issue_ref = item.get("issue") or item.get("url") or item.get("number")
+        print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
 
         # Issue reconciliation loop
         while True:
             remaining_minutes = (deadline_time - time.time()) / 60
             if remaining_minutes < args.floor:
+                print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m). Stopping.")
                 break
             state = observe_issue(issue_ref)
             step = next_step(state)
+            print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):
+                print(f"[{time.strftime('%X')}] {issue_ref} reached endpoint state: {step}")
                 delivered.append(issue_ref)
                 break
             if step == "park-blocker":
@@ -373,10 +379,13 @@ def main(argv=None):
                 break
             previous_states[issue_ref] = curr
 
+            print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, options)
+            print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
             if not success:
-                # Retry once in fresh session
+                print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
                 success, info = run_session(step, state["issue"], notes_dir, options)
+                print(f"[{time.strftime('%X')}] Retry session finished (success={success}, id={info})")
                 if not success:
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     park_issue(state["issue"], pr_url, "blocker", f"Session failed repeatedly: {info}", notes_dir)
