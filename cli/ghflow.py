@@ -320,6 +320,31 @@ def same_reviewer(requested, author):
         return True
     return requested == "copilot" and author.startswith("copilot")
 
+def parse_review_verdicts(comments):
+    """Extract review verdict markers from PR top-level comments."""
+    if not isinstance(comments, list):
+        return None
+    pattern = re.compile(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z_-]+)\s*-->")
+    verdicts = []
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        body = comment.get("body") or ""
+        match = pattern.search(body)
+        if match:
+            head, verdict = match.group(1), match.group(2).lower()
+            verdicts.append({
+                "head": head,
+                "verdict": verdict,
+                "author": comment.get("author"),
+                "created_at": comment.get("created_at"),
+                "comment_id": comment.get("id"),
+                "url": comment.get("url"),
+                "body": body,
+            })
+    return verdicts
+
+
 
 def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=None, identity=None):
     errors = []
@@ -542,7 +567,6 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
                     for r in reviews
                 )
             latest_requests.append({"reviewer": reviewer, "requested_at": event["requested_at"], "answered": answered})
-
     result = {
         "repo": repo,
         "number": pr["number"],
@@ -564,6 +588,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "review_request_events": request_events,
         "reviews": reviews,
         "comments": comments,
+        "review_verdicts": parse_review_verdicts(comments),
         "errors": errors,
     }
     if bare_login is not None:
@@ -2089,7 +2114,7 @@ def preamble_text(info, operation=None, limits=None, review_plan=None, notes=Non
 
 
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
-                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None):
+                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None, verdict=False):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
     decisions, and return the one-line dispatch prompt that points to it."""
     if operation not in HANDOFF_SCOPE:
@@ -2189,6 +2214,13 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     if limits:
         lines.append(f"Flow and limits: {limits}")
     lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
+    if operation == "review-changes" and verdict:
+        lines.append(
+            "Verdict comment: post your review verdict as a PR comment with `python3 "
+            f"{skill_dir / 'cli' / 'ghflow.py'} pr comment PR_URL --body-file FILE`. "
+            "The comment must start with `<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->`. "
+            "List blocking findings under `## Blocking findings` and non-blocking notes under `## Notes`."
+        )
     if deadline and operation in ("implement-issue", "address-pr-review"):
         lines.append(HANDOFF_DEADLINE.format(deadline=deadline))
     if notes:
@@ -2980,6 +3012,7 @@ def main(argv=None):
     handoff_cmd.add_argument("--facts-path", metavar="PATH", help="project facts path to name, such as a refreshed copy")
     handoff_cmd.add_argument("--extra", metavar="FILE", help="Markdown appended before the return requirements")
     handoff_cmd.add_argument("--deadline", help="time budget deadline; implementation and correction handoffs tell the worker to stop and publish at it")
+    handoff_cmd.add_argument("--verdict", action="store_true", help="for review-changes, instruct the reviewer to post its verdict as a PR comment with a head-SHA marker")
 
     review_group = commands.add_parser("review", help="Review worktree operations.")
     review_commands = review_group.add_subparsers(dest="review_command", required=True)
@@ -3072,7 +3105,7 @@ def main(argv=None):
             result, status = {"errors": [{"part": "budget", "error": str(error)}]}, 1
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
-                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline)
+                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline, verdict=args.verdict)
     elif args.command == "pr" and args.pr_command == "body":
         repo, number = parse_pr(args.pr, args.repo)
         try:

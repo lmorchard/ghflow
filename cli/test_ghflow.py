@@ -2119,6 +2119,42 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(out["comments"][0]["author"], "les")
         self.assertEqual(out["comments"][0]["body"], "Looks fine.")
 
+    def test_pr_state_parses_review_verdicts(self):
+        comments = [
+            {
+                "id": 1,
+                "user": {"login": "rev1"},
+                "created_at": "2026-11-15T01:00:00Z",
+                "html_url": "https://github.com/o/r/pull/7#issuecomment-1",
+                "body": "<!-- ghflow-review head=abcdef123456 verdict=clean -->\n## Notes\n- LGTM",
+            },
+            {
+                "id": 2,
+                "user": {"login": "rev2"},
+                "created_at": "2026-11-15T02:00:00Z",
+                "html_url": "https://github.com/o/r/pull/7#issuecomment-2",
+                "body": "<!-- ghflow-review head=fedcba654321 verdict=findings -->\n## Blocking findings\n- Bug in foo",
+            },
+            {
+                "id": 3,
+                "user": {"login": "les"},
+                "created_at": "2026-11-15T03:00:00Z",
+                "html_url": "https://github.com/o/r/pull/7#issuecomment-3",
+                "body": "Normal comment with no marker.",
+            },
+        ]
+        h = self._harness(issue_comments=comments)
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        verdicts = out["review_verdicts"]
+        self.assertEqual(len(verdicts), 2)
+        self.assertEqual(verdicts[0]["head"], "abcdef123456")
+        self.assertEqual(verdicts[0]["verdict"], "clean")
+        self.assertEqual(verdicts[0]["author"], "rev1")
+        self.assertEqual(verdicts[1]["head"], "fedcba654321")
+        self.assertEqual(verdicts[1]["verdict"], "findings")
+        self.assertEqual(verdicts[1]["author"], "rev2")
+
     def test_pr_state_malformed_part_is_structured(self):
         h = self._harness()
         h.replies["api.paginate:repos/o/r/pulls/7/reviews"] = {"raw": "not json", "code": 0}
@@ -3331,6 +3367,15 @@ class HandoffTests(unittest.TestCase):
     def test_unknown_operation_is_refused(self):
         result, status = write_handoff("merge-pr", "https://github.com/o/r/issues/5", "/tmp/x.md", facts=self.facts)
         self.assertEqual(status, 1)
+
+    def test_write_handoff_review_changes_with_verdict(self):
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("review-changes", "https://github.com/o/r/issues/5",
+                                       tmp / "review_verdict.md", facts=self.facts, verdict=True)
+        self.assertEqual(status, 0, result.get("errors"))
+        content = (tmp / "review_verdict.md").read_text()
+        self.assertIn("Verdict comment:", content)
+        self.assertIn("<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->", content)
 
     def test_facts_refresh_needs_no_issue_and_says_ready_without_review(self):
         def facts(issue=None):
