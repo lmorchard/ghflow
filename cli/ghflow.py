@@ -1581,14 +1581,24 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
     if issue is not None:
         issue_repo, number = issue
 
+        linked_pr_numbers = set()
+
         def read_issue():
-            data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json", "url,title,state,labels,projectItems"])
+            data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json",
+                       "url,title,state,labels,projectItems,closedByPullRequestsReferences"])
             response_type(data, dict, "The issue response")
             items = []
             for item in response_type(data.get("projectItems") or [], list, "The issue project items"):
                 response_type(item, dict, "A project item")
                 status = item.get("status")
                 items.append({"project": item.get("title"), "status": status.get("name") if isinstance(status, dict) else None})
+            closed_by = data.get("closedByPullRequestsReferences") or []
+            if isinstance(closed_by, dict):
+                closed_by = closed_by.get("nodes") or []
+            if isinstance(closed_by, list):
+                for p in closed_by:
+                    if isinstance(p, dict) and p.get("number") is not None:
+                        linked_pr_numbers.add(p["number"])
             return {"url": response_string(data["url"], "The issue url"), "title": data.get("title"), "state": data.get("state"),
                     "labels": [label.get("name") for label in data.get("labels") or [] if isinstance(label, dict)],
                     "board_items": items}
@@ -1607,11 +1617,25 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
 
         def read_prs():
             prs = gh(["pr", "list", "--repo", issue_repo, "--state", "all", "--search", f"{number} in:title,body", "--json",
-                      "number,url,state,isDraft,headRefName,headRefOid,title"])
+                      "number,url,state,isDraft,headRefName,headRefOid,title,closingIssuesReferences"])
             response_type(prs, list, "The PR list")
-            return [{"number": pr.get("number"), "url": pr.get("url"), "state": pr.get("state"), "is_draft": pr.get("isDraft"),
-                     "head_branch": pr.get("headRefName"), "head": pr.get("headRefOid"), "title": pr.get("title")}
-                    for pr in prs if isinstance(pr, dict)]
+            result_prs = []
+            for pr in prs:
+                if not isinstance(pr, dict):
+                    continue
+                pr_num = pr.get("number")
+                head_branch = pr.get("headRefName") or ""
+                branch_matches = bool(re.search(rf"(^|[^0-9]){re.escape(pattern)}([^0-9]|$)", head_branch))
+                closing_refs = pr.get("closingIssuesReferences") or []
+                if isinstance(closing_refs, dict):
+                    closing_refs = closing_refs.get("nodes") or []
+                closes_issue = False
+                if isinstance(closing_refs, list):
+                    closes_issue = any(isinstance(ref, dict) and ref.get("number") == number for ref in closing_refs)
+                if pr_num in linked_pr_numbers or closes_issue or branch_matches:
+                    result_prs.append({"number": pr_num, "url": pr.get("url"), "state": pr.get("state"), "is_draft": pr.get("isDraft"),
+                                       "head_branch": pr.get("headRefName"), "head": pr.get("headRefOid"), "title": pr.get("title")})
+            return result_prs
 
         issue_facts["prs"] = part("issue_prs", read_prs)
 
