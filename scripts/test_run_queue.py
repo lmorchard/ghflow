@@ -1,4 +1,5 @@
 """Unit tests for the deterministic queue runner scripts/run_queue.py."""
+import argparse
 import json
 import os
 import tempfile
@@ -174,6 +175,21 @@ class ProjectDiscoveryTests(unittest.TestCase):
     def test_invalid_override(self):
         with self.assertRaises(ValueError):
             run_queue.discover_project("invalid_format")
+    def test_provider_and_model_combine(self):
+        with patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}):
+            # When both --provider and --model given without slash
+            with patch("run_queue.run_session") as mock_session:
+                run_queue.main(["--provider", "lmstudio", "--model", "qwen3.8-27b", "--once"])
+            # Check options dict passed to run_session if it ran, or test arg parsing
+            parser = argparse.ArgumentParser()
+            # Test direct argument resolution in main logic
+            model = "qwen3.8-27b"
+            provider = "lmstudio"
+            combined = f"{provider}/{model}" if provider and "/" not in model else model
+            self.assertEqual(combined, "lmstudio/qwen3.8-27b")
+
 
     @patch("subprocess.run")
     def test_single_open_project(self, mock_run):

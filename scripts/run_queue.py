@@ -262,7 +262,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         return False, f"Handoff creation failed: {h_out}"
 
     prompt_text = compose_prompt(options["skill_dir"], h_out.get("dispatch_prompt", ""))
-    cmd = [options.get("opencode_cmd", "opencode"), "run", "--format", "json",
+    cmd = [options.get("opencode_cmd", "opencode"), "run", "--auto", "--format", "json",
            "--title", f"Queue runner {step} {stamp}"]
     if options.get("model"):
         cmd += ["--model", options["model"]]
@@ -297,7 +297,8 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Deterministic runner for unattended delivery from the project board.")
     parser.add_argument("--owner", help="project board owner login")
     parser.add_argument("--project", help="project board number or OWNER/NUMBER")
-    parser.add_argument("--model", help="model override for worker sessions")
+    parser.add_argument("--model", help="model override for worker sessions, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
+    parser.add_argument("--provider", help="provider prefix if not included in --model (e.g. lmstudio, ollama, google-vertex)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
     parser.add_argument("--floor", type=int, default=DEFAULT_FLOOR_MINUTES, help="minimum minutes required to start a new issue")
     parser.add_argument("--once", action="store_true", help="drive exactly one item to desired state and exit")
@@ -321,8 +322,14 @@ def main(argv=None):
     notes_dir = Path(args.notes_dir) if args.notes_dir else Path.home() / ".local/state/ghflow/notes" / f"runner-{time.strftime('%Y%m%d-%H%M%S')}"
     notes_dir.mkdir(parents=True, exist_ok=True)
 
+    model = args.model
+    if args.provider and model and "/" not in model:
+        model = f"{args.provider}/{model}"
+    elif args.provider and not model:
+        model = args.provider
+
     options = {
-        "model": args.model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
+        "model": model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
     }
     attempted, delivered = set(), []
