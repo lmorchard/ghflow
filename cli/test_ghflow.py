@@ -1744,7 +1744,7 @@ class FakeGhHarness:
             json.dump(obj, f)
         return path
 
-    def run(self, argv):
+    def run(self, argv, cwd=None):
         env = {key: os.environ[key] for key in ("PATH", "LANG", "TMPDIR") if key in os.environ}
         env["HOME"] = self.dir
         env["GHFLOW_IDENTITY_LOGIN"] = "FakeBot"
@@ -1763,12 +1763,15 @@ class FakeGhHarness:
         env["PATH"] = bin_dir + os.pathsep + env.get("PATH", "")
         result = subprocess.run(
              [sys.executable, self.GHFLOW, *argv],
-             env=env, capture_output=True, text=True, cwd=self.dir,
+             env=env, capture_output=True, text=True, cwd=cwd or self.dir,
          )
         with open(self.log_path, encoding="utf-8") as f:
             raw = f.read()
         calls = [json.loads(line)["argv"] for line in raw.splitlines() if line.strip()]
-        out = json.loads(result.stdout) if result.stdout.strip() else None
+        try:
+            out = json.loads(result.stdout) if result.stdout.strip() else None
+        except json.JSONDecodeError:
+            out = None
         return result, out, calls
 
     @staticmethod
@@ -2869,6 +2872,136 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual([os.path.realpath(p) for p in issue["worktrees"]], [os.path.realpath(wt)])
         self.assertEqual(issue["prs"][0]["number"], 9)
         self.assertEqual(len(result["checkout"]["worktrees"]), 2)
+
+    def test_facts_issue_filters_prs_that_only_mention_number(self):
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone, capture_output=True, text=True, check=True).stdout.strip()
+        replies = {
+            "api:repos/o/r": {"out": {"default_branch": "main"}},
+            "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
+            "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
+            "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "issue.view:o/r:5": {
+                "out": {
+                    "url": "https://github.com/o/r/issues/5",
+                    "title": "Fix it",
+                    "state": "OPEN",
+                    "labels": [],
+                    "projectItems": [],
+                }
+            },
+            "pr.list:o/r": {
+                "out": [
+                    {
+                        "number": 10,
+                        "url": "https://github.com/o/r/pull/10",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "headRefName": "some-fix",
+                        "headRefOid": head,
+                        "title": "Closing PR",
+                        "closingIssuesReferences": [{"number": 5}],
+                    },
+                    {
+                        "number": 11,
+                        "url": "https://github.com/o/r/pull/11",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "headRefName": "other-branch",
+                        "headRefOid": head,
+                        "title": "Mentioning PR",
+                        "closingIssuesReferences": [],
+                    },
+                ]
+            },
+        }
+        h = FakeGhHarness(replies)
+        result, out, _ = h.run(["facts", "--issue", "https://github.com/o/r/issues/5"], cwd=self.clone)
+        self.assertEqual(result.returncode, 0, out.get("errors"))
+        self.assertEqual([p["number"] for p in out["issue"]["prs"]], [10])
+
+    def test_facts_issue_includes_pr_matching_head_branch_without_closing_keyword(self):
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone, capture_output=True, text=True, check=True).stdout.strip()
+        replies = {
+            "api:repos/o/r": {"out": {"default_branch": "main"}},
+            "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
+            "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
+            "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "issue.view:o/r:5": {
+                "out": {
+                    "url": "https://github.com/o/r/issues/5",
+                    "title": "Fix it",
+                    "state": "OPEN",
+                    "labels": [],
+                    "projectItems": [],
+                }
+            },
+            "pr.list:o/r": {
+                "out": [
+                    {
+                        "number": 12,
+                        "url": "https://github.com/o/r/pull/12",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "headRefName": "issue-5-branch-no-closing-keyword",
+                        "headRefOid": head,
+                        "title": "Some feature",
+                        "closingIssuesReferences": [],
+                    },
+                ]
+            },
+        }
+        h = FakeGhHarness(replies)
+        result, out, _ = h.run(["facts", "--issue", "https://github.com/o/r/issues/5"], cwd=self.clone)
+        self.assertEqual(result.returncode, 0, out.get("errors"))
+        self.assertEqual([p["number"] for p in out["issue"]["prs"]], [12])
+
+    def test_preamble_names_only_issue_own_prs(self):
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone, capture_output=True, text=True, check=True).stdout.strip()
+        replies = {
+            "api:repos/o/r": {"out": {"default_branch": "main"}},
+            "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
+            "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
+            "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "issue.view:o/r:5": {
+                "out": {
+                    "url": "https://github.com/o/r/issues/5",
+                    "title": "Fix it",
+                    "state": "OPEN",
+                    "labels": [],
+                    "projectItems": [],
+                }
+            },
+            "pr.list:o/r": {
+                "out": [
+                    {
+                        "number": 10,
+                        "url": "https://github.com/o/r/pull/10",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "headRefName": "some-fix",
+                        "headRefOid": head,
+                        "title": "Closing PR",
+                        "closingIssuesReferences": [{"number": 5}],
+                    },
+                    {
+                        "number": 11,
+                        "url": "https://github.com/o/r/pull/11",
+                        "state": "OPEN",
+                        "isDraft": False,
+                        "headRefName": "other-branch",
+                        "headRefOid": head,
+                        "title": "Mentioning PR",
+                        "closingIssuesReferences": [],
+                    },
+                ]
+            },
+        }
+        h = FakeGhHarness(replies)
+        result, _, _ = h.run(["preamble", "https://github.com/o/r/issues/5"], cwd=self.clone)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("PR #10", result.stdout)
+        self.assertNotIn("PR #11", result.stdout)
+
 
     def test_linked_worktree_reports_primary_root(self):
         wt = os.path.join(self.tmp, "wt-linked")

@@ -151,10 +151,19 @@ def main():
         with open(replies_path, "r", encoding="utf-8") as out:
             replies = json.load(out)
 
-    if cmd == "pr":
+    if cmd == "issue":
+        sub = argv[1]
         repo = flag(argv, "--repo")
         number = argv[2]
+        if sub == "view":
+            reply(replies, f"issue.view:{repo}:{number}", argv)
+
+    if cmd == "pr":
+        repo = flag(argv, "--repo")
         sub = argv[1]
+        if sub == "list":
+            reply(replies, f"pr.list:{repo}", argv)
+        number = argv[2]
         if sub in ("review", "comment", "merge"):
             reply(replies, f"pr.{sub}:{repo}:{number}", argv)
         reply(replies, f"pr.view:{repo}:{number}", argv)
