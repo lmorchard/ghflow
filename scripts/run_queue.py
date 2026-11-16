@@ -642,7 +642,7 @@ def main(argv=None):
                 break
             if step == "park-blocker":
                 pr_url = (state.get("pr") or {}).get("url") or ""
-                park_issue(state["issue"], pr_url, "blocker", "Exceeded correction limit.", notes_dir)
+                record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
                 break
             if step == "wait-ci":
@@ -653,7 +653,7 @@ def main(argv=None):
             curr = (step, (state.get("pr") or {}).get("head"), (state.get("review_verdicts") or [{}])[-1].get("verdict"))
             if prev == curr:
                 pr_url = (state.get("pr") or {}).get("url") or ""
-                park_issue(state["issue"], pr_url, "blocker", "No progress made in session.", notes_dir)
+                record_park(state["issue"], pr_url, "No progress made in session.")
                 delivered.append(issue_ref)
                 break
             previous_states[issue_ref] = curr
@@ -723,7 +723,7 @@ def main(argv=None):
                 success, info = run_session(step, state["issue"], notes_dir, step_options)
                 if not success:
                     pr_url = (state.get("pr") or {}).get("url") or ""
-                    park_issue(state["issue"], pr_url, "blocker", f"Session failed repeatedly: {info}", notes_dir)
+                    record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
                     break
         if args.once:

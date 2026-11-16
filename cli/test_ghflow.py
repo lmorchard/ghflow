@@ -1,4 +1,5 @@
 import io
+import contextlib
 import json
 import os
 import shlex
@@ -3692,6 +3693,21 @@ class ParkTests(unittest.TestCase):
         self.assertIn("**Parked (blocker)**", fake.comments[-1])
         self.assertEqual(fake.writes, [["issue", "edit"], ["issue", "comment"]])
         self.assertEqual(result["readback"], {"labels": True, "comment": True})
+
+    def test_park_command_accepts_no_pr(self):
+        calls = []
+
+        def fake_park(issue_repo, issue_number, pr_repo, pr_number, kind, text_file):
+            calls.append((issue_repo, issue_number, pr_repo, pr_number))
+            return {"issue": f"{issue_repo}#{issue_number}", "pr": None}, 0
+
+        buffer = io.StringIO()
+        with patch("ghflow.park_delivery", side_effect=fake_park), contextlib.redirect_stdout(buffer):
+            status = main(["park", "https://github.com/o/r/issues/5",
+                           "--kind", "blocker", "--text", str(self.text)])
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [("o/r", 5, None, None)])
+
 
 if __name__ == "__main__":
     unittest.main()
