@@ -327,6 +327,122 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             self.assertEqual(len(delete_calls), 1)
             self.assertEqual(delete_calls[0][-1], "ses_test123")
 
+    def test_run_session_aborts_on_turn_limit(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = [
+            '{"type": "step_start", "sessionID": "ses_1"}\n',
+            '{"type": "step_finish"}\n',
+            '{"type": "step_start"}\n',
+            '{"type": "step_finish"}\n',
+            '{"type": "step_start"}\n',
+            '{"type": "step_finish"}\n',
+        ]
+        mock_proc.returncode = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            options = {"skill_dir": str(notes_dir), "max_turns": 2}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"):
+                ok, reason = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertFalse(ok)
+            self.assertIn("exceeded turn limit", reason)
+            mock_proc.terminate.assert_called()
+
+    def test_run_session_aborts_on_stalled_reasoning_loop(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = [
+            '{"type": "step_start", "sessionID": "ses_1"}\n',
+            '{"type": "step_finish", "part": {"tokens": {"input": 50000, "output": 0, "reasoning": 32000}}, "reason": "length"}\n',
+        ]
+        mock_proc.returncode = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            options = {"skill_dir": str(notes_dir)}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"):
+                ok, reason = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertFalse(ok)
+            self.assertIn("stalled in reasoning loop", reason)
+            mock_proc.terminate.assert_called()
+
+    def test_run_session_aborts_on_output_limit_error(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = [
+            '{"type": "step_start", "sessionID": "ses_1"}\n',
+            '{"type": "error", "error": {"type": "output-limit", "message": "Response still truncated"}}\n',
+        ]
+        mock_proc.returncode = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            options = {"skill_dir": str(notes_dir)}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"):
+                ok, reason = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertFalse(ok)
+            self.assertIn("output limit exceeded", reason)
+            mock_proc.terminate.assert_called()
+
+    def test_run_session_aborts_on_session_timeout(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = [
+            '{"type": "step_start", "sessionID": "ses_1"}\n',
+        ]
+        mock_proc.returncode = 0
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            options = {"skill_dir": str(notes_dir), "session_timeout": 0.001}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"), \
+                 patch("time.time", side_effect=[100.0, 100.0, 200.0, 200.0, 200.0]):
+                ok, reason = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertFalse(ok)
+            self.assertIn("exceeded timeout", reason)
+            mock_proc.terminate.assert_called()
+
+    def test_review_directives_applied_to_initial_review_and_submit(self):
+        captured_options = []
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+            captured_options.append((step, dict(options)))
+            return True, "ses_id"
+
+        states = [
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": True}, "review_verdicts": []},
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": True},
+             "review_verdicts": [{"head": "c1", "verdict": "clean"}]},
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": False},
+             "ci": "green", "pending_review_requests": []},
+        ]
+        step_calls = []
+
+        def fake_observe(issue_ref, cli_fn=None, cwd=None):
+            idx = min(len(step_calls), len(states) - 1)
+            step_calls.append(idx)
+            return dict(states[idx])
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            board = {"in_flight": [], "parked": [], "selection": [{"number": 1, "issue": "https://github.com/o/r/issues/1"}]}
+            with patch("run_queue.discover_project", return_value=("o", 12)), \
+                 patch("run_queue.check_active_runs"), \
+                 patch("run_queue.observe_board", return_value=board), \
+                 patch("run_queue.observe_issue", side_effect=fake_observe), \
+                 patch("run_queue.run_session", side_effect=fake_run_session), \
+                 patch("run_queue.run_cli", return_value=({}, 0)):
+                run_queue.main(["--once", "--notes-dir", str(notes_dir)])
+
+        steps = [s for s, _ in captured_options]
+        self.assertEqual(steps, ["review-changes", "submit-pr"])
+        review_opt = captured_options[0][1]
+        self.assertIn("Inspect the commit diff", review_opt.get("extra_text", ""))
+        self.assertIn("Do not write new end-to-end integration test suites", review_opt.get("extra_text", ""))
     def test_end_to_end_reconciliation_flow(self):
         """An issue goes through implement -> review -> submit-pr to DONE."""
         states = [

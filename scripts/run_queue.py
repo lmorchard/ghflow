@@ -4,6 +4,7 @@ import argparse
 import json
 import os
 import re
+import select
 import shutil
 import subprocess
 import sys
@@ -12,6 +13,9 @@ from pathlib import Path
 
 DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
+DEFAULT_MAX_TURNS = 100
+DEFAULT_SESSION_TIMEOUT = 5400
+MAX_DEGENERATE_REASONING = 16000
 
 
 def find_cli():
@@ -293,43 +297,102 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
                             stderr=subprocess.STDOUT, text=True, cwd=options.get("cwd"), env=env, bufsize=1)
     session_id = None
     step_num = 0
+    max_turns = options.get("max_turns", DEFAULT_MAX_TURNS)
+    timeout_sec = options.get("session_timeout", DEFAULT_SESSION_TIMEOUT)
+    start_ts = time.time()
+    abort_reason = None
+
+    def process_line(line_str):
+        nonlocal session_id, step_num, abort_reason
+        log_fp.write(line_str)
+        log_fp.flush()
+        stripped = line_str.strip()
+        if not stripped:
+            return
+        try:
+            event = json.loads(stripped)
+        except json.JSONDecodeError:
+            return
+        if not session_id and event.get("sessionID"):
+            session_id = event["sessionID"]
+            print(f"[{time.strftime('%X')}] Session ID: {session_id}", flush=True)
+        ev_type = event.get("type")
+        part = event.get("part") or {}
+        if ev_type == "step_start":
+            step_num += 1
+            if step_num > max_turns:
+                abort_reason = f"Session exceeded turn limit ({max_turns})"
+        elif ev_type == "tool" or part.get("type") == "tool":
+            tool_name = part.get("name") or part.get("tool") or event.get("name") or "tool"
+            tool_in = (part.get("state") or {}).get("input") or {}
+            cmd_summary = tool_in.get("command") or tool_in.get("filePath") or tool_in.get("path") or ""
+            if cmd_summary:
+                cmd_summary = f" {cmd_summary[:60]}"
+            print(f"[{time.strftime('%X')}] [turn {step_num}] Tool: {tool_name}{cmd_summary}", flush=True)
+        elif ev_type == "step_finish" or part.get("type") == "step-finish":
+            tokens = part.get("tokens") or {}
+            in_tok = tokens.get("input", 0)
+            out_tok = tokens.get("output", 0)
+            reason_tok = tokens.get("reasoning", 0)
+            reason = part.get("reason") or event.get("reason")
+            print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens)", flush=True)
+            if out_tok == 0 and (reason_tok >= MAX_DEGENERATE_REASONING or reason == "length"):
+                abort_reason = f"Session stalled in reasoning loop ({reason_tok} reasoning tokens, 0 output)"
+        elif ev_type == "error":
+            err = event.get("error") or part.get("error") or {}
+            if isinstance(err, dict) and err.get("type") == "output-limit":
+                abort_reason = f"Session output limit exceeded: {err.get('message', 'output truncated')}"
+
     try:
-        for line in proc.stdout:
-            log_fp.write(line)
-            log_fp.flush()
-            line_str = line.strip()
-            if not line_str:
-                continue
+        has_fd = hasattr(proc.stdout, "fileno")
+        if has_fd:
+            while True:
+                if time.time() - start_ts > timeout_sec:
+                    abort_reason = f"Session exceeded timeout ({timeout_sec}s)"
+                    break
+                if abort_reason:
+                    break
+                if proc.poll() is not None:
+                    for line in proc.stdout:
+                        process_line(line)
+                        if abort_reason:
+                            break
+                    break
+                rlist, _, _ = select.select([proc.stdout], [], [], 1.0)
+                if not rlist:
+                    continue
+                line = proc.stdout.readline()
+                if not line:
+                    break
+                process_line(line)
+        else:
+            for line in proc.stdout:
+                if time.time() - start_ts > timeout_sec:
+                    abort_reason = f"Session exceeded timeout ({timeout_sec}s)"
+                    break
+                process_line(line)
+                if abort_reason:
+                    break
+            if not abort_reason and time.time() - start_ts > timeout_sec:
+                abort_reason = f"Session exceeded timeout ({timeout_sec}s)"
+        if abort_reason:
+            print(f"[{time.strftime('%X')}] {abort_reason}. Terminating session...", flush=True)
+            proc.terminate()
             try:
-                event = json.loads(line_str)
-            except json.JSONDecodeError:
-                continue
-            if not session_id and event.get("sessionID"):
-                session_id = event["sessionID"]
-                print(f"[{time.strftime('%X')}] Session ID: {session_id}", flush=True)
-            ev_type = event.get("type")
-            part = event.get("part") or {}
-            if ev_type == "step_start":
-                step_num += 1
-            elif ev_type == "tool" or part.get("type") == "tool":
-                tool_name = part.get("name") or part.get("tool") or event.get("name") or "tool"
-                tool_in = (part.get("state") or {}).get("input") or {}
-                cmd_summary = tool_in.get("command") or tool_in.get("filePath") or tool_in.get("path") or ""
-                if cmd_summary:
-                    cmd_summary = f" {cmd_summary[:60]}"
-                print(f"[{time.strftime('%X')}] [turn {step_num}] Tool: {tool_name}{cmd_summary}", flush=True)
-            elif ev_type == "step_finish" or part.get("type") == "step-finish":
-                tokens = part.get("tokens") or {}
-                in_tok = tokens.get("input", 0)
-                out_tok = tokens.get("output", 0)
-                print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens)", flush=True)
-        proc.wait(timeout=options.get("session_timeout", 3600))
+                proc.wait(timeout=10)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                proc.wait(timeout=5)
+        else:
+            proc.wait(timeout=10 if has_fd else timeout_sec)
     finally:
         log_fp.close()
 
     if session_id:
         subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
+    if abort_reason:
+        return False, abort_reason
     return proc.returncode == 0, session_id or ""
 
 
@@ -352,6 +415,8 @@ def main(argv=None):
     parser.add_argument("--allow-concurrent", action="store_true", help="bypass active session check")
     parser.add_argument("--skill-dir", default=str(Path(__file__).resolve().parent.parent), help="path to ghflow skill root")
     parser.add_argument("--notes-dir", help="custom task notes directory")
+    parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS, help="maximum turns per session (default 100)")
+    parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
     args = parser.parse_args(argv)
 
     if not args.allow_concurrent:
@@ -378,6 +443,7 @@ def main(argv=None):
     options = {
         "model": model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
+        "max_turns": args.max_turns, "session_timeout": args.session_timeout,
     }
     attempted, delivered = set(), []
     previous_states = {}
@@ -435,11 +501,19 @@ def main(argv=None):
                     "Compose the final description with `pr body` and mark the PR ready with `pr ready --expect-head` immediately. "
                     "Be direct and concise."
                 )
-            elif step == "review-changes" and earlier_blocking > 0:
-                step_options["extra_text"] = (
-                    "Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD`) and verifying that the earlier "
-                    "finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
-                )
+            elif step == "review-changes":
+                if earlier_blocking > 0:
+                    step_options["extra_text"] = (
+                        "Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD`) and verifying that the earlier "
+                        "finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
+                    )
+                else:
+                    step_options["extra_text"] = (
+                        "Scope: Review committed changes on HEAD against the issue requirements. "
+                        "Inspect the commit diff (`git diff origin/main...HEAD`), run existing project test gates (`make check`, `make test`), "
+                        "and post the verdict comment directly with `pr comment`. "
+                        "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
+                    )
 
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options)

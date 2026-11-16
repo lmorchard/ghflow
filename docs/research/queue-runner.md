@@ -116,6 +116,8 @@ During the day, Les stages work with `curate-ready-queue` and answers parked que
 - `--floor MINUTES`
 - `--once`
 - `--allow-concurrent`
+- `--max-turns N` (turn ceiling per session, default 100)
+- `--session-timeout SECONDS` (wall-clock ceiling per session, default 5400)
 
 Tests use `unittest` in `scripts/test_run_queue.py` and `cli/test_ghflow.py`.
 
