@@ -272,6 +272,9 @@ def parse_issue(ref, repo, cwd=None, git=None):
     match = re.match(ISSUE_URL_PATTERN, ref)
     if match:
         return match.group(1), int(match.group(2))
+    shorthand = re.match(r"^([^/#\s]+/[^/#\s]+)#([0-9]+)$", ref)
+    if shorthand:
+        return shorthand.group(1), int(shorthand.group(2))
     if re.match(PR_URL_PATTERN, ref):
         raise SystemExit(PR_URL_ERROR)
     if ref.isdigit():
@@ -319,6 +322,84 @@ def same_reviewer(requested, author):
     if requested == author:
         return True
     return requested == "copilot" and author.startswith("copilot")
+
+def review_summary(reviews, latest_requests, pending_requests):
+    """Condense a linked PR's review records into the delivery endpoint's review state.
+
+    A live request, or a latest request with no later review by that reviewer, is
+    pending. A review is completed only when it covers the current head. An unread
+    review part makes the state incomplete, not none.
+
+    An author's current-head reviews are read in submission order: a change
+    request stands until that author approves or the request is dismissed. A
+    comment or pending review does not clear it, and a later change request
+    outranks an approval.
+    """
+    if reviews is None or latest_requests is None:
+        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
+    requested = sorted({name for name in pending_requests if name})
+    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
+    pending = sorted(set(requested) | set(unanswered))
+    latest_by_author = {}
+    for entry in reviews:
+        author = entry["author"]
+        if author is None:
+            continue
+        earlier = latest_by_author.get(author)
+        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
+            latest_by_author[author] = entry
+    completed = [
+        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
+         "submitted_at": entry["submitted_at"]}
+        for entry in latest_by_author.values() if entry["covers_head"]
+    ]
+    completed.sort(key=lambda entry: entry["author"] or "")
+    verdicts = {}
+    for entry in sorted(
+        (review for review in reviews if review["author"] is not None and review["covers_head"]),
+        key=lambda review: review["submitted_at"] or "",
+    ):
+        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
+            verdicts[entry["author"]] = entry["state"]
+    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
+    if pending:
+        state = "pending"
+    elif changes_requested:
+        state = "changes_requested"
+    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
+        state = "approved"
+    elif completed:
+        state = "commented"
+    elif reviews:
+        state = "stale"
+    else:
+        state = "none"
+    return {"state": state, "requested": requested, "pending": pending,
+            "changes_requested": changes_requested, "completed": completed}
+def parse_review_verdicts(comments):
+    """Extract review verdict markers from PR top-level comments."""
+    if not isinstance(comments, list):
+        return None
+    pattern = re.compile(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z_-]+)\s*-->")
+    verdicts = []
+    for comment in comments:
+        if not isinstance(comment, dict):
+            continue
+        body = comment.get("body") or ""
+        match = pattern.search(body)
+        if match:
+            head, verdict = match.group(1), match.group(2).lower()
+            verdicts.append({
+                "head": head,
+                "verdict": verdict,
+                "author": comment.get("author"),
+                "created_at": comment.get("created_at"),
+                "comment_id": comment.get("id"),
+                "url": comment.get("url"),
+                "body": body,
+            })
+    return verdicts
+
 
 
 def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=None, identity=None):
@@ -542,7 +623,6 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
                     for r in reviews
                 )
             latest_requests.append({"reviewer": reviewer, "requested_at": event["requested_at"], "answered": answered})
-
     result = {
         "repo": repo,
         "number": pr["number"],
@@ -564,6 +644,8 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "review_request_events": request_events,
         "reviews": reviews,
         "comments": comments,
+        "review_summary": review_summary(reviews, latest_requests, [r.get("login") or r.get("slug") or r.get("name") for r in pr.get("reviewRequests") or []]),
+        "review_verdicts": parse_review_verdicts(comments),
         "errors": errors,
     }
     if bare_login is not None:
@@ -1954,7 +2036,7 @@ HANDOFF_SCOPE = {
     "review-changes": "Review the published head in this fresh context and return findings and notes separately. "
                       "Do not change the code or the PR.",
     "submit-pr": "Mark the reviewed head ready with `pr ready --expect-head`, with the final description, and move the issue In review. "
-                 "Do not push new commits.",
+                 "Do not push new commits. Do not pre-load shared reference files or re-verify code.",
     "address-pr-review": "Address the named findings on the same branch, run the affected checks, and publish the commits to the same PR.",
     "prepare-project-facts": "Refresh `.ghflow/project.md` in its own worktree on a branch from origin's default branch, commit it, "
                              "and publish it as a ready PR for the user's review. It needs no agent review: do not publish a draft, "
@@ -2089,7 +2171,7 @@ def preamble_text(info, operation=None, limits=None, review_plan=None, notes=Non
 
 
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
-                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None):
+                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None, verdict=False):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
     decisions, and return the one-line dispatch prompt that points to it."""
     if operation not in HANDOFF_SCOPE:
@@ -2189,12 +2271,20 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     if limits:
         lines.append(f"Flow and limits: {limits}")
     lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
+    if operation == "review-changes" and verdict:
+        lines.append(
+            "Verdict comment: post your review verdict as a PR comment with `python3 "
+            f"{skill_dir / 'cli' / 'ghflow.py'} pr comment PR_URL --body-file FILE`. "
+            "The comment must start with `<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->`. "
+            "List blocking findings under `## Blocking findings` and non-blocking notes under `## Notes`."
+        )
     if deadline and operation in ("implement-issue", "address-pr-review"):
         lines.append(HANDOFF_DEADLINE.format(deadline=deadline))
     if notes:
         lines.append(f"Notes: {notes}")
     if extra:
         lines += [read(extra)]
+    lines.append("Directive: execute your assigned task directly. Do not pre-load shared reference files; the handoff and CLI provide the required facts and rules.")
     lines.append(HANDOFF_RETURN)
     text = "\n".join(line for line in lines if line is not None).rstrip() + "\n"
     Path(out).parent.mkdir(parents=True, exist_ok=True)
@@ -2523,59 +2613,6 @@ SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
 }"""
 
 
-def review_summary(reviews, latest_requests, pending_requests):
-    """Condense a linked PR's review records into the delivery endpoint's review state.
-
-    A live request, or a latest request with no later review by that reviewer, is
-    pending. A review is completed only when it covers the current head. An unread
-    review part makes the state incomplete, not none.
-
-    An author's current-head reviews are read in submission order: a change
-    request stands until that author approves or the request is dismissed. A
-    comment or pending review does not clear it, and a later change request
-    outranks an approval.
-    """
-    if reviews is None or latest_requests is None:
-        return {"state": "incomplete", "requested": [], "pending": [], "changes_requested": [], "completed": []}
-    requested = sorted({name for name in pending_requests if name})
-    unanswered = sorted({entry["reviewer"] for entry in latest_requests if entry["answered"] is False})
-    pending = sorted(set(requested) | set(unanswered))
-    latest_by_author = {}
-    for entry in reviews:
-        author = entry["author"]
-        if author is None:
-            continue
-        earlier = latest_by_author.get(author)
-        if earlier is None or (entry["submitted_at"] or "") >= (earlier["submitted_at"] or ""):
-            latest_by_author[author] = entry
-    completed = [
-        {"author": entry["author"], "state": entry["state"], "commit": entry["commit"],
-         "submitted_at": entry["submitted_at"]}
-        for entry in latest_by_author.values() if entry["covers_head"]
-    ]
-    completed.sort(key=lambda entry: entry["author"] or "")
-    verdicts = {}
-    for entry in sorted(
-        (review for review in reviews if review["author"] is not None and review["covers_head"]),
-        key=lambda review: review["submitted_at"] or "",
-    ):
-        if entry["state"] in ("CHANGES_REQUESTED", "APPROVED", "DISMISSED"):
-            verdicts[entry["author"]] = entry["state"]
-    changes_requested = sorted(author for author, verdict in verdicts.items() if verdict == "CHANGES_REQUESTED")
-    if pending:
-        state = "pending"
-    elif changes_requested:
-        state = "changes_requested"
-    elif any(verdict == "APPROVED" for verdict in verdicts.values()):
-        state = "approved"
-    elif completed:
-        state = "commented"
-    elif reviews:
-        state = "stale"
-    else:
-        state = "none"
-    return {"state": state, "requested": requested, "pending": pending,
-            "changes_requested": changes_requested, "completed": completed}
 
 
 def ci_cell(row):
@@ -2980,6 +3017,7 @@ def main(argv=None):
     handoff_cmd.add_argument("--facts-path", metavar="PATH", help="project facts path to name, such as a refreshed copy")
     handoff_cmd.add_argument("--extra", metavar="FILE", help="Markdown appended before the return requirements")
     handoff_cmd.add_argument("--deadline", help="time budget deadline; implementation and correction handoffs tell the worker to stop and publish at it")
+    handoff_cmd.add_argument("--verdict", action="store_true", help="for review-changes, instruct the reviewer to post its verdict as a PR comment with a head-SHA marker")
 
     review_group = commands.add_parser("review", help="Review worktree operations.")
     review_commands = review_group.add_subparsers(dest="review_command", required=True)
@@ -3072,7 +3110,7 @@ def main(argv=None):
             result, status = {"errors": [{"part": "budget", "error": str(error)}]}, 1
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
-                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline)
+                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline, verdict=args.verdict)
     elif args.command == "pr" and args.pr_command == "body":
         repo, number = parse_pr(args.pr, args.repo)
         try:

@@ -77,6 +77,6 @@ Frozen checks, locked test files, and a separate validation system remain deferr
 A later proposal for these mechanisms needs evidence that ordinary tools, tests, and review do not address the problem.
 
 Next-task advice remains a proposal in [Direction history](../research/direction-history.md#possible-next-task-guidance).
-Automatic task selection needs evidence of a need and an explicit project decision.
+Automatic task selection needs evidence of a need and an explicit project decision. On 2026-11-15, Les approved a deterministic queue runner (`scripts/run_queue.py`) that selects work from the board in a fixed order within the columns that the user curates; it never selects from Backlog, runs on a schedule, or polls.
 Agent application permissions and user authorization remain the execution boundaries. A skill does not enforce stronger restrictions for unattended use.
 An unattended request lets a coordinator take a supported recommendation, record it in the PR, and park an issue it cannot settle under `triage:needs-input`. [Decisions](../../references/shared/decisions.md#decide-in-an-unattended-flow) owns that rule; the request, not the skill, turns it on.

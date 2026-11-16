@@ -178,20 +178,19 @@ See [OpenCode permissions](https://opencode.ai/docs/permissions/#external-direct
 
 ## Run a queue unattended
 
-`scripts/unattended-burndown.sh` composes the request for an unattended Ready-queue burndown and launches one agent session with it. Run it from the target project checkout:
+`scripts/run_queue.py` drives unattended delivery from the project board with a deterministic reconciliation loop, starting a fresh session for each operation. Run it from the target project checkout:
 
 ```sh
-/PATH/TO/ghflow/scripts/unattended-burndown.sh --owner OWNER --project NUMBER --hours 8 --agent opencode --model llama.cpp/llama --same-model-exception
+python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 --model llama.cpp/llama
 ```
 
-The request names the board, the review-follow-up endpoint without merge, the unattended rule from [Decisions](../references/shared/decisions.md#decide-in-an-unattended-flow), the deadline from `--hours`, and, with `--same-model-exception`, the user's approved same-model review exception. `--agent` selects `opencode`, `claude`, or `codex`; the script inlines the entry skill for `opencode run`, as the [#1012 trial](research/trials/2026-10-12-issue-1012-qwen-delivery.md) did. On macOS it runs under `caffeinate` so the machine does not sleep. Output goes to the file named by `--log`, default `unattended-burndown-TIMESTAMP.log` in the current directory. `--dry-run` prints the request and the command without launching.
+`--project OWNER/NUMBER` selects the project board. If omitted, the runner automatically discovers the single open project linked to the repository. `--hours` sets the time budget (default 8). `--once` drives the single next item to its desired state and exits. `--model` overrides the model for worker sessions. On macOS it runs under `caffeinate` so the machine does not sleep.
 
 In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
 
-For OpenCode, the launcher refuses to start while a session titled "Unattended burndown" was active in the last 30 minutes, and names it; pass `--allow-concurrent` only on purpose. An OpenCode run keeps going on OpenCode's background service after its client exits, so the launcher's "finished" line does not prove the run ended. To stop a run, delete its session with `opencode session delete SESSION_ID`; killing the client leaves it running. The launcher also starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`, and it warns when less than 30% of memory is free or a virtual machine such as Docker Desktop's is running, because other jobs slow the local model and can exhaust its cache. To keep OpenCode from upgrading between runs as well, set `"autoupdate": false` in its configuration.
+The runner runs one session at a time and deletes each OpenCode session after its step. It refuses to start while an unattended session was active in the last 30 minutes; pass `--allow-concurrent` only on purpose. It also starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`.
 
-The log holds only the coordinator's event stream. To keep the transcripts, run `scripts/export-opencode-sessions.py "Unattended burndown"` from the project checkout after the session ends. It finds the coordinator session by that title, exports it with `opencode export`, follows each task call to its subagent session, and writes `session-ID.json` files with an `index.md` of titles, parents, times, and task calls into `opencode-sessions/` or the `--out` directory. Pass a session ID instead of a title when more than one session matches.
-
+To keep the transcripts, run `scripts/export-opencode-sessions.py "Queue runner"` from the project checkout after the run ends. It exports sessions with `opencode export` and writes `session-ID.json` files into `opencode-sessions/` or the `--out` directory.
 `scripts/trial_stats.py DIR` summarizes those exports for a trial record. It reports each session's times, output tokens, largest context, reference reads before the worktree, other reads, shell commands by kind, amends, and force pushes, and the coordinator's dispatch timeline. `--watch TEXT` counts mentions of a string, such as the configured default model, and `--json` prints the raw figures. It reads OpenCode 1.x and 2.x exports.
 
 ## Machine account access

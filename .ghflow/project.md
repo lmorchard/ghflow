@@ -3,7 +3,7 @@ ghflow_project_facts: 1
 written: 2026-11-15
 sources:
   - AGENTS.md a888d729eac1b24607b942a2c784d1b1a91a9f58
-  - Makefile 90e5a29d6a7d19ec7d016cfab95b2afd8ee32be7
+  - Makefile 2fd3bfbb24e8b7aa34f8ef5bb290aac89817308b
   - .github/workflows/ci.yml 77fb7ad896922530cfca8dcf36e81d38a2da55ce
 ---
 # Project facts

@@ -66,6 +66,14 @@ The initial tools will do specified operations and return control to the agent. 
 
 Sources: founding discussion on 2026-09-30 and [predecessor driver sources](https://github.com/lmorchard/agent-sessions/tree/4379832/src/agent_sessions/driver).
 
+## Complexity came from the goals
+
+The agent-sessions source contained 10,190 lines of Python under `src/` at commit `4379832`, with 6,193 lines in the driver. Most of that code served four goals. Unattended merge required frozen checks, spec markers, a read-only grader, and `gate.py`. Parallel runs required the Git ref locks in `locks.py`. Work from the whole backlog required the priority ladder in `router.py`. Continuous operation required the event-driven `reconciler.py`, scheduled runs, and supervision scripts such as `doctor.py` and `run_progress.py`.
+
+A smaller implementation of the same goals does not remove this code. A design that drops a goal removes its subsystem. The queue runner proposal drops all four goals. Before you add a mechanism, identify the goal that requires it.
+
+Sources: [README](https://github.com/lmorchard/agent-sessions/blob/4379832/README.md), [driver sources](https://github.com/lmorchard/agent-sessions/tree/4379832/src/agent_sessions/driver), and line counts from `git ls-files src` at `4379832`, measured on 2026-11-15.
+
 ## Documents must not duplicate live status
 
 The findings record file lists and status descriptions that became incorrect after code changes. Historical explanations inside skill instructions also supplied obsolete behavior to agents. Both problems came from text that no longer matched its purpose.
