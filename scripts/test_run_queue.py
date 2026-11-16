@@ -537,6 +537,29 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertNotIn("--pr", calls[0])
         self.assertEqual(calls[0][:2], ("park", "https://github.com/o/r/issues/5"))
 
+    def test_run_fails_when_a_park_fails(self):
+        def fake_run_cli(*args, cwd=None):
+            if args and args[0] == "park":
+                return {"errors": [{"part": "labels", "error": "label missing"}]}, 1
+            return {}, 0
+
+        def fake_observe(issue_ref, cli_fn=None, cwd=None):
+            return {"issue": str(issue_ref), "number": 1, "labels": ["triage:ready"], "pr": None}
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+            return True, "ses_id"
+
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 1, "issue": "https://github.com/o/r/issues/1"}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", side_effect=fake_observe), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.run_cli", side_effect=fake_run_cli):
+            status = run_queue.main(["--once", "--notes-dir", tmp])
+        self.assertEqual(status, 1)
+
     def test_parse_issue_ref(self):
         self.assertEqual(run_queue.parse_issue_ref("https://github.com/o/r/issues/10"), ["https://github.com/o/r/issues/10"])
         self.assertEqual(run_queue.parse_issue_ref("o/r#10"), ["10", "--repo", "o/r"])

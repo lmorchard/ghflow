@@ -594,7 +594,15 @@ def main(argv=None):
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
     }
-    attempted, delivered = set(), []
+    attempted, delivered, park_failures = set(), [], []
+
+    def record_park(issue_url, pr_url, text):
+        """Park an issue and keep a failed park visible in the run result."""
+        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir)
+        if code != 0:
+            park_failures.append({"issue": issue_url, "reason": text, "output": out})
+        return code
+
     previous_states = {}
 
     parent_children = None
@@ -725,6 +733,11 @@ def main(argv=None):
         run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
     elif delivered:
         print(f"[{time.strftime('%X')}] Burndown complete. Delivered items: {', '.join(str(d) for d in delivered)}")
+    if park_failures:
+        print(f"[{time.strftime('%X')}] {len(park_failures)} park attempt(s) failed; these items were not recorded:")
+        for entry in park_failures:
+            print(f"  {entry['issue']}: {entry['reason']}")
+        return 1
     return 0
 
 if __name__ == "__main__":
