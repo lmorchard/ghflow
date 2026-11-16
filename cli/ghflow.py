@@ -2036,7 +2036,7 @@ HANDOFF_SCOPE = {
     "review-changes": "Review the published head in this fresh context and return findings and notes separately. "
                       "Do not change the code or the PR.",
     "submit-pr": "Mark the reviewed head ready with `pr ready --expect-head`, with the final description, and move the issue In review. "
-                 "Do not push new commits.",
+                 "Do not push new commits. Do not pre-load shared reference files or re-verify code.",
     "address-pr-review": "Address the named findings on the same branch, run the affected checks, and publish the commits to the same PR.",
     "prepare-project-facts": "Refresh `.ghflow/project.md` in its own worktree on a branch from origin's default branch, commit it, "
                              "and publish it as a ready PR for the user's review. It needs no agent review: do not publish a draft, "
@@ -2284,6 +2284,7 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         lines.append(f"Notes: {notes}")
     if extra:
         lines += [read(extra)]
+    lines.append("Directive: execute your assigned task directly. Do not pre-load shared reference files; the handoff and CLI provide the required facts and rules.")
     lines.append(HANDOFF_RETURN)
     text = "\n".join(line for line in lines if line is not None).rstrip() + "\n"
     Path(out).parent.mkdir(parents=True, exist_ok=True)

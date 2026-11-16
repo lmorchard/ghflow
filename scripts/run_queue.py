@@ -266,6 +266,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         args += ["--review-plan", f"model {options['model']}"]
     if options.get("deadline"):
         args += ["--deadline", str(options["deadline"])]
+    if options.get("extra_text"):
+        extra_file = notes_dir / f"directive-{step}-{stamp}.md"
+        extra_file.write_text(options["extra_text"], encoding="utf-8")
+        args += ["--extra", str(extra_file)]
     h_out, code = cli_fn(*args, cwd=options.get("cwd"))
     if code != 0:
         return False, f"Handoff creation failed: {h_out}"
@@ -422,13 +426,27 @@ def main(argv=None):
                 break
             previous_states[issue_ref] = curr
 
+            step_options = dict(options)
+            earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
+                               sum(1 for v in (state.get("review_verdicts") or []) if v.get("verdict") in ("findings", "blocked"))
+            if step == "submit-pr":
+                step_options["extra_text"] = (
+                    "Direct submission: do not read shared reference files or re-verify code. "
+                    "Compose the final description with `pr body` and mark the PR ready with `pr ready --expect-head` immediately. "
+                    "Be direct and concise."
+                )
+            elif step == "review-changes" and earlier_blocking > 0:
+                step_options["extra_text"] = (
+                    "Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD`) and verifying that the earlier "
+                    "finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
+                )
+
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
-            success, info = run_session(step, state["issue"], notes_dir, options)
+            success, info = run_session(step, state["issue"], notes_dir, step_options)
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
-                success, info = run_session(step, state["issue"], notes_dir, options)
-                print(f"[{time.strftime('%X')}] Retry session finished (success={success}, id={info})")
+                success, info = run_session(step, state["issue"], notes_dir, step_options)
                 if not success:
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     park_issue(state["issue"], pr_url, "blocker", f"Session failed repeatedly: {info}", notes_dir)
