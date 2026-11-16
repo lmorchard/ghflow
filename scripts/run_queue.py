@@ -374,6 +374,8 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         args += ["--review-plan", f"model {options['model']}"]
     if options.get("deadline"):
         args += ["--deadline", str(options["deadline"])]
+    if options.get("branch"):
+        args += ["--branch", options["branch"]]
     if options.get("extra_text"):
         extra_file = notes_dir / f"directive-{step}-{stamp}.md"
         extra_file.write_text(options["extra_text"], encoding="utf-8")
@@ -500,11 +502,40 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
     return proc.returncode == 0, session_id or ""
 
 
+def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli):
+    """Create the task worktree from origin before the session starts.
+
+    The worktree and branch are a runner decision, not a model choice, so the session
+    cannot spend its budget surveying a stale checkout. Exit 3 means the branch or
+    path already exists, which is a resumption; reuse it.
+    """
+    number = str(issue_url).rstrip("/").split("/")[-1]
+    slug = re.sub(r"[^a-z0-9]+", "-", str(title or "").lower()).strip("-")[:40].strip("-")
+    branch = f"issue-{number}-{slug}" if slug else f"issue-{number}"
+    args = ["worktree", "create", issue_url, "--branch", branch]
+    if owner and project:
+        args += ["--owner", owner, "--project", str(project)]
+    out, code = cli_fn(*args, cwd=options.get("cwd"))
+    path = (out or {}).get("path") if isinstance(out, dict) else None
+    if code not in (0, 3) or not path:
+        print(f"[{time.strftime('%X')}] Worktree preparation failed (exit {code}): {out}", flush=True)
+        return None
+    print(f"[{time.strftime('%X')}] Worktree {'created' if code == 0 else 'reused'} at {path}", flush=True)
+    return {"branch": branch, "path": path, "created": code == 0}
+
+
 def park_issue(issue_url, pr_url, kind, text_or_reason, notes_dir, cli_fn=run_cli, cwd=None):
-    """Park an issue with ghflow park."""
+    """Park an issue with ghflow park, naming the PR only when one exists."""
     text_file = notes_dir / f"park-{kind}-{time.strftime('%Y%m%d-%H%M%S')}.md"
     text_file.write_text(f"## Parked ({kind})\n\n{text_or_reason}\n", encoding="utf-8")
-    return cli_fn("park", issue_url, "--pr", pr_url, "--kind", kind, "--text", str(text_file), cwd=cwd)
+    args = ["park", issue_url]
+    if pr_url:
+        args += ["--pr", pr_url]
+    args += ["--kind", kind, "--text", str(text_file)]
+    out, code = cli_fn(*args, cwd=cwd)
+    if code != 0:
+        print(f"[{time.strftime('%X')}] Park failed (exit {code}): {out}", flush=True)
+    return out, code
 
 
 def main(argv=None):
@@ -648,12 +679,34 @@ def main(argv=None):
                         "and post the verdict comment directly with `pr comment`. "
                         "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
                     )
-            elif step == "implement-issue" and preceding_pr:
-                step_options["extra_text"] = (
-                    f"Stacked PR: Preceding child #{preceding_pr['number']} has an open PR #{preceding_pr['pr']} on branch `{preceding_pr['branch']}`. "
-                    f"Base your implementation on branch `{preceding_pr['branch']}` (`git checkout -b <branch> {preceding_pr['branch']}`) rather than `origin/main`. "
-                    f"When creating the draft PR, set `--base {preceding_pr['branch']}`."
+            elif step == "implement-issue":
+                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options)
+                directive = (
+                    "Workspace: the runner already prepared the task worktree from the fetched default branch. "
+                    "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
+                    "`git grep origin/...` instead of the worktree: those reads publish nothing."
                 )
+                if worktree:
+                    step_options["branch"] = worktree["branch"]
+                    directive += (
+                        f" Worktree: {worktree['path']} on branch {worktree['branch']}"
+                        f" ({'created now' if worktree['created'] else 'reused from an earlier attempt'})."
+                        " Do the project's worktree setup there, then read and edit the files in it."
+                    )
+                else:
+                    directive += (
+                        " No worktree was prepared, so create it with `worktree create ISSUE_URL --branch BRANCH`, "
+                        "which bases the branch on `origin/<default-branch>`."
+                    )
+                if preceding_pr:
+                    directive += (
+                        f" Stacked PR: preceding child #{preceding_pr['number']} has an open PR #{preceding_pr['pr']} on branch "
+                        f"`{preceding_pr['branch']}`. Base the work on that branch rather than the default branch"
+                        + (f", for example `git reset --hard {preceding_pr['branch']}` inside the prepared worktree,"
+                           if worktree else "")
+                        + f" and set `--base {preceding_pr['branch']}` when the draft PR is created."
+                    )
+                step_options["extra_text"] = directive
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options)
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")

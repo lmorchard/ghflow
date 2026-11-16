@@ -494,6 +494,49 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
 class ParentSubIssueTests(unittest.TestCase):
     """Unit tests for parent issue burndown, sub-issue discovery, stacked PRs, and board visibility."""
 
+    def test_prepare_worktree_creates_from_origin(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {"path": "/repo/.claude/worktrees/issue-42-add-a-thing", "base": "origin/main"}, 0
+
+        res = run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing", "o", 12,
+                                         {"cwd": "/repo"}, cli_fn=fake_cli)
+        self.assertEqual(res, {"branch": "issue-42-add-a-thing", "path": "/repo/.claude/worktrees/issue-42-add-a-thing", "created": True})
+        self.assertEqual(calls[0][:3], ("worktree", "create", "https://github.com/o/r/issues/42"))
+        self.assertIn("issue-42-add-a-thing", calls[0])
+        self.assertIn("--owner", calls[0])
+        self.assertIn("--project", calls[0])
+
+    def test_prepare_worktree_reuses_existing_branch(self):
+        def fake_cli(*args, cwd=None):
+            return {"path": "/repo/.claude/worktrees/issue-7-x", "action": "exists"}, 3
+
+        res = run_queue.prepare_worktree("https://github.com/o/r/issues/7", "x", None, None,
+                                         {"cwd": "/repo"}, cli_fn=fake_cli)
+        self.assertEqual(res["created"], False)
+        self.assertEqual(res["branch"], "issue-7-x")
+
+    def test_prepare_worktree_returns_none_on_failure(self):
+        def fake_cli(*args, cwd=None):
+            return {"errors": [{"part": "worktree", "error": "boom"}]}, 1
+
+        self.assertIsNone(run_queue.prepare_worktree("https://github.com/o/r/issues/9", "t", "o", 1,
+                                                    {"cwd": "/repo"}, cli_fn=fake_cli))
+
+    def test_park_issue_omits_pr_when_none(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            run_queue.park_issue("https://github.com/o/r/issues/5", "", "blocker", "no progress", Path(tmp), cli_fn=fake_cli)
+        self.assertNotIn("--pr", calls[0])
+        self.assertEqual(calls[0][:2], ("park", "https://github.com/o/r/issues/5"))
+
     def test_parse_issue_ref(self):
         self.assertEqual(run_queue.parse_issue_ref("https://github.com/o/r/issues/10"), ["https://github.com/o/r/issues/10"])
         self.assertEqual(run_queue.parse_issue_ref("o/r#10"), ["10", "--repo", "o/r"])
@@ -653,6 +696,9 @@ class ParentSubIssueTests(unittest.TestCase):
         def fake_cli(*args, cwd=None):
             if args and args[0] == "board" and args[1] == "set-status":
                 board_moves.append(args)
+            if args and args[0] == "worktree" and args[1] == "create":
+                branch = args[args.index("--branch") + 1]
+                return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
             return {}, 0
 
         with tempfile.TemporaryDirectory() as tmp:

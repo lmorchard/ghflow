@@ -2367,11 +2367,16 @@ PARK_MARKER = "## Parked"
 def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file, gh=run_gh, gh_text=run_gh_text,
                   confirm=confirm_write_identity):
     """Record a parked unattended delivery: swap triage:ready for triage:needs-input, post the
-    question or remaining steps on the issue, and add a Parked section to the PR, each read back.
+    question or remaining steps on the issue, and, when the delivery has a PR, add a Parked
+    section to it. Each write is read back.
 
-    ``kind`` is "time", "question", or "blocker". The PR stays a draft and the board unchanged.
+    ``kind`` is "time", "question", or "blocker". A PR stays a draft and the board unchanged.
+    A delivery with no PR, such as an implementation that published nothing, still parks: the
+    label and the comment record why, so the item is not retried and silently dropped.
     """
-    result = {"issue": f"{issue_repo}#{issue_number}", "pr": f"{pr_repo}#{pr_number}", "kind": kind, "writes": [], "errors": []}
+    result = {"issue": f"{issue_repo}#{issue_number}",
+              "pr": f"{pr_repo}#{pr_number}" if pr_number is not None else None,
+              "kind": kind, "writes": [], "errors": []}
     read_errors = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError, UnicodeDecodeError)
     titles = {"time": "Parked (time budget)", "question": "Parked (open question)", "blocker": "Parked (blocker)"}
     if kind not in titles:
@@ -2380,15 +2385,19 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
     try:
         text = Path(text_file).read_text(encoding="utf-8").strip()
         issue = response_type(gh(["issue", "view", str(issue_number), "--repo", issue_repo, "--json", "labels,url"]), dict, "The issue response")
-        pr = response_type(gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft,state,headRefOid"]), dict, "The PR response")
+        pr = None
+        if pr_number is not None:
+            pr = response_type(gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft,state,headRefOid"]), dict, "The PR response")
     except read_errors as error:
         result["errors"].append({"part": "read", "error": str(error)})
         return result, 1
     labels = [label.get("name") for label in issue.get("labels") or [] if isinstance(label, dict)]
-    result["before"] = {"labels": labels, "is_draft": pr.get("isDraft"), "state": pr.get("state"), "head": pr.get("headRefOid")}
-    if pr.get("state") != "OPEN":
-        result["errors"].append({"part": "pr", "error": f"The PR is {pr.get('state')}; nothing was written."})
-        return result, 3
+    result["before"] = {"labels": labels}
+    if pr is not None:
+        result["before"].update({"is_draft": pr.get("isDraft"), "state": pr.get("state"), "head": pr.get("headRefOid")})
+        if pr.get("state") != "OPEN":
+            result["errors"].append({"part": "pr", "error": f"The PR is {pr.get('state')}; nothing was written."})
+            return result, 3
     try:
         confirm()
     except IdentityError as error:
@@ -2408,8 +2417,8 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
         comment_file.write_text(f"**{titles[kind]}**\n\n{text}\n", encoding="utf-8")
         gh_text(["issue", "comment", str(issue_number), "--repo", issue_repo, "--body-file", str(comment_file)])
         result["writes"].append("comment")
-        body = pr.get("body") or ""
-        if PARK_MARKER not in body:
+        body = (pr or {}).get("body") or ""
+        if pr is not None and PARK_MARKER not in body:
             body_file = tmp / "body.md"
             body_file.write_text(body.rstrip() + "\n\n" + section, encoding="utf-8")
             gh_text(["pr", "edit", str(pr_number), "--repo", pr_repo, "--body-file", str(body_file)])
@@ -2420,15 +2429,17 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
         shutil.rmtree(tmp, ignore_errors=True)
     try:
         issue_after = gh(["issue", "view", str(issue_number), "--repo", issue_repo, "--json", "labels,comments"])
-        pr_after = gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft"])
         after_labels = [label.get("name") for label in issue_after.get("labels") or [] if isinstance(label, dict)]
         last = (issue_after.get("comments") or [{}])[-1]
-        result["after"] = {"labels": after_labels, "is_draft": pr_after.get("isDraft")}
+        result["after"] = {"labels": after_labels}
         result["readback"] = {
             "labels": "triage:needs-input" in after_labels and "triage:ready" not in after_labels,
             "comment": titles[kind] in str(last.get("body", "")),
-            "pr_body": PARK_MARKER in str(pr_after.get("body", "")),
         }
+        if pr is not None:
+            pr_after = gh(["pr", "view", str(pr_number), "--repo", pr_repo, "--json", "body,isDraft"])
+            result["after"]["is_draft"] = pr_after.get("isDraft")
+            result["readback"]["pr_body"] = PARK_MARKER in str(pr_after.get("body", ""))
     except read_errors as error:
         result["errors"].append({"part": "readback", "error": str(error)})
         return result, 2
@@ -3164,7 +3175,7 @@ def main(argv=None):
     rv_cleanup.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
     park = commands.add_parser("park", help="Park an unattended delivery: label, issue comment, and a Parked section on the PR, each read back.")
     park.add_argument("issue", help="issue URL, or issue number from the subject checkout")
-    park.add_argument("--pr", required=True, help="PR URL")
+    park.add_argument("--pr", help="PR URL; omit to park the issue alone")
     park.add_argument("--kind", required=True, choices=("time", "question", "blocker"), help="why the delivery is parked")
     park.add_argument("--text", required=True, metavar="FILE", help="Markdown with the question or blocker, or the remaining steps for a time park")
 
@@ -3235,7 +3246,7 @@ def main(argv=None):
             result, status = review_cleanup(number, path=args.path)
     elif args.command == "park":
         issue_repo, issue_number = parse_issue(args.issue, None)
-        pr_repo, pr_number = parse_pr(args.pr, None)
+        pr_repo, pr_number = parse_pr(args.pr, None) if args.pr else (None, None)
         result, status = park_delivery(issue_repo, issue_number, pr_repo, pr_number, args.kind, args.text)
     elif args.command == "queue" and args.queue_command == "select":
         result, status = queue_select(args.owner, args.project, args.status)
