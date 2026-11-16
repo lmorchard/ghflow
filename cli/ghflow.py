@@ -18,7 +18,9 @@ pr ready exits 3 when it refuses to write because the PR is not open or its head
 is not the expected commit, and 2 when a write happened but a read-back failed.
 queue select exits 1 on incomplete discovery and then returns no selection.
 queue summary exits 2 when an issue, or part of its linked PR's check or review
-state, could not be read. budget exits 1 for an end mark without a start. preamble
+state, could not be read. triage exits 2 when the board or repository issues could
+not be read in full and returns no selection then. budget exits 1 for an end mark
+without a start. preamble
 prints plain text and exits 1 when the checkout itself could not be read.
 """
 
@@ -2437,6 +2439,17 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
 
 PRIORITY_ORDER = ("P0", "P1")
 SIZE_ORDER = ("XS", "S", "M", "L", "XL")
+TRIAGE_LABEL_PREFIX = "triage:"
+NULL_PRIORITY = "P-null"
+TRIAGE_BOARD_CATEGORIES = ("untriaged", "ready")
+TRIAGE_LABELS = {
+    "ready": "triage:ready",
+    "needs-input": "triage:needs-input",
+    "needs-definition": "triage:needs-definition",
+    "blocked": "triage:blocked",
+    "agent-closed": "triage:agent-closed",
+}
+TRIAGE_REPO_CATEGORIES = ("needs-input", "needs-definition", "blocked", "agent-closed")
 
 BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
   node(id: $project_id) {
@@ -2447,7 +2460,9 @@ BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
           id
           content {
             __typename
-            ... on Issue { url number title state repository { nameWithOwner } }
+            ... on Issue { url number title state repository { nameWithOwner }
+              labels(first: 50) { nodes { name } }
+              subIssues(first: 1) { totalCount } }
             ... on PullRequest { url repository { nameWithOwner } }
           }
           status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
@@ -2594,6 +2609,124 @@ def queue_select(owner, project, status="Ready", gh=run_gh):
                   below_tier=[e["issue"] for e in selection if e["below_tier"]],
                   limit="The traversal is not an atomic snapshot; the board could change while it was read.")
     return result, (2 if result["errors"] else 0)
+
+
+def triage_labels(content):
+    """Return the label names on a board item's Issue content."""
+    nodes = ((content or {}).get("labels") or {}).get("nodes") or []
+    return [label.get("name") for label in nodes if isinstance(label, dict) and label.get("name")]
+
+
+def triage_select_board(items, category):
+    """Filter whole-board items to one board-based triage category.
+
+    ``untriaged`` selects open issues with no triage label, a real Priority (not the
+    ``P-null`` marker), and no open sub-issues. ``ready`` selects open issues carrying
+    ``triage:ready`` that still lack a Priority.
+    """
+    selection = []
+    for item in items:
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        if content.get("__typename") != "Issue" or content.get("state") != "OPEN":
+            continue
+        repo = (content.get("repository") or {}).get("nameWithOwner")
+        number = content.get("number")
+        if not repo or not isinstance(number, int) or not content.get("url"):
+            continue
+        labels = triage_labels(content)
+        priority = field_name(item, "priority")
+        sub_issues = (content.get("subIssues") or {}).get("totalCount")
+        if category == "untriaged":
+            if any(label.startswith(TRIAGE_LABEL_PREFIX) for label in labels):
+                continue
+            # A literal ``P-null`` Priority marks an epic or tracking issue; an
+            # unset Priority (None) is a normal issue that simply has not been
+            # prioritized yet, so it stays in the selection.
+            if priority == NULL_PRIORITY:
+                continue
+            if isinstance(sub_issues, int) and sub_issues > 0:
+                continue
+        else:  # ready
+            if TRIAGE_LABELS["ready"] not in labels:
+                continue
+            if priority is not None:
+                continue
+        selection.append({"issue": f"{repo}#{number}", "url": content["url"], "repo": repo, "number": number,
+                          "title": content.get("title"), "status": field_name(item, "status"), "priority": priority,
+                          "size": field_name(item, "size"), "labels": labels})
+    return selection
+
+
+def triage_issues_by_label(repo, label, state, gh):
+    """Read every issue of one repository carrying one label, page by page.
+
+    The label and state come from the triage category map, never user input, so they
+    are inlined into the query. Raises ValueError on any malformed page, so a partial
+    read is never returned.
+    """
+    query = ('query($owner: String!, $name: String!, $cursor: String) {'
+             ' repository(owner: $owner, name: $name) {'
+             f' issues(first: 100, after: $cursor, labels: ["{label}"], states: [{state}]) {{'
+             ' nodes { number title url state }'
+             ' pageInfo { hasNextPage endCursor }'
+             ' } } }')
+    owner, name = repo.split("/", 1)
+    issues, cursor, pages = [], None, 0
+    while True:
+        args = ["api", "graphql", "-f", f"query={query}", "-f", f"owner={owner}", "-f", f"name={name}"]
+        if cursor:
+            args += ["-f", f"cursor={cursor}"]
+        data = response_type(gh(args), dict, "The issues page")
+        if data.get("errors"):
+            raise ValueError(f"The issues page has GraphQL errors: {data['errors']}")
+        repository = response_type(response_type(data.get("data"), dict, "The issues data").get("repository"),
+                                   dict, "The repository")
+        node = response_type(repository.get("issues"), dict, "The repository issues")
+        for issue in response_type(node.get("nodes"), list, "An issue node"):
+            response_type(issue, dict, "An issue")
+            number = response_integer(issue.get("number"), "An issue number")
+            url = response_string(issue.get("url"), "An issue url")
+            issues.append({"issue": f"{repo}#{number}", "url": url, "repo": repo, "number": number,
+                           "title": issue.get("title"), "state": issue.get("state")})
+        pages += 1
+        info = response_type(node.get("pageInfo"), dict, "The issues pageInfo")
+        has_next = info.get("hasNextPage")
+        if not isinstance(has_next, bool):
+            raise ValueError("An issues page has no boolean hasNextPage.")
+        if not has_next:
+            return issues, pages
+        cursor = info.get("endCursor")
+        if not isinstance(cursor, str) or not cursor:
+            raise ValueError("An issues page claims a next page without a cursor.")
+
+
+def triage_list(category, repo=None, owner=None, project=None, gh=run_gh):
+    """Return the deterministic issue selection for one triage sweep category.
+
+    Board categories (``untriaged``, ``ready``) read the whole board and need ``owner``
+    and ``project``. Repo categories read one label from one repository and need
+    ``repo``. Exits 2 on an incomplete read and returns no selection then.
+    """
+    result = {"category": category, "complete": False, "errors": []}
+    try:
+        if category in TRIAGE_BOARD_CATEGORIES:
+            if not owner or project is None:
+                raise ValueError("--owner and --project are required together for a board sweep.")
+            _, items, pages = board_items(owner, project, gh)
+            result.update(project=f"{owner}/{project}", pages=pages, selection=triage_select_board(items, category))
+        else:
+            if not repo:
+                raise ValueError("--repo is required for a label sweep.")
+            if "/" not in repo:
+                raise ValueError("--repo must be OWNER/NAME.")
+            state = "CLOSED" if category == "agent-closed" else "OPEN"
+            issues, pages = triage_issues_by_label(repo, TRIAGE_LABELS[category], state, gh)
+            result.update(repo=repo, pages=pages, selection=issues)
+    except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+        result["errors"].append({"part": "triage", "error": str(error)})
+        return result, 2
+    result["complete"] = True
+    return result, 0
 
 
 SUMMARY_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
@@ -3046,6 +3179,12 @@ def main(argv=None):
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
     q_summary.add_argument("--owner", required=True, help="project owner login")
     q_summary.add_argument("--project", required=True, type=int, help="project number")
+    triage_cmd = commands.add_parser("triage", help="Deterministic issue selection for a triage sweep.")
+    triage_cmd.add_argument("category", choices=sorted(set(TRIAGE_BOARD_CATEGORIES) | set(TRIAGE_REPO_CATEGORIES)),
+                            help="sweep category: untriaged and ready read the board; needs-input, needs-definition, blocked, and agent-closed read one label")
+    triage_cmd.add_argument("--repo", help="OWNER/NAME for a label-based category")
+    triage_cmd.add_argument("--owner", help="project owner login for a board-based category")
+    triage_cmd.add_argument("--project", type=int, help="project number for a board-based category")
     budget_cmd = commands.add_parser("budget", help="Read the clock, mark task starts and ends in a log, and report time left and measured durations.")
     budget_cmd.add_argument("--log", required=True, metavar="FILE", help="JSON-lines log, such as budget.jsonl in the coordinator notes directory")
     budget_cmd.add_argument("--deadline", help="record the deadline: ISO 8601 or YYYY-MM-DD HH:MM [ZONE], read as local time")
@@ -3102,6 +3241,12 @@ def main(argv=None):
         result, status = queue_select(args.owner, args.project, args.status)
     elif args.command == "queue":
         result, status = queue_summary([parse_issue(ref, args.repo) for ref in args.issues], args.owner, args.project)
+    elif args.command == "triage":
+        if args.category in TRIAGE_BOARD_CATEGORIES and (not args.owner or args.project is None):
+            parser.error(f"triage {args.category} needs --owner and --project.")
+        if args.category in TRIAGE_REPO_CATEGORIES and not args.repo:
+            parser.error(f"triage {args.category} needs --repo OWNER/NAME.")
+        result, status = triage_list(args.category, repo=args.repo, owner=args.owner, project=args.project)
     elif args.command == "budget":
         need = tuple(k.strip() for k in args.need.split(",") if k.strip()) if args.need else ()
         try:
