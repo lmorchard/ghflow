@@ -490,5 +490,189 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                 summary_calls = [c for c in mock_cli.call_args_list if "summary" in c[0]]
                 self.assertTrue(summary_calls)
 
+
+class ParentSubIssueTests(unittest.TestCase):
+    """Unit tests for parent issue burndown, sub-issue discovery, stacked PRs, and board visibility."""
+
+    def test_parse_issue_ref(self):
+        self.assertEqual(run_queue.parse_issue_ref("https://github.com/o/r/issues/10"), ["https://github.com/o/r/issues/10"])
+        self.assertEqual(run_queue.parse_issue_ref("o/r#10"), ["10", "--repo", "o/r"])
+        self.assertEqual(run_queue.parse_issue_ref("#10"), ["10"])
+        self.assertEqual(run_queue.parse_issue_ref("10"), ["10"])
+        self.assertEqual(run_queue.parse_issue_ref(10), ["10"])
+
+    def test_observe_parent_queries_subissues(self):
+        fake_data = {
+            "number": 100,
+            "title": "Epic: Code Debt",
+            "state": "OPEN",
+            "url": "https://github.com/o/r/issues/100",
+            "subIssues": {
+                "nodes": [
+                    {"number": 101, "title": "Child 1", "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+                    {"number": 102, "title": "Child 2", "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+                ],
+                "totalCount": 2,
+            },
+            "subIssuesSummary": {"completed": 0, "percentCompleted": 0, "total": 2},
+        }
+        mock_proc = MagicMock(returncode=0, stdout=json.dumps(fake_data), stderr="")
+        with patch("subprocess.run", return_value=mock_proc):
+            res = run_queue.observe_parent("100")
+        self.assertEqual(res["parent"]["number"], 100)
+        self.assertEqual(len(res["children"]), 2)
+        self.assertEqual(res["children"][0]["number"], 101)
+        self.assertEqual(res["children"][1]["number"], 102)
+
+    def test_observe_parent_raises_on_error(self):
+        mock_proc = MagicMock(returncode=1, stdout="", stderr="Could not resolve issue")
+        with patch("subprocess.run", return_value=mock_proc):
+            with self.assertRaises(RuntimeError) as ctx:
+                run_queue.observe_parent("999")
+            self.assertIn("Failed to query parent issue", str(ctx.exception))
+
+    def test_next_item_for_parent_prioritizes_inflight(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+        # 102 has an open draft PR needing review, while 101 has no PR yet
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            if "102" in str(ref):
+                return {"issue": str(ref), "number": 102, "labels": [], "pr": {"url": "p2", "is_draft": True, "head": "h2"}, "review_verdicts": []}
+            return {"issue": str(ref), "number": 101, "labels": [], "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 102)
+
+    def test_next_item_for_parent_skips_closed_and_done(self):
+        children = [
+            {"number": 101, "state": "CLOSED", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+            {"number": 103, "state": "OPEN", "url": "https://github.com/o/r/issues/103"},
+        ]
+        # 102 is DONE (ready PR with green CI)
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            if "102" in str(ref):
+                return {"issue": str(ref), "number": 102, "labels": [], "pr": {"url": "p2", "is_draft": False, "head": "h2"}, "ci": "green", "pending_review_requests": []}
+            return {"issue": str(ref), "number": 103, "labels": [], "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 103)
+
+    def test_find_preceding_pr_stacked_branch(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+        # 101 has an open PR on branch issue-101-feat
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            if "101" in str(ref):
+                return {"issue": str(ref), "number": 101, "pr": {"number": 51, "head_branch": "issue-101-feat", "state": "OPEN"}}
+            return {"issue": str(ref), "number": 102, "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            # First child has no preceding PR
+            self.assertIsNone(run_queue.find_preceding_pr(101, children))
+            # Second child finds preceding child 101
+            prec = run_queue.find_preceding_pr(102, children)
+            self.assertIsNotNone(prec)
+            self.assertEqual(prec["number"], 101)
+            self.assertEqual(prec["pr"], 51)
+            self.assertEqual(prec["branch"], "issue-101-feat")
+
+    def test_find_preceding_pr_skips_merged_prs(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+        # 101 was already merged
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            return {"issue": str(ref), "number": 101, "pr": {"number": 51, "head_branch": "issue-101-feat", "state": "MERGED"}}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            self.assertIsNone(run_queue.find_preceding_pr(102, children))
+
+    def test_set_board_status(self):
+        calls = []
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {}, 0
+
+        # None owner/project does nothing
+        run_queue.set_board_status("https://github.com/o/r/issues/1", "In progress", cli_fn=fake_cli)
+        self.assertEqual(len(calls), 0)
+
+        # Calls board set-status when configured
+        run_queue.set_board_status("https://github.com/o/r/issues/1", "In progress", owner="o", project=12, cli_fn=fake_cli)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0], ("board", "set-status", "https://github.com/o/r/issues/1", "--owner", "o", "--project", "12", "--status", "In progress"))
+
+    def test_parent_burndown_flow_with_stacked_prs_and_board_updates(self):
+        """Burndown a parent issue with 2 sub-issues, generating stacked PR directive on child 2."""
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN", "url": "https://github.com/o/r/issues/100"},
+            "children": [
+                {"number": 101, "title": "Child 1", "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+                {"number": 102, "title": "Child 2", "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+            ],
+        }
+        # Child 1: reaches DONE with PR #51 on branch issue-101-feat
+        # Child 2: unstarted, needs implement
+        child1_done = {
+            "issue": "https://github.com/o/r/issues/101", "number": 101, "labels": ["triage:ready"],
+            "pr": {"number": 51, "url": "https://github.com/o/r/pull/51", "head": "c1", "head_branch": "issue-101-feat", "state": "OPEN", "is_draft": False},
+            "ci": "green", "pending_review_requests": []
+        }
+        child2_start = {
+            "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"], "pr": None
+        }
+        child2_done = {
+            "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"],
+            "pr": {"number": 52, "url": "https://github.com/o/r/pull/52", "head": "c2", "head_branch": "issue-102-feat", "state": "OPEN", "is_draft": False},
+            "ci": "green", "pending_review_requests": []
+        }
+
+        session_called = False
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            if "101" in str(ref):
+                return dict(child1_done)
+            if not session_called:
+                return dict(child2_start)
+            return dict(child2_done)
+
+        captured_sessions = []
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+            nonlocal session_called
+            session_called = True
+            captured_sessions.append((step, issue_url, dict(options)))
+            return True, "ses_id"
+        board_moves = []
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "board" and args[1] == "set-status":
+                board_moves.append(args)
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            with patch("run_queue.observe_parent", return_value=parent_data), \
+                 patch("run_queue.check_active_runs"), \
+                 patch("run_queue.observe_issue", side_effect=fake_observe), \
+                 patch("run_queue.run_session", side_effect=fake_run_session), \
+                 patch("run_queue.run_cli", side_effect=fake_cli):
+                ret = run_queue.main(["--parent", "100", "--project", "o/12", "--notes-dir", str(notes_dir)])
+                self.assertEqual(ret, 0)
+
+        # Child 2 was implemented
+        self.assertTrue(any(s[0] == "implement-issue" and "102" in s[1] for s in captured_sessions))
+        child2_session = next(s for s in captured_sessions if s[0] == "implement-issue" and "102" in s[1])
+        extra = child2_session[2].get("extra_text", "")
+        self.assertIn("Stacked PR", extra)
+        self.assertIn("issue-101-feat", extra)
+
+        # Board status updates occurred
+        self.assertTrue(any("In progress" in str(m) for m in board_moves))
 if __name__ == "__main__":
     unittest.main()

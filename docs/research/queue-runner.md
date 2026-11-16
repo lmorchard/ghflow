@@ -110,7 +110,8 @@ During the day, Les stages work with `curate-ready-queue` and answers parked que
 ## Implementation
 
 `scripts/run_queue.py` uses only Python standard library. It calls `cli/ghflow.py` as a subprocess and parses JSON output. It accepts command-line arguments:
-- `--project OWNER/NUMBER`
+- `--project OWNER/NUMBER` (project board mode)
+- `--parent OWNER/REPO#NUMBER` (parent issue mode: burndowns native sub-issues with stacked PRs)
 - `--hours N` (time budget)
 - `--model MODEL`
 - `--floor MINUTES`
