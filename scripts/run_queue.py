@@ -216,7 +216,9 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
             "number": pr["number"],
             "url": pr.get("url"),
             "head": pr_st.get("head") or pr.get("head"),
+            "head_branch": pr_st.get("head_branch") or pr.get("head_branch"),
             "is_draft": pr_st.get("is_draft", pr.get("is_draft", False)),
+            "state": pr_st.get("state") or pr.get("state", "OPEN"),
         }
         state["reviews"] = pr_st.get("reviews") or []
         state["review_summary"] = pr_st.get("review_summary") or {}
@@ -244,6 +246,108 @@ def observe_board(owner, project, cli_fn=run_cli, cwd=None, attempted=None):
         "selection": q_sel.get("selection") or [],
     }
 
+
+def parse_issue_ref(issue_ref):
+    """Normalize issue ref for gh CLI commands."""
+    s = str(issue_ref).strip()
+    if s.startswith("http://") or s.startswith("https://"):
+        return [s]
+    if "#" in s:
+        repo, num = s.split("#", 1)
+        return [num, "--repo", repo] if repo else [num]
+    return [s]
+
+
+def observe_parent(parent_ref, gh_cmd="gh", cwd=None):
+    """Query parent issue and its native sub-issues via gh issue view."""
+    cmd = [gh_cmd, "issue", "view", *parse_issue_ref(parent_ref),
+           "--json", "number,title,state,url,subIssues,subIssuesSummary"]
+    proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    if proc.returncode != 0:
+        raise RuntimeError(f"Failed to query parent issue {parent_ref}: {proc.stderr.strip()}")
+    data = json.loads(proc.stdout)
+    nodes = (data.get("subIssues") or {}).get("nodes") or []
+    return {
+        "parent": {
+            "number": data.get("number"),
+            "title": data.get("title"),
+            "state": data.get("state"),
+            "url": data.get("url"),
+            "summary": data.get("subIssuesSummary") or {},
+        },
+        "children": nodes,
+    }
+
+
+def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None):
+    """Select the next child item from a parent issue's sub-issues."""
+    attempted = attempted or set()
+    for child in children:
+        if child.get("state") == "CLOSED":
+            continue
+        ref = child.get("url") or child.get("number")
+        if ref in attempted or child.get("number") in attempted:
+            continue
+        st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
+        if "triage:needs-input" in (st.get("labels") or []):
+            continue
+        step = next_step(st)
+        if step not in ("DONE", "PARKED", "WAITING") and st.get("pr"):
+            return child
+
+    for child in children:
+        if child.get("state") == "CLOSED":
+            continue
+        ref = child.get("url") or child.get("number")
+        if ref in attempted or child.get("number") in attempted:
+            continue
+        st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
+        if "triage:needs-input" in (st.get("labels") or []):
+            continue
+        step = next_step(st)
+        if step in ("DONE", "PARKED", "WAITING"):
+            continue
+        return child
+    return None
+
+
+def find_preceding_pr(child_ref, children, cli_fn=run_cli, cwd=None):
+    """Find the immediate preceding child with an open unmerged PR for branch stacking."""
+    if not children:
+        return None
+    target_num = child_ref if isinstance(child_ref, int) else None
+    if target_num is None:
+        try:
+            target_num = int(str(child_ref).rstrip("/").split("/")[-1].split("#")[-1])
+        except ValueError:
+            target_num = None
+
+    idx = None
+    for i, c in enumerate(children):
+        if c.get("number") == target_num or c.get("url") == str(child_ref):
+            idx = i
+            break
+    if idx is None or idx == 0:
+        return None
+
+    for c in reversed(children[:idx]):
+        ref = c.get("url") or c.get("number")
+        st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
+        pr = st.get("pr") or {}
+        if pr.get("head_branch") and pr.get("state") == "OPEN":
+            return {"number": c.get("number"), "pr": pr.get("number"), "branch": pr.get("head_branch")}
+    return None
+
+
+def set_board_status(issue_ref, status, owner=None, project=None, cli_fn=run_cli, cwd=None):
+    """Move an issue to a status on the project board, ignoring errors if unconfigured."""
+    if not owner or not project:
+        return
+    try:
+        cli_fn("board", "set-status", str(issue_ref), "--owner", owner, "--project", str(project),
+               "--status", status, cwd=cwd)
+    except Exception:
+        pass
 
 def compose_prompt(skill_dir, handoff_prompt):
     """Compose the prompt from SKILL.md body without YAML frontmatter and the handoff prompt."""
@@ -407,6 +511,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description="Deterministic runner for unattended delivery from the project board.")
     parser.add_argument("--owner", help="project board owner login")
     parser.add_argument("--project", help="project board number or OWNER/NUMBER")
+    parser.add_argument("--parent", help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown its sub-issues")
     parser.add_argument("--model", help="model override for worker sessions, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
     parser.add_argument("--provider", help="provider prefix if not included in --model (e.g. lmstudio, ollama, google-vertex)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
@@ -422,12 +527,25 @@ def main(argv=None):
     if not args.allow_concurrent:
         check_active_runs()
 
-    owner, project = discover_project(args.project if args.project and "/" in args.project else None)
-    if args.owner:
-        owner = args.owner
-    if args.project and "/" not in args.project:
-        project = int(args.project)
+    owner = args.owner
+    project = None
+    if args.project:
+        if "/" in args.project:
+            owner, project = discover_project(args.project)
+        else:
+            project = int(args.project)
 
+    if not args.parent and not project:
+        owner, project = discover_project()
+        if args.owner:
+            owner = args.owner
+    elif args.parent and not project:
+        try:
+            disc_owner, disc_project = discover_project(cwd=os.getcwd())
+            owner = owner or disc_owner
+            project = disc_project
+        except Exception:
+            pass
     start_time = time.time()
     deadline_time = start_time + args.hours * 3600
     deadline_str = time.strftime("%Y-%m-%d %H:%M %Z", time.localtime(deadline_time))
@@ -448,19 +566,26 @@ def main(argv=None):
     attempted, delivered = set(), []
     previous_states = {}
 
+    parent_children = None
     while True:
         if time.time() >= deadline_time:
             break
-        print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
-        board = observe_board(owner, project)
-        item = next_item(board, attempted)
+        if args.parent:
+            print(f"[{time.strftime('%X')}] Reading parent issue {args.parent}...")
+            parent_data = observe_parent(args.parent, cwd=options.get("cwd"))
+            parent_children = parent_data.get("children") or []
+            item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"))
+        else:
+            print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
+            board = observe_board(owner, project)
+            item = next_item(board, attempted)
+
         if item is None:
-            print(f"[{time.strftime('%X')}] No more actionable items on board.")
+            print(f"[{time.strftime('%X')}] No more actionable items.")
             break
         issue_ref = item.get("url") or item.get("issue") or (str(item["number"]) if item.get("number") is not None else None)
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
-
         # Issue reconciliation loop
         while True:
             remaining_minutes = (deadline_time - time.time()) / 60
@@ -473,6 +598,8 @@ def main(argv=None):
             if step in ("DONE", "PARKED", "WAITING"):
                 print(f"[{time.strftime('%X')}] {issue_ref} reached endpoint state: {step}")
                 delivered.append(issue_ref)
+                if step == "DONE":
+                    set_board_status(issue_ref, "In review", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
                 break
             if step == "park-blocker":
                 pr_url = (state.get("pr") or {}).get("url") or ""
@@ -492,29 +619,41 @@ def main(argv=None):
                 break
             previous_states[issue_ref] = curr
 
+            # Update board status to In progress on start of implementation
+            if step == "implement-issue":
+                set_board_status(issue_ref, "In progress", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
+
+            preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
             step_options = dict(options)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if v.get("verdict") in ("findings", "blocked"))
             if step == "submit-pr":
+                target_base = f"Target base branch `{preceding_pr['branch']}`. " if preceding_pr else ""
                 step_options["extra_text"] = (
-                    "Direct submission: do not read shared reference files or re-verify code. "
+                    f"Direct submission: do not read shared reference files or re-verify code. {target_base}"
                     "Compose the final description with `pr body` and mark the PR ready with `pr ready --expect-head` immediately. "
                     "Be direct and concise."
                 )
             elif step == "review-changes":
+                base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
-                        "Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD`) and verifying that the earlier "
-                        "finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
+                        f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
+                        "and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
-                        "Inspect the commit diff (`git diff origin/main...HEAD`), run existing project test gates (`make check`, `make test`), "
+                        f"Inspect the commit diff (`git diff {base_ref}...HEAD`), run existing project test gates (`make check`, `make test`), "
                         "and post the verdict comment directly with `pr comment`. "
                         "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
                     )
-
+            elif step == "implement-issue" and preceding_pr:
+                step_options["extra_text"] = (
+                    f"Stacked PR: Preceding child #{preceding_pr['number']} has an open PR #{preceding_pr['pr']} on branch `{preceding_pr['branch']}`. "
+                    f"Base your implementation on branch `{preceding_pr['branch']}` (`git checkout -b <branch> {preceding_pr['branch']}`) rather than `origin/main`. "
+                    f"When creating the draft PR, set `--base {preceding_pr['branch']}`."
+                )
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options)
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
@@ -529,10 +668,11 @@ def main(argv=None):
         if args.once:
             break
 
-    if delivered:
+    if delivered and owner and project:
         run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
+    elif delivered:
+        print(f"[{time.strftime('%X')}] Burndown complete. Delivered items: {', '.join(str(d) for d in delivered)}")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())
