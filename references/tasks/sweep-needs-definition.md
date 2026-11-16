@@ -9,7 +9,7 @@ Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/aut
 Query open issues in the subject repository with the label `triage:needs-definition`:
 
 ```bash
-gh issue list --repo OWNER/REPO --label "triage:needs-definition" --limit 50
+python3 "$GHFLOW_CLI" triage needs-definition --repo OWNER/REPO
 ```
 
 Optionally filter by a specific parent issue or component area. If no issues carry the label, report that all accepted issues are fully defined and stop.

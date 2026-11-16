@@ -13,7 +13,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit
+from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -3759,6 +3759,103 @@ class QueueSelectTests(unittest.TestCase):
         result, status = queue_select("o", 6, gh=board)
         self.assertEqual((status, result["selection"]), (0, []))
         self.assertEqual(len(result["unresolved"]), 1)
+
+
+def triage_item(number, priority=None, labels=(), sub_issues=0, status="Backlog", size=None, state="OPEN", kind="Issue"):
+    content = {"__typename": kind, "url": f"https://github.com/o/r/issues/{number}",
+               "repository": {"nameWithOwner": "o/r"}}
+    if kind == "Issue":
+        content.update(number=number, title=f"Issue {number}", state=state,
+                       labels={"nodes": [{"name": name} for name in labels]},
+                       subIssues={"totalCount": sub_issues})
+    named = lambda value: {"name": value} if value else None
+    return {"id": f"I{number}", "content": content, "status": named(status), "priority": named(priority), "size": named(size)}
+
+
+def issue_node(number, state="OPEN"):
+    return {"number": number, "title": f"Issue {number}", "url": f"https://github.com/o/r/issues/{number}", "state": state}
+
+
+class FakeIssueRepo:
+    def __init__(self, pages):
+        self.pages = pages
+        self.calls = []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        cursor = next((a.split("=", 1)[1] for a in args if a.startswith("cursor=")), None)
+        index = int(cursor) if cursor else 0
+        page = self.pages[index]
+        if isinstance(page, Exception):
+            raise page
+        if "errors" in page:
+            return page
+        info = page.get("info", {"hasNextPage": index + 1 < len(self.pages), "endCursor": str(index + 1)})
+        return {"data": {"repository": {"issues": {"nodes": page["nodes"], "pageInfo": info}}}}
+
+
+class TriageTests(unittest.TestCase):
+    def test_untriaged_keeps_unset_priority_and_plain_labels(self):
+        board = FakeQueueBoard([{"nodes": [triage_item(1, priority="P0"), triage_item(2)]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual(status, 0)
+        self.assertEqual([e["number"] for e in result["selection"]], [1, 2])
+
+    def test_untriaged_excludes_triage_label_null_priority_subissues_closed_and_pr(self):
+        board = FakeQueueBoard([{"nodes": [
+            triage_item(1, priority="P0"),
+            triage_item(2, priority="P0", labels=("triage:ready",)),
+            triage_item(3, priority="P-null"),
+            triage_item(4, priority="P0", sub_issues=3),
+            triage_item(5, priority="P0", state="CLOSED"),
+            triage_item(6, priority="P0", kind="PullRequest"),
+        ]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1]))
+
+    def test_untriaged_named_pnull_excluded_but_unset_priority_kept(self):
+        board = FakeQueueBoard([{"nodes": [triage_item(1), triage_item(2, priority="P-null")]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1]))
+
+    def test_ready_selects_unprioritized_ready_issues(self):
+        board = FakeQueueBoard([{"nodes": [
+            triage_item(1, labels=("triage:ready",)),
+            triage_item(2, priority="P0", labels=("triage:ready",)),
+            triage_item(3, labels=("enhancement",)),
+            triage_item(4, priority="P-null", labels=("triage:ready",)),
+        ]}])
+        result, status = triage_list("ready", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1]))
+
+    def test_board_category_requires_owner_and_project(self):
+        result, status = triage_list("untriaged", gh=FakeQueueBoard([{"nodes": []}]))
+        self.assertEqual(status, 2)
+        self.assertFalse(result["complete"])
+
+    def test_repo_category_reads_label_across_pages(self):
+        repo = FakeIssueRepo([{"nodes": [issue_node(1), issue_node(2)]}, {"nodes": [issue_node(3)]}])
+        result, status = triage_list("blocked", repo="o/r", gh=repo)
+        self.assertEqual(status, 0)
+        self.assertEqual([e["number"] for e in result["selection"]], [1, 2, 3])
+        self.assertEqual(result["pages"], 2)
+
+    def test_repo_category_requires_repo(self):
+        result, status = triage_list("blocked", gh=FakeIssueRepo([{"nodes": []}]))
+        self.assertEqual(status, 2)
+        self.assertFalse(result["complete"])
+
+    def test_agent_closed_reports_closed_state(self):
+        repo = FakeIssueRepo([{"nodes": [issue_node(1, state="CLOSED")]}])
+        result, status = triage_list("agent-closed", repo="o/r", gh=repo)
+        self.assertEqual(status, 0)
+        self.assertEqual(result["selection"][0]["state"], "CLOSED")
+
+    def test_malformed_issues_page_is_incomplete(self):
+        repo = FakeIssueRepo([{"errors": [{"message": "boom"}]}])
+        result, status = triage_list("blocked", repo="o/r", gh=repo)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["complete"])
 
 
 def summary_issue(labels=(), prs=(), status="In review", project=6):

@@ -9,7 +9,7 @@ Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/aut
 Identify the issues to evaluate:
 - A parent issue number (evaluating the sub-issues attached to that parent),
 - An explicit list of issue numbers, or
-- A query of open issues without `triage:*` labels, optionally filtered by area label (such as `core` or `tui`).
+- A query of open issues without `triage:*` labels: `python3 "$GHFLOW_CLI" triage untriaged --owner OWNER --project NUMBER`.
 
 Keep batch sizes bounded to 5 to 10 issues per run to ensure thorough inspection of target code and git history. When a parent issue contains more than 10 sub-issues, split the work into parallel slices of 5 to 8 issues to maintain high inspection depth.
 

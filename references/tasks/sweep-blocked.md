@@ -6,7 +6,13 @@ Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/aut
 
 ## List blocked issues
 
-Query open issues in the subject repository with the label `triage:blocked`. If none carry it, report that and stop.
+Query open issues in the subject repository with the label `triage:blocked`:
+
+```bash
+python3 "$GHFLOW_CLI" triage blocked --repo OWNER/REPO
+```
+
+If none carry it, report that and stop.
 
 ## Check each issue's blockers
 

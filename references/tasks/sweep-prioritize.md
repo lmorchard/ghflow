@@ -7,7 +7,7 @@ Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence
 ## Select the candidate pool
 
 Identify the set of issues to prioritize:
-- **Unprioritized sweep**: Open issues with label `triage:ready` that lack a `Priority` field on the project board, typically scoped by parent theme.
+- **Unprioritized sweep**: Open issues with label `triage:ready` that lack a `Priority` field on the project board, from `python3 "$GHFLOW_CLI" triage ready --owner OWNER --project NUMBER`, typically scoped by parent theme.
 - **Re-sweep of lower tiers**: Query existing issues below `P1` when curate-ready-queue reports a thin `P0`/`P1` pool, when the active `P0`/`P1` queue is exhausted, when a milestone completes, or when new architecture makes previously deferred tasks high-leverage.
 
 When the user says the re-sweep feeds an unattended run, also check each candidate against the conditions in [Unattended fit](curate-ready-queue.md#unattended-fit) and report the result beside its suggested priority. Fit is evidence for the user's promotion decision, not a promotion by itself.
