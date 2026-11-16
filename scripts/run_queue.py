@@ -30,6 +30,7 @@ def run_cli(*args, cwd=None, cli_path=None):
     cli = str(cli_path or find_cli())
     cmd = [sys.executable, cli, *args]
     proc = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True)
+    out = None
     if proc.stdout.strip():
         try:
             out = json.loads(proc.stdout)
@@ -193,6 +194,7 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
     pr = prs[0] if prs else None
     state = {
         "issue": issue.get("url") or str(issue_ref),
+        "url": issue.get("url") or str(issue_ref),
         "number": issue_ref if isinstance(issue_ref, int) else (issue.get("number")),
         "title": issue.get("title"),
         "labels": issue.get("labels") or [],
@@ -385,7 +387,7 @@ def main(argv=None):
         if item is None:
             print(f"[{time.strftime('%X')}] No more actionable items on board.")
             break
-        issue_ref = item.get("url") or str(item.get("number")) or item.get("issue")
+        issue_ref = item.get("url") or item.get("issue") or (str(item["number"]) if item.get("number") is not None else None)
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
 
