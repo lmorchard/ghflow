@@ -300,10 +300,12 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
 
         def fake_subproc_run(cmd, **kwargs):
             subproc_calls.append(cmd)
-            # Simulate opencode run returning session_id
-            if "run" in cmd:
-                return MagicMock(returncode=0, stdout='{"id": "ses_test123"}', stderr="")
             return MagicMock(returncode=0, stdout="", stderr="")
+
+        mock_proc = MagicMock()
+        mock_proc.stdout = ['{"type": "step_start", "sessionID": "ses_test123"}\n', '{"type": "step_finish"}\n']
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = 0
 
         with tempfile.TemporaryDirectory() as tmp:
             notes_dir = Path(tmp)
@@ -312,10 +314,10 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             (skill_dir / "SKILL.md").write_text("# Skill", encoding="utf-8")
             options = {"skill_dir": str(skill_dir), "opencode_cmd": "fake_opencode"}
 
-            with patch("subprocess.run", side_effect=fake_subproc_run):
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run", side_effect=fake_subproc_run):
                 ok, ses_id = run_queue.run_session("review-changes", "https://github.com/o/r/issues/1",
                                                    notes_dir, options, cli_fn=fake_cli)
-
             self.assertTrue(ok)
             self.assertEqual(ses_id, "ses_test123")
             # Verified handoff passed --verdict for review-changes

@@ -280,15 +280,47 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
         cmd = ["caffeinate", "-i", *cmd]
 
     env = dict(os.environ, OPENCODE_DISABLE_AUTOUPDATE="1")
-    proc = subprocess.run(cmd, stdin=subprocess.DEVNULL, capture_output=True, text=True,
-                          cwd=options.get("cwd"), env=env, timeout=options.get("session_timeout", 3600))
     session_log = notes_dir / f"session-{step}-{stamp}.log"
-    session_log.write_text((proc.stdout or "") + ("\n--- stderr ---\n" + proc.stderr if proc.stderr else ""), encoding="utf-8")
+    print(f"[{time.strftime('%X')}] Logging session output to {session_log}")
+    log_fp = open(session_log, "w", encoding="utf-8")
+    proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
+                            stderr=subprocess.STDOUT, text=True, cwd=options.get("cwd"), env=env, bufsize=1)
     session_id = None
-    if proc.stdout:
-        m = re.search(r'"session_id":\s*"([^"]+)"', proc.stdout) or re.search(r'"id":\s*"([^"]+)"', proc.stdout)
-        if m:
-            session_id = m.group(1)
+    step_num = 0
+    try:
+        for line in proc.stdout:
+            log_fp.write(line)
+            log_fp.flush()
+            line_str = line.strip()
+            if not line_str:
+                continue
+            try:
+                event = json.loads(line_str)
+            except json.JSONDecodeError:
+                continue
+            if not session_id and event.get("sessionID"):
+                session_id = event["sessionID"]
+                print(f"[{time.strftime('%X')}] Session ID: {session_id}", flush=True)
+            ev_type = event.get("type")
+            part = event.get("part") or {}
+            if ev_type == "step_start":
+                step_num += 1
+            elif ev_type == "tool" or part.get("type") == "tool":
+                tool_name = part.get("name") or part.get("tool") or event.get("name") or "tool"
+                tool_in = (part.get("state") or {}).get("input") or {}
+                cmd_summary = tool_in.get("command") or tool_in.get("filePath") or tool_in.get("path") or ""
+                if cmd_summary:
+                    cmd_summary = f" {cmd_summary[:60]}"
+                print(f"[{time.strftime('%X')}] [turn {step_num}] Tool: {tool_name}{cmd_summary}", flush=True)
+            elif ev_type == "step_finish" or part.get("type") == "step-finish":
+                tokens = part.get("tokens") or {}
+                in_tok = tokens.get("input", 0)
+                out_tok = tokens.get("output", 0)
+                print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens)", flush=True)
+        proc.wait(timeout=options.get("session_timeout", 3600))
+    finally:
+        log_fp.close()
+
     if session_id:
         subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
