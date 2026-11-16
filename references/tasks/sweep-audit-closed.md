@@ -9,7 +9,7 @@ Apply [Authorization](../shared/authorization.md) and [Evidence](../shared/evide
 Query closed issues in the subject repository carrying the `triage:agent-closed` label:
 
 ```bash
-gh issue list --repo OWNER/REPO --state closed --label "triage:agent-closed" --limit 50
+python3 "$GHFLOW_CLI" triage agent-closed --repo OWNER/REPO
 ```
 
 If no issues carry the label, report that there are no agent-closed issues to audit and stop.

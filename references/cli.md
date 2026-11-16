@@ -125,3 +125,13 @@ The CI cell names the checks that are not passed or skipped, such as `failing: t
 Review evidence and unattended decisions are not GitHub facts and are not included. It exits 2 when an issue, or a part of its linked PR's checks or review state, could not be read.
 
 `budget --log FILE` reads the clock and reports `remaining_minutes` to the recorded deadline, finished spans, open spans, and the last and longest duration of each kind. `--deadline T` records the deadline, as ISO 8601 or the launcher's `YYYY-MM-DD HH:MM ZONE`, read as local time. `--start KIND:ID` and `--end KIND:ID` mark a task, such as `review:164`. `--need review,ready` adds the sum of each kind's longest duration and `fits`, which is null when a kind is not measured yet or no deadline is recorded. It exits 1 for an end without a start.
+
+## Triage sweep queries
+
+`triage CATEGORY` returns the deterministic issue selection for one triage sweep, so a sweep does not derive its own query each run. `CATEGORY` is `untriaged`, `ready`, `needs-input`, `needs-definition`, `blocked`, or `agent-closed`.
+
+Board categories read every board page and validate each page, as `queue select` does. `triage untriaged --owner OWNER --project NUMBER` selects open issues with no `triage:*` label, no open sub-issues, and a Priority other than the literal `P-null` marker. An unset Priority stays, because a normal issue that has not been prioritized yet is still untriaged. `triage ready --owner OWNER --project NUMBER` selects open issues carrying `triage:ready` that still lack a Priority, the pool for [sweep-prioritize](tasks/sweep-prioritize.md).
+
+Label categories read one repository. `triage needs-input`, `triage needs-definition`, and `triage blocked --repo OWNER/NAME` select open issues with `triage:needs-input`, `triage:needs-definition`, and `triage:blocked`. `triage agent-closed --repo OWNER/NAME` selects closed issues with `triage:agent-closed`. The label and state come from the category map, never input, and every page is validated.
+
+Each selection entry carries `issue`, `number`, `title`, `url`, `repo`, and `state`; board entries also carry `status`, `priority`, `size`, and `labels`. `complete: true` means every page was read. A failed or partial read returns no selection and exits 2. Missing `--owner`/`--project` for a board category or `--repo` for a label category is a usage error.

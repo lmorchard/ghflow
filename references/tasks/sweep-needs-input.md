@@ -9,7 +9,7 @@ Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/aut
 Query open issues in the subject repository with the label `triage:needs-input`:
 
 ```bash
-gh issue list --repo OWNER/REPO --label "triage:needs-input" --limit 50
+python3 "$GHFLOW_CLI" triage needs-input --repo OWNER/REPO
 ```
 
 If no issues carry the label, report that the input backlog is clear and stop.
