@@ -743,5 +743,38 @@ class ParentSubIssueTests(unittest.TestCase):
 
         # Board status updates occurred
         self.assertTrue(any("In progress" in str(m) for m in board_moves))
+        # The runner created the worktree and named it in the directive
+        self.assertIn("/tmp/wt/issue-102", extra)
+        self.assertEqual(child2_session[2].get("branch"), "issue-102")
+        self.assertIn("created now", extra)
+
+    def test_reused_worktree_directive_asks_for_resumption(self):
+        captured = {}
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+            captured.update(options)
+            return True, "ses_id"
+
+        state = {"issue": "https://github.com/o/r/issues/7", "number": 7, "title": "Fix it",
+                 "labels": ["triage:ready"], "pr": None}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "worktree" and args[1] == "create":
+                return {"path": "/repo/.claude/worktrees/issue-7-fix-it", "action": "exists"}, 3
+            return {}, 0
+
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": state["issue"]}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            run_queue.main(["--once", "--notes-dir", tmp])
+        extra = captured.get("extra_text", "")
+        self.assertIn("reused from an earlier attempt", extra)
+        self.assertIn("continue that work", extra)
+        self.assertIn("not overwritten", extra)
 if __name__ == "__main__":
     unittest.main()

@@ -696,11 +696,18 @@ def main(argv=None):
                 )
                 if worktree:
                     step_options["branch"] = worktree["branch"]
-                    directive += (
-                        f" Worktree: {worktree['path']} on branch {worktree['branch']}"
-                        f" ({'created now' if worktree['created'] else 'reused from an earlier attempt'})."
-                        " Do the project's worktree setup there, then read and edit the files in it."
-                    )
+                    if worktree["created"]:
+                        directive += (
+                            f" Worktree: {worktree['path']} on branch {worktree['branch']}, created now."
+                            " Do the project's worktree setup there, then read and edit the files in it."
+                        )
+                    else:
+                        directive += (
+                            f" Worktree: {worktree['path']} on branch {worktree['branch']}, reused from an earlier attempt."
+                            " Read its uncommitted changes and its task notes first, and continue that work instead of"
+                            " starting a competing implementation or resetting the branch. Do the project's worktree setup"
+                            " only where it is still missing, so an existing configuration is not overwritten."
+                        )
                 else:
                     directive += (
                         " No worktree was prepared, so create it with `worktree create ISSUE_URL --branch BRANCH`, "
