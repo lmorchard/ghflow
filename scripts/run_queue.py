@@ -598,7 +598,7 @@ def main(argv=None):
 
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
-        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir)
+        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir, cli_fn=run_cli)
         if code != 0:
             park_failures.append({"issue": issue_url, "reason": text, "output": out})
         return code
@@ -688,7 +688,7 @@ def main(argv=None):
                         "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
                     )
             elif step == "implement-issue":
-                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options)
+                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
                 directive = (
                     "Workspace: the runner already prepared the task worktree from the fetched default branch. "
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
