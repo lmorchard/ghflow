@@ -17,6 +17,8 @@ When a fact or choice is missing, apply [Decisions](../shared/decisions.md). Set
 
 ## Prepare an isolated workspace
 
+Apply [Workspace isolation](../shared/workspace.md) before your first read of the code you will change. Creating the worktree comes before surveying, not after.
+
 Inspect the current status, branches, and existing worktrees before you change anything. Preserve unrelated work.
 
 Determine the base branch from the project or the request. Do not assume it is `main` or that the current checkout is the right base. Refresh its remote reference when access permits.

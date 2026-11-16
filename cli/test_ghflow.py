@@ -1,4 +1,5 @@
 import io
+import contextlib
 import json
 import os
 import shlex
@@ -3680,6 +3681,32 @@ class ParkTests(unittest.TestCase):
         fake = FakeParkGitHub(state="MERGED")
         result, status = self.park(fake)
         self.assertEqual((status, fake.writes), (3, []))
+
+    def test_park_without_a_pr_labels_and_comments_the_issue(self):
+        fake = FakeParkGitHub()
+        result, status = park_delivery("o/r", 5, None, None, "blocker", self.text,
+                                       gh=fake.gh, gh_text=fake.gh_text, confirm=lambda: None)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertIsNone(result["pr"])
+        self.assertIn("triage:needs-input", fake.labels)
+        self.assertNotIn("triage:ready", fake.labels)
+        self.assertIn("**Parked (blocker)**", fake.comments[-1])
+        self.assertEqual(fake.writes, [["issue", "edit"], ["issue", "comment"]])
+        self.assertEqual(result["readback"], {"labels": True, "comment": True})
+
+    def test_park_command_accepts_no_pr(self):
+        calls = []
+
+        def fake_park(issue_repo, issue_number, pr_repo, pr_number, kind, text_file):
+            calls.append((issue_repo, issue_number, pr_repo, pr_number))
+            return {"issue": f"{issue_repo}#{issue_number}", "pr": None}, 0
+
+        buffer = io.StringIO()
+        with patch("ghflow.park_delivery", side_effect=fake_park), contextlib.redirect_stdout(buffer):
+            status = main(["park", "https://github.com/o/r/issues/5",
+                           "--kind", "blocker", "--text", str(self.text)])
+        self.assertEqual(status, 0)
+        self.assertEqual(calls, [("o/r", 5, None, None)])
 
 
 if __name__ == "__main__":

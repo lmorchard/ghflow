@@ -23,6 +23,12 @@ The CLI uses Python and the standard library. Its operations include `pr-state`,
 The [CLI reference](../../references/cli.md) explains PR and commit results. Installed command help supplies other command details.
 The CLI does not call models, select tasks, schedule work, or infer approval.
 
+## Deterministic steps in unattended delivery
+
+An unattended run separates decisions from mechanics. The model decides content: what the issue needs, which files to change, and how the code should read. The runner performs mechanics that have one correct answer: which branch and worktree to use, which base revision, which board transition, which label, and whether the session progressed.
+
+A mechanic moves into the runner when a trial shows the model can skip it, vary it, or spend its budget on rediscovering it. The [queue runner proposal](../research/queue-runner.md#deterministic-steps) lists the steps the runner already owns and the ones still open. The runner records each mechanic in its log, so a run can be read back without the session transcript.
+
 ## Skill package and delivery
 
 The repository root contains the single `ghflow` skill. Task procedures and shared rules live in `references/`.

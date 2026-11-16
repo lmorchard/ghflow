@@ -122,6 +122,25 @@ During the day, Les stages work with `curate-ready-queue` and answers parked que
 
 Tests use `unittest` in `scripts/test_run_queue.py` and `cli/test_ghflow.py`.
 
+## Deterministic steps
+
+The runner performs every mechanic that has one correct answer. A model session receives the facts it needs and does not rediscover them.
+
+| Step | Owner | Evidence |
+| --- | --- | --- |
+| Select the next item (board or parent) | Runner | `next_item`, `next_item_for_parent` |
+| Decide the step for an observed state | Runner | `next_step`, pure function |
+| Choose the branch name and base revision | Runner | `prepare_worktree` calls `worktree create`, which fetches and branches from `origin/<default>` |
+| Create the worktree | Runner | Same call, before the session starts; exit 3 reuses a resumed worktree |
+| Move the issue In progress and In review | Runner | `set_board_status` |
+| Detect no progress, failure, or a stall | Runner | Progress rule, session ceilings, reasoning-loop abort |
+| Park an issue, with or without a PR | Runner | `park_issue` and `park` |
+| Answer the issue: scope, design, code, tests | Session | The issue body and decisions |
+| Prepare the project's worktree setup | Session, for now | Project facts, such as copying `.env` and running `uv sync` |
+| Commit, push, and open the draft PR | Session | Task references |
+
+The last two rows are open. A session that spends its budget on setup or on publishing is still a session that can skip a step the runner could take.
+
 ## Limits
 
 1. One process, one session at a time, one repository. No locks, worker pools, or multi-repository support.
