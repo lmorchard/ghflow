@@ -28,6 +28,7 @@ def session_excerpt(log_path, limit=EXCERPT_CHARS):
         text = Path(log_path).read_text(encoding="utf-8", errors="replace").strip()
     except OSError:
         return ""
+    text = text.replace("\x00", "")
     return text[-limit:] if len(text) > limit else text
 
 
@@ -48,6 +49,18 @@ def parse_text_events(stdout):
         elif event.get("type") == "text" and isinstance(event.get("text"), str):
             parts.append(event["text"])
     return "\n".join(parts).strip()
+
+
+def parse_session_id(stdout):
+    """Return the first OpenCode session ID in an event stream, or None."""
+    for line in (stdout or "").splitlines():
+        try:
+            event = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if isinstance(event, dict) and isinstance(event.get("sessionID"), str):
+            return event["sessionID"]
+    return None
 
 
 def deterministic_summary(step, issue, success, info, pr_url=None, head=None):
@@ -96,9 +109,17 @@ def summarize_session(step, issue, success, info, log_path, options, run=subproc
     try:
         proc = run(cmd, capture_output=True, text=True, timeout=SUMMARY_TIMEOUT_SECONDS,
                    cwd=options.get("cwd"), env=env)
-    except (OSError, subprocess.TimeoutExpired) as error:
+    except Exception as error:
+        # A spawn failure, a timeout, or a malformed argument must not stop the run.
         print_fn(f"[notebook] summary model call failed: {error}; using facts")
         return fallback, "facts"
+    session_id = parse_session_id(proc.stdout)
+    if session_id:
+        try:
+            run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
+                capture_output=True, text=True, timeout=30)
+        except Exception as error:
+            print_fn(f"[notebook] summary session cleanup failed: {error}")
     if proc.returncode != 0:
         print_fn(f"[notebook] summary model call exited {proc.returncode}; using facts")
         return fallback, "facts"

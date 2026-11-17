@@ -9,7 +9,11 @@
 - Current state: implementation complete; `make check` passed (142 tests). Live discussion posting verified on 2026-11-16.
 - Live result: `lmorchard/ghflow` now has Discussions enabled with the `Lab Notebook` (`lab-notebook`) category; discussion #165 "Run notebook 2026-11-16" was created and a comment appended, both read back. The existing token created the discussion, so `write:discussion` is not required for repository discussions with a `repo`-scoped token.
 - Fix found in live use: a created discussion keeps its body on `Discussion.body`, not in `comments`. The read-back now checks `body` and `author`; the first live create reported exit 2 until this fix.
-- Next action: commit, open the draft PR, dispatch independent review, then the ready submission.
+- Delivery: PR #166, head `35bf74e`, draft. Hosted `check` passed.
+- Review (fresh context, same model `otari-mozilla/deepseek/deepseek-v4.1-flash-1017`): verdict `findings` on `35bf74e` with one blocking finding (a successful retry posted no note) and notes.
+- Corrections: post the retry note; delete the summary session; drop NUL bytes and catch any spawn failure; print "posted" only after a post; document the notebook in `docs/setup.md`.
+- Declined note: reading post-session state for the note costs an extra GitHub read per step; the next observation shows the PR.
+- Next action: rerun `make check`, commit, push, and re-review the new head.
 
 ## Verified facts (2026-11-16)
 

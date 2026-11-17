@@ -749,8 +749,9 @@ class NotebookPublishingTests(unittest.TestCase):
     issue_url = "https://github.com/o/r/issues/1"
     pr_url = "https://github.com/o/r/pull/1"
 
-    def run_once(self, discussion_result):
+    def run_once(self, discussion_result, session_results=None):
         calls, bodies, comments = [], [], []
+        session_results = list(session_results or [(True, "ses_1")])
         done = {"issue": self.issue_url, "number": 1, "labels": ["triage:ready"],
                 "pr": {"url": self.pr_url, "head": "c1", "is_draft": False},
                 "ci": "green", "pending_review_requests": []}
@@ -780,7 +781,7 @@ class NotebookPublishingTests(unittest.TestCase):
             log.write_text('{"type": "step_start"}\n', encoding="utf-8")
             if log_hook:
                 log_hook(log)
-            return True, "ses_1"
+            return session_results.pop(0)
 
         with tempfile.TemporaryDirectory() as tmp:
             with patch("run_queue.discover_project", return_value=("o", 12)), \
@@ -810,6 +811,15 @@ class NotebookPublishingTests(unittest.TestCase):
         self.assertEqual(len(comments), 1)
         self.assertIn("Work started", comments[0])
         self.assertIn("issue-1-narrate-runs", comments[0])
+
+    def test_retry_posts_a_note_for_the_successful_attempt(self):
+        calls, bodies, comments, summarize, _ = self.run_once(
+            None, session_results=[(False, "timed out"), (True, "ses_1")])
+        self.assertEqual(summarize.call_count, 2)
+        self.assertFalse(summarize.call_args_list[0].args[2])
+        self.assertTrue(summarize.call_args_list[1].args[2])
+        self.assertEqual(len(bodies), 4)  # start, failed attempt, successful retry, finish
+        self.assertEqual(len([b for b in bodies if "implement-issue" in b]), 2)
 
     def test_unavailable_notebook_keeps_the_run_going(self):
         calls, bodies, comments, summarize, code = self.run_once(

@@ -64,6 +64,46 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("--model", cmd)
         self.assertIn("tool output the model should read", cmd[-1])
 
+    def test_nul_bytes_are_dropped_from_the_excerpt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("keep\x00this", encoding="utf-8")
+            excerpt = narrative.session_excerpt(path)
+        self.assertEqual(excerpt, "keepthis")
+
+    def test_spawn_failure_falls_back_to_facts(self):
+        def run(cmd, **kwargs):
+            raise ValueError("embedded null byte")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            summary, source = narrative.summarize_session(
+                "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                {"opencode_cmd": "fake"}, run=run, print_fn=lambda *a: None)
+        self.assertEqual(source, "facts")
+
+    def test_summary_session_is_deleted(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[1:2] == ["session"]:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            return SimpleNamespace(returncode=0, stderr="", stdout="\n".join([
+                json.dumps({"type": "step_start", "sessionID": "ses_9"}),
+                json.dumps({"type": "text", "part": {"type": "text", "text": "- Done."}}),
+            ]))
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            summary, source = narrative.summarize_session(
+                "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                {"opencode_cmd": "fake"}, run=run, print_fn=lambda *a: None)
+        self.assertEqual((summary, source), ("- Done.", "model"))
+        self.assertIn(["fake", "session", "delete", "ses_9"], calls)
+
     def test_model_failure_falls_back_to_facts(self):
         def run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd="fake", timeout=1)

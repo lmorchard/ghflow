@@ -624,8 +624,9 @@ def main(argv=None):
         summary, source = narrative.summarize_session(step, issue_url, success, info,
                                                       log_path or "", options)
         pr = state.get("pr") or {}
-        notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
-        print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
+        posted = notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
+        if posted:
+            print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
 
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
@@ -764,8 +765,8 @@ def main(argv=None):
                 captured = {}
                 success, info = run_session(step, state["issue"], notes_dir, step_options,
                                             log_hook=lambda path: captured.update(log=path))
+                note_session(step, state["issue"], success, info, captured.get("log"), state)
                 if not success:
-                    note_session(step, state["issue"], success, info, captured.get("log"), state)
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
