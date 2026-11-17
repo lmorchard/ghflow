@@ -13,7 +13,8 @@
 - Review (fresh context, same model `otari-mozilla/deepseek/deepseek-v4.1-flash-1017`): verdict `findings` on `35bf74e` with one blocking finding (a successful retry posted no note) and notes.
 - Corrections: post the retry note; delete the summary session; drop NUL bytes and catch any spawn failure; print "posted" only after a post; document the notebook in `docs/setup.md`.
 - Declined note: reading post-session state for the note costs an extra GitHub read per step; the next observation shows the PR.
-- Next action: rerun `make check`, commit, push, and re-review the new head.
+- Re-review of `78eab09`: verdict `clean`, no blocking findings. Notes settled: delete the summary session on a timeout, pass stdin=DEVNULL, print only for a real post; declined pre-session state; the notes line is updated here.
+- Next action: commit these final notes fixes, rerun `make check`, push, then the ready submission with the reviewed head.
 
 ## Verified facts (2026-11-16)
 

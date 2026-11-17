@@ -104,6 +104,25 @@ class SummaryTests(unittest.TestCase):
         self.assertEqual((summary, source), ("- Done.", "model"))
         self.assertIn(["fake", "session", "delete", "ses_9"], calls)
 
+    def test_timed_out_summary_session_is_deleted(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            if cmd[1:2] == ["session"]:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            raise subprocess.TimeoutExpired(cmd=cmd, timeout=1,
+                                            output=json.dumps({"type": "step_start", "sessionID": "ses_7"}) + "\n")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            summary, source = narrative.summarize_session(
+                "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                {"opencode_cmd": "fake"}, run=run, print_fn=lambda *a: None)
+        self.assertEqual(source, "facts")
+        self.assertIn(["fake", "session", "delete", "ses_7"], calls)
+
     def test_model_failure_falls_back_to_facts(self):
         def run(cmd, **kwargs):
             raise subprocess.TimeoutExpired(cmd="fake", timeout=1)

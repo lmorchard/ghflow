@@ -72,6 +72,15 @@ def deterministic_summary(step, issue, success, info, pr_url=None, head=None):
     return "\n".join(bullets)
 
 
+def delete_summary_session(run, options, session_id, print_fn=print):
+    """Delete one OpenCode session created by the summary call; never raise."""
+    try:
+        run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
+            stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
+    except Exception as error:
+        print_fn(f"[notebook] summary session cleanup failed: {error}")
+
+
 def summary_prompt(step, issue, success, info, excerpt):
     outcome = "succeeded" if success else f"failed ({info or 'no detail'})"
     return (
@@ -112,14 +121,13 @@ def summarize_session(step, issue, success, info, log_path, options, run=subproc
     except Exception as error:
         # A spawn failure, a timeout, or a malformed argument must not stop the run.
         print_fn(f"[notebook] summary model call failed: {error}; using facts")
+        session_id = parse_session_id(getattr(error, "output", "") or "")
+        if session_id:
+            delete_summary_session(run, options, session_id, print_fn)
         return fallback, "facts"
     session_id = parse_session_id(proc.stdout)
     if session_id:
-        try:
-            run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
-                capture_output=True, text=True, timeout=30)
-        except Exception as error:
-            print_fn(f"[notebook] summary session cleanup failed: {error}")
+        delete_summary_session(run, options, session_id, print_fn)
     if proc.returncode != 0:
         print_fn(f"[notebook] summary model call exited {proc.returncode}; using facts")
         return fallback, "facts"

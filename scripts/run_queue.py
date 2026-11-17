@@ -625,7 +625,7 @@ def main(argv=None):
                                                       log_path or "", options)
         pr = state.get("pr") or {}
         posted = notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
-        if posted:
+        if posted is not None:
             print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
 
     def record_park(issue_url, pr_url, text):
