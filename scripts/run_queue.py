@@ -716,7 +716,7 @@ def main(argv=None):
 
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
-        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir)
+        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir, cli_fn=run_cli)
         if code != 0:
             park_failures.append({"issue": issue_url, "reason": text, "output": out})
         return code
@@ -807,7 +807,7 @@ def main(argv=None):
                         "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
                     )
             elif step == "implement-issue":
-                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options)
+                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
                 directive = (
                     "Workspace: the runner already prepared the task worktree from the fetched default branch. "
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
@@ -815,10 +815,17 @@ def main(argv=None):
                 )
                 if worktree:
                     step_options["branch"] = worktree["branch"]
-                    directive += (
-                        f" Worktree: {worktree['path']} on branch {worktree['branch']}"
-                        f" ({'created now' if worktree['created'] else 'reused from an earlier attempt'})."
-                    )
+                    if worktree["created"]:
+                        directive += (
+                            f" Worktree: {worktree['path']} on branch {worktree['branch']}, created now."
+                            " Do the project's worktree setup there, then read and edit the files in it."
+                        )
+                    else:
+                        directive += (
+                            f" Worktree: {worktree['path']} on branch {worktree['branch']}, reused from an earlier attempt."
+                            " Read its uncommitted changes and its task notes first, and continue that work instead of"
+                            " starting a competing implementation or resetting the branch."
+                        )
                     setup = worktree.get("setup") or {}
                     if setup.get("source") == "project_facts":
                         directive += (
@@ -827,12 +834,10 @@ def main(argv=None):
                             f" setup: {', '.join(setup.get('setup') or []) or 'none'})."
                             " Do not repeat those steps; check only where a command did not apply."
                         )
-                    else:
-                        directive += " Do the project's worktree setup there, then read and edit the files in it."
-                    if not worktree["created"]:
+                    elif not worktree["created"]:
                         directive += (
-                            " Read its uncommitted changes and its task notes first, and continue that work"
-                            " instead of starting a competing implementation or resetting the branch."
+                            " Do the project's worktree setup only where it is still missing,"
+                            " so an existing configuration is not overwritten."
                         )
                 else:
                     directive += (
