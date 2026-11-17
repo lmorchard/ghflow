@@ -43,6 +43,25 @@ sources:
 
 `facts` later compares these hashes with the current files and reports the changed ones as stale, so list every file that supplied a fact.
 
+## Declare the worktree setup
+
+Add a `worktree:` mapping to the frontmatter when a new worktree needs files or commands before work starts. The mapping is the executable form of the prose **Worktree setup** section; keep the prose as the explanation.
+
+```text
+worktree:
+  copy:
+    - .env
+  setup:
+    - uv sync
+```
+
+- `copy` lists files to copy from the primary checkout, such as `.env`.
+- `setup` lists commands to run in the new worktree, in order, such as `uv sync` or `make install`.
+- `worktree create` applies the declaration when the caller gives no `--copy` or `--setup`. An explicit argument replaces the whole declaration.
+- A project with no `worktree:` key keeps the earlier behavior: the session prepares the worktree from the prose.
+- `facts` reports the parsed values under `project_facts.worktree` and any malformed line under `project_facts.worktree_errors`.
+- A malformed declaration makes `worktree create` exit 2 and write nothing. Do not leave the runner to interpret a broken declaration differently for each child.
+
 ## Check the file
 
 Make sure that each fact comes from a source you read or a command you ran, and that a quoted command exists in the project. Run `python3 "$GHFLOW_CLI" facts` again and confirm `present` is true, `sources` matches the list, and `stale_sources` is empty. Commit the file in the worktree with `python3 "$GHFLOW_CLI" exec -- git commit ...`, following the project's commit conventions.

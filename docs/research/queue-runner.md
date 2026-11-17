@@ -54,7 +54,7 @@ Merge is not part of the desired state.
 | Observed state | Next step |
 | --- | --- |
 | The issue has `triage:needs-input`. | Stop with `PARKED`. |
-| The issue has no open PR. | Implement with implement-issue. The worker publishes a draft PR. |
+| The issue has no open PR. | Implement with implement-issue. The runner publishes committed work as a draft PR when the session did not. |
 | The PR is a draft and has no review verdict for its current head. | Review with review-changes. The reviewer posts a verdict. |
 | The verdict for the current head has blocking findings, and earlier blocking verdicts are below the limit. | Fix with address-pr-review, with the blocking findings. |
 | The verdict for the current head has blocking findings, and earlier blocking verdicts reached the limit. | Park with `park --kind blocker`. |
@@ -136,10 +136,10 @@ The runner performs every mechanic that has one correct answer. A model session 
 | Detect no progress, failure, or a stall | Runner | Progress rule, session ceilings, reasoning-loop abort |
 | Park an issue, with or without a PR | Runner | `park_issue` and `park` |
 | Answer the issue: scope, design, code, tests | Session | The issue body and decisions |
-| Prepare the project's worktree setup | Session, for now | Project facts, such as copying `.env` and running `uv sync` |
-| Commit, push, and open the draft PR | Session | Task references |
+| Prepare the project's worktree setup | Runner | `worktree create` applies the facts file's `worktree:` declaration before the session starts |
+| Commit, push, and open the draft PR | Session for content and commits; Runner for push and draft creation | `publish_committed` after an implementation session, through `pr create` |
 
-The last two rows are open. A session that spends its budget on setup or on publishing is still a session that can skip a step the runner could take.
+No row remains open. Issue #161 moved the last two into the runner after the epic #1434 trial showed their cost. Child #1380 spent 36 minutes and 42 turns without a worktree, branch, or PR, and child #1381 chose its own worktree path. The project facts file now supplies the setup as an executable declaration. The runner pushes committed work and opens the draft PR when a session leaves it unpublished.
 
 ## Limits
 

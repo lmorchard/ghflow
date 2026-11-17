@@ -8,8 +8,9 @@ uncommitted work, and it can start from a stale base.
 
 Create the worktree and its task branch with `python3 "$GHFLOW_CLI" worktree create`.
 It fetches the default branch and bases the new branch on `origin/<default-branch>`,
-not on the local checkout. Then do every read, edit, build, and commit in that
-worktree.
+not on the local checkout. It also applies the project facts file's `worktree:`
+declaration, so the task starts with the same copied files and setup commands as
+every other child. Then do every read, edit, build, and commit in that worktree.
 
 `worktree create` refuses an existing branch or path. That means the task is a
 resumption: reuse the existing worktree instead of making a second one.

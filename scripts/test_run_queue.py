@@ -503,7 +503,8 @@ class ParentSubIssueTests(unittest.TestCase):
 
         res = run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing", "o", 12,
                                          {"cwd": "/repo"}, cli_fn=fake_cli)
-        self.assertEqual(res, {"branch": "issue-42-add-a-thing", "path": "/repo/.claude/worktrees/issue-42-add-a-thing", "created": True})
+        self.assertEqual(res, {"branch": "issue-42-add-a-thing", "path": "/repo/.claude/worktrees/issue-42-add-a-thing",
+                               "created": True, "base": "origin/main", "setup": None})
         self.assertEqual(calls[0][:3], ("worktree", "create", "https://github.com/o/r/issues/42"))
         self.assertIn("issue-42-add-a-thing", calls[0])
         self.assertIn("--owner", calls[0])
@@ -743,5 +744,109 @@ class ParentSubIssueTests(unittest.TestCase):
 
         # Board status updates occurred
         self.assertTrue(any("In progress" in str(m) for m in board_moves))
+class PublishCommittedTests(unittest.TestCase):
+    """The runner publishes committed work that an implementation session left unpublished."""
+
+    HEAD = "a" * 40
+
+    def worktree(self):
+        return {"path": "/repo/.claude/worktrees/issue-9-fix", "branch": "issue-9-fix", "base": "origin/main"}
+
+    def test_skips_when_the_session_committed_nothing(self):
+        calls = []
+        with patch("run_queue.committed_count", return_value=0):
+            result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                 "o/r", Path("/tmp"), {}, cli_fn=lambda *a, **k: calls.append(a) or ({}, 0))
+        self.assertIsNone(result)
+        self.assertEqual(calls, [])
+
+    def test_pushes_and_opens_a_draft_pr(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        def fake_git(args, cwd=None):
+            return self.HEAD if args[0] == "rev-parse" else "- `abc1234` Change"
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=2), \
+             patch("run_queue.git_output", side_effect=fake_git):
+            result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                 "o/r", Path(tmp), {}, cli_fn=fake_cli)
+            create = calls[1]
+            body = Path(create[create.index("--body-file") + 1]).read_text()
+        self.assertEqual(result["url"], "https://github.com/o/r/pull/9")
+        self.assertEqual(calls[0], ("exec", "--", "git", "-C", "/repo/.claude/worktrees/issue-9-fix",
+                                    "push", "-u", "origin", "issue-9-fix"))
+        self.assertEqual(create[:2], ("pr", "create"))
+        self.assertEqual(create[create.index("--repo") + 1], "o/r")
+        self.assertEqual(create[create.index("--base") + 1], "main")
+        self.assertIn("--draft", create)
+        self.assertEqual(create[create.index("--expect-head") + 1], self.HEAD)
+        self.assertIn("Part of #9", body)
+        self.assertIn("`abc1234` Change", body)
+
+    def test_stops_before_creating_a_pr_when_the_push_fails(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {"error": "rejected"}, 1
+
+        with patch("run_queue.committed_count", return_value=1):
+            self.assertIsNone(run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                          "o/r", Path("/tmp"), {}, cli_fn=fake_cli))
+        self.assertEqual(len(calls), 1)
+
+    def test_uses_the_stacked_base_and_keeps_an_existing_pr(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"pr": {"url": "https://github.com/o/r/pull/8"}}, 3) if args[0] == "pr" else ({}, 0)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=1) as counted, \
+             patch("run_queue.git_output", return_value=self.HEAD):
+            self.assertIsNone(run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                          "o/r", Path(tmp), {}, base_branch="issue-8", cli_fn=fake_cli))
+        counted.assert_called_once_with("/repo/.claude/worktrees/issue-9-fix", "issue-8")
+        self.assertEqual(calls[-1][calls[-1].index("--base") + 1], "issue-8")
+
+    def test_implementation_step_publishes_after_the_session(self):
+        state = {"issue": "https://github.com/o/r/issues/1", "number": 1, "title": "Fix it", "repo": "o/r",
+                 "labels": ["triage:ready"], "pr": None}
+        published, sessions = [], []
+
+        def fake_cli(*args, cwd=None):
+            return {}, 0
+
+        def fake_session(step, issue_url, notes_dir, options, cli_fn=None):
+            sessions.append((step, options))
+            return True, "ses"
+
+        worktree = {"path": "/repo/.claude/worktrees/issue-1-fix-it", "branch": "issue-1-fix-it",
+                    "base": "origin/main", "created": True,
+                    "setup": {"source": "project_facts", "copy": [".env"], "setup": ["uv sync"]}}
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 1, "issue": state["issue"]}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.prepare_worktree", return_value=worktree), \
+             patch("run_queue.run_session", side_effect=fake_session), \
+             patch("run_queue.publish_committed", side_effect=lambda *a, **k: published.append((a, k))), \
+             patch("run_queue.park_issue", return_value=({}, 0)), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            run_queue.main(["--once", "--notes-dir", tmp])
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0][0][3], "o/r")
+        self.assertIsNone(published[0][1].get("base_branch"))
+        self.assertIn("The runner applied the project facts worktree declaration", sessions[0][1]["extra_text"])
+
+
 if __name__ == "__main__":
     unittest.main()
