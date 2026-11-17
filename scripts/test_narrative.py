@@ -111,8 +111,9 @@ class SummaryTests(unittest.TestCase):
             calls.append(cmd)
             if cmd[1:2] == ["session"]:
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
-            raise subprocess.TimeoutExpired(cmd=cmd, timeout=1,
-                                            output=json.dumps({"type": "step_start", "sessionID": "ses_7"}) + "\n")
+            raise subprocess.TimeoutExpired(
+                cmd=cmd, timeout=1,
+                output=b'{"type": "step_start", "sessionID": "ses_7"}\n\xe2\x82')
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "session.log"

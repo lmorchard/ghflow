@@ -53,10 +53,12 @@ def parse_text_events(stdout):
 
 def parse_session_id(stdout):
     """Return the first OpenCode session ID in an event stream, or None."""
+    if isinstance(stdout, bytes):
+        stdout = stdout.decode("utf-8", errors="replace")
     for line in (stdout or "").splitlines():
         try:
             event = json.loads(line)
-        except json.JSONDecodeError:
+        except (json.JSONDecodeError, UnicodeDecodeError):
             continue
         if isinstance(event, dict) and isinstance(event.get("sessionID"), str):
             return event["sessionID"]
