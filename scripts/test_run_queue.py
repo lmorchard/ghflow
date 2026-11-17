@@ -181,7 +181,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
              patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}):
             # When both --provider and --model given without slash
             with patch("run_queue.run_session") as mock_session:
-                run_queue.main(["--provider", "lmstudio", "--model", "qwen3.8-27b", "--once"])
+                run_queue.main(["--provider", "lmstudio", "--model", "qwen3.8-27b", "--once", "--no-notebook"])
             # Check options dict passed to run_session if it ran, or test arg parsing
             parser = argparse.ArgumentParser()
             # Test direct argument resolution in main logic
@@ -406,7 +406,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
     def test_review_directives_applied_to_initial_review_and_submit(self):
         captured_options = []
 
-        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
             captured_options.append((step, dict(options)))
             return True, "ses_id"
 
@@ -436,7 +436,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)):
-                run_queue.main(["--once", "--notes-dir", str(notes_dir)])
+                run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
 
         steps = [s for s, _ in captured_options]
         self.assertEqual(steps, ["review-changes", "submit-pr"])
@@ -466,7 +466,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             idx = min(len(step_calls), len(states) - 1)
             return dict(states[idx])
 
-        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
             step_calls.append(step)
             return True, "ses_id"
 
@@ -483,7 +483,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--once", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes", "submit-pr"])
                 # queue summary was called
@@ -503,7 +503,8 @@ class ParentSubIssueTests(unittest.TestCase):
 
         res = run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing", "o", 12,
                                          {"cwd": "/repo"}, cli_fn=fake_cli)
-        self.assertEqual(res, {"branch": "issue-42-add-a-thing", "path": "/repo/.claude/worktrees/issue-42-add-a-thing", "created": True})
+        self.assertEqual(res, {"branch": "issue-42-add-a-thing", "path": "/repo/.claude/worktrees/issue-42-add-a-thing",
+                               "created": True, "base": "origin/main", "setup": None})
         self.assertEqual(calls[0][:3], ("worktree", "create", "https://github.com/o/r/issues/42"))
         self.assertIn("issue-42-add-a-thing", calls[0])
         self.assertIn("--owner", calls[0])
@@ -546,7 +547,7 @@ class ParentSubIssueTests(unittest.TestCase):
         def fake_observe(issue_ref, cli_fn=None, cwd=None):
             return {"issue": str(issue_ref), "number": 1, "labels": ["triage:ready"], "pr": None}
 
-        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
             return True, "ses_id"
 
         board = {"in_flight": [], "parked": [], "selection": [{"number": 1, "issue": "https://github.com/o/r/issues/1"}]}
@@ -557,7 +558,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_run_cli):
-            status = run_queue.main(["--once", "--notes-dir", tmp])
+            status = run_queue.main(["--once", "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(status, 1)
 
     def test_parse_issue_ref(self):
@@ -710,7 +711,7 @@ class ParentSubIssueTests(unittest.TestCase):
             return dict(child2_done)
 
         captured_sessions = []
-        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
             nonlocal session_called
             session_called = True
             captured_sessions.append((step, issue_url, dict(options)))
@@ -731,7 +732,7 @@ class ParentSubIssueTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                ret = run_queue.main(["--parent", "100", "--project", "o/12", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
 
         # Child 2 was implemented
@@ -751,7 +752,7 @@ class ParentSubIssueTests(unittest.TestCase):
     def test_reused_worktree_directive_asks_for_resumption(self):
         captured = {}
 
-        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None):
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
             captured.update(options)
             return True, "ses_id"
 
@@ -769,12 +770,203 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.check_active_runs"), \
              patch("run_queue.observe_board", return_value=board), \
              patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--once", "--notes-dir", tmp])
+            run_queue.main(["--once", "--no-notebook", "--notes-dir", tmp])
         extra = captured.get("extra_text", "")
         self.assertIn("reused from an earlier attempt", extra)
         self.assertIn("continue that work", extra)
         self.assertIn("not overwritten", extra)
+
+
+class NotebookPublishingTests(unittest.TestCase):
+    issue_url = "https://github.com/o/r/issues/1"
+    pr_url = "https://github.com/o/r/pull/1"
+
+    def run_once(self, discussion_result, session_results=None):
+        calls, bodies, comments = [], [], []
+        session_results = list(session_results or [(True, "ses_1")])
+        done = {"issue": self.issue_url, "number": 1, "labels": ["triage:ready"],
+                "pr": {"url": self.pr_url, "head": "c1", "is_draft": False},
+                "ci": "green", "pending_review_requests": []}
+        states = [{"issue": self.issue_url, "number": 1, "labels": ["triage:ready"],
+                   "title": "Narrate runs", "pr": None}, dict(done)]
+
+        def fake_observe(issue_ref, cli_fn=None, cwd=None):
+            return dict(states.pop(0)) if states else dict(done)
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            if args[:2] == ("discussion", "post"):
+                bodies.append(Path(args[args.index("--body-file") + 1]).read_text(encoding="utf-8"))
+                return discussion_out, discussion_code
+            if args[:2] == ("issue", "comment"):
+                comments.append(Path(args[args.index("--text") + 1]).read_text(encoding="utf-8"))
+            return {}, 0
+
+        discussion_out = {"discussion": {"url": "https://github.com/o/r/discussions/3"}}
+        discussion_code = 0
+        if discussion_result:
+            discussion_code = discussion_result.get("_code", 0)
+            discussion_out = {k: v for k, v in discussion_result.items() if k != "_code"}
+
+        def fake_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            log = Path(notes_dir) / f"session-{step}.log"
+            log.write_text('{"type": "step_start"}\n', encoding="utf-8")
+            if log_hook:
+                log_hook(log)
+            return session_results.pop(0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            with patch("run_queue.discover_project", return_value=("o", 12)), \
+                 patch("run_queue.check_active_runs"), \
+                 patch("run_queue.observe_board", return_value={
+                     "in_flight": [], "parked": [],
+                     "selection": [{"number": 1, "issue": self.issue_url}]}), \
+                 patch("run_queue.observe_issue", side_effect=fake_observe), \
+                 patch("run_queue.prepare_worktree", return_value={
+                     "branch": "issue-1-narrate-runs", "path": "/tmp/wt", "created": True}), \
+                 patch("run_queue.run_session", side_effect=fake_session), \
+                 patch("run_queue.publish_committed", return_value=None), \
+                 patch("run_queue.narrative.summarize_session",
+                       return_value=("- Model bullet.", "model")) as summarize, \
+                 patch("run_queue.run_cli", side_effect=fake_cli):
+                status = run_queue.main(["--once", "--notes-dir", tmp])
+        self.assertEqual(status, 0)
+        return calls, bodies, comments, summarize, discussion_code
+
+    def test_run_publishes_notes_and_an_issue_checkpoint(self):
+        calls, bodies, comments, summarize, _ = self.run_once(None)
+        self.assertEqual(summarize.call_count, 1)
+        self.assertTrue(any(args[:2] == ("discussion", "post") for args in calls))
+        self.assertEqual(len(bodies), 3)  # start, step, finish
+        self.assertIn("Run start", bodies[0])
+        self.assertIn("- Model bullet.", bodies[1])
+        self.assertIn("Run end", bodies[2])
+        self.assertEqual(len(comments), 1)
+        self.assertIn("Work started", comments[0])
+        self.assertIn("issue-1-narrate-runs", comments[0])
+
+    def test_retry_posts_a_note_for_the_successful_attempt(self):
+        calls, bodies, comments, summarize, _ = self.run_once(
+            None, session_results=[(False, "timed out"), (True, "ses_1")])
+        self.assertEqual(summarize.call_count, 2)
+        self.assertFalse(summarize.call_args_list[0].args[2])
+        self.assertTrue(summarize.call_args_list[1].args[2])
+        self.assertEqual(len(bodies), 4)  # start, failed attempt, successful retry, finish
+        self.assertEqual(len([b for b in bodies if "implement-issue" in b]), 2)
+
+    def test_unavailable_notebook_keeps_the_run_going(self):
+        calls, bodies, comments, summarize, code = self.run_once(
+            {"available": False, "reason": "Discussions are disabled.", "_code": 3})
+        self.assertEqual(code, 3)
+        self.assertEqual(summarize.call_count, 0)
+        self.assertEqual(len(bodies), 1)  # the start attempt only
+        self.assertEqual(len(comments), 1)
+class PublishCommittedTests(unittest.TestCase):
+    """The runner publishes committed work that an implementation session left unpublished."""
+
+    HEAD = "a" * 40
+
+    def worktree(self):
+        return {"path": "/repo/.claude/worktrees/issue-9-fix", "branch": "issue-9-fix", "base": "origin/main"}
+
+    def test_skips_when_the_session_committed_nothing(self):
+        calls = []
+        with patch("run_queue.committed_count", return_value=0):
+            result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                 "o/r", Path("/tmp"), {}, cli_fn=lambda *a, **k: calls.append(a) or ({}, 0))
+        self.assertIsNone(result)
+        self.assertEqual(calls, [])
+
+    def test_pushes_and_opens_a_draft_pr(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        def fake_git(args, cwd=None):
+            return self.HEAD if args[0] == "rev-parse" else "- `abc1234` Change"
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=2), \
+             patch("run_queue.git_output", side_effect=fake_git):
+            result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                 "o/r", Path(tmp), {}, cli_fn=fake_cli)
+            create = calls[1]
+            body = Path(create[create.index("--body-file") + 1]).read_text()
+        self.assertEqual(result["url"], "https://github.com/o/r/pull/9")
+        self.assertEqual(calls[0], ("exec", "--", "git", "-C", "/repo/.claude/worktrees/issue-9-fix",
+                                    "push", "-u", "origin", "issue-9-fix"))
+        self.assertEqual(create[:2], ("pr", "create"))
+        self.assertEqual(create[create.index("--repo") + 1], "o/r")
+        self.assertEqual(create[create.index("--base") + 1], "main")
+        self.assertIn("--draft", create)
+        self.assertEqual(create[create.index("--expect-head") + 1], self.HEAD)
+        self.assertIn("Part of #9", body)
+        self.assertIn("`abc1234` Change", body)
+
+    def test_stops_before_creating_a_pr_when_the_push_fails(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {"error": "rejected"}, 1
+
+        with patch("run_queue.committed_count", return_value=1):
+            self.assertIsNone(run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                          "o/r", Path("/tmp"), {}, cli_fn=fake_cli))
+        self.assertEqual(len(calls), 1)
+
+    def test_uses_the_stacked_base_and_keeps_an_existing_pr(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"pr": {"url": "https://github.com/o/r/pull/8"}}, 3) if args[0] == "pr" else ({}, 0)
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=1) as counted, \
+             patch("run_queue.git_output", return_value=self.HEAD):
+            self.assertIsNone(run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                                          "o/r", Path(tmp), {}, base_branch="issue-8", cli_fn=fake_cli))
+        counted.assert_called_once_with("/repo/.claude/worktrees/issue-9-fix", "issue-8")
+        self.assertEqual(calls[-1][calls[-1].index("--base") + 1], "issue-8")
+
+    def test_implementation_step_publishes_after_the_session(self):
+        state = {"issue": "https://github.com/o/r/issues/1", "number": 1, "title": "Fix it", "repo": "o/r",
+                 "labels": ["triage:ready"], "pr": None}
+        published, sessions = [], []
+
+        def fake_cli(*args, cwd=None):
+            return {}, 0
+
+        def fake_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            sessions.append((step, options))
+            return True, "ses"
+
+        worktree = {"path": "/repo/.claude/worktrees/issue-1-fix-it", "branch": "issue-1-fix-it",
+                    "base": "origin/main", "created": True,
+                    "setup": {"source": "project_facts", "copy": [".env"], "setup": ["uv sync"]}}
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 1, "issue": state["issue"]}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.prepare_worktree", return_value=worktree), \
+             patch("run_queue.run_session", side_effect=fake_session), \
+             patch("run_queue.publish_committed", side_effect=lambda *a, **k: published.append((a, k))), \
+             patch("run_queue.park_issue", return_value=({}, 0)), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            run_queue.main(["--once", "--notes-dir", tmp])
+        self.assertEqual(len(published), 1)
+        self.assertEqual(published[0][0][3], "o/r")
+        self.assertIsNone(published[0][1].get("base_branch"))
+        self.assertIn("The runner applied the project facts worktree declaration", sessions[0][1]["extra_text"])
+
+
 if __name__ == "__main__":
     unittest.main()

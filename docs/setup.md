@@ -128,7 +128,7 @@ After the first task in a project, ask for the project facts file:
 Use ghflow to prepare the project facts for this repository.
 ```
 
-The agent writes `.ghflow/project.md` with the worktree setup, gates, generated files, test layout, and conventions that workers otherwise rediscover in every session, and records the source files it read. `python3 "$GHFLOW_CLI" facts` reports the live checkout and issue state and names the sources that changed since the file was written. Refresh the file when it reports stale sources, not on a schedule.
+The agent writes `.ghflow/project.md` with the worktree setup, gates, generated files, test layout, and conventions that workers otherwise rediscover in every session, and records the source files it read. A `worktree:` frontmatter declaration makes the setup executable, and `worktree create` applies it to every child worktree. `python3 "$GHFLOW_CLI" facts` reports the live checkout and issue state and names the sources that changed since the file was written. Refresh the file when it reports stale sources, not on a schedule.
 
 ## Request another operation
 
@@ -185,6 +185,8 @@ python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 --
 ```
 
 `--project OWNER/NUMBER` selects the project board. If omitted, the runner automatically discovers the single open project linked to the repository. `--hours` sets the time budget (default 8). `--once` drives the single next item to its desired state and exits. `--model` overrides the model for worker sessions. On macOS it runs under `caffeinate` so the machine does not sleep.
+
+When the repository has Discussions and a `Lab Notebook` category (slug `lab-notebook`), the runner publishes a run notebook: it starts or reuses the day's `Run notebook YYYY-MM-DD` thread, appends one note for each session, and appends the run result. One short model call summarizes each session log; when that call fails, the note states the step and outcome. The runner also comments "Work started" on the issue when implementation begins. Use `--narrative-category SLUG` for another category, or `--no-notebook` to disable the thread and its model calls. When Discussions are disabled or the category is missing, the runner prints the reason once and continues with the local notes and the issue checkpoint.
 
 In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
 

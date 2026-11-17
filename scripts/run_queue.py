@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+import narrative
+
 DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 100
@@ -201,6 +203,7 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
         "url": issue.get("url") or str(issue_ref),
         "number": issue_ref if isinstance(issue_ref, int) else (issue.get("number")),
         "title": issue.get("title"),
+        "repo": (facts.get("repository") or {}).get("remote"),
         "labels": issue.get("labels") or [],
         "pr": pr,
         "ci": None,
@@ -363,8 +366,12 @@ def compose_prompt(skill_dir, handoff_prompt):
     return f"{clean_body}\n\nBase directory for this skill: {skill_dir}\n\n{handoff_prompt}"
 
 
-def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
-    """Create a handoff and execute one OpenCode session."""
+def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
+    """Create a handoff and execute one OpenCode session.
+
+    ``log_hook`` receives the session log path before the session is deleted, so a
+    caller can summarize it without guessing the name.
+    """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     handoff_file = notes_dir / f"handoff-{step}-{stamp}.md"
     args = ["handoff", step, issue_url, "--out", str(handoff_file)]
@@ -494,6 +501,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
     finally:
         log_fp.close()
 
+    if log_hook:
+        try:
+            log_hook(session_log)
+        except Exception as error:
+            print(f"[{time.strftime('%X')}] Session log hook failed: {error}", flush=True)
+
     if session_id:
         subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
@@ -520,8 +533,93 @@ def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli):
     if code not in (0, 3) or not path:
         print(f"[{time.strftime('%X')}] Worktree preparation failed (exit {code}): {out}", flush=True)
         return None
+    setup = (out or {}).get("worktree_setup") if isinstance(out, dict) else None
     print(f"[{time.strftime('%X')}] Worktree {'created' if code == 0 else 'reused'} at {path}", flush=True)
-    return {"branch": branch, "path": path, "created": code == 0}
+    if setup and setup.get("source") == "project_facts":
+        print(f"[{time.strftime('%X')}] Applied the project facts worktree declaration "
+              f"(copy: {', '.join(setup.get('copy') or []) or 'none'}; "
+              f"setup: {', '.join(setup.get('setup') or []) or 'none'})", flush=True)
+    return {"branch": branch, "path": path, "created": code == 0,
+            "base": (out or {}).get("base") if isinstance(out, dict) else None, "setup": setup}
+
+
+def git_output(args, cwd=None):
+    """Run a read-only git command and return stripped stdout, or None on failure."""
+    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+    return proc.stdout.strip() if proc.returncode == 0 else None
+
+
+def committed_count(path, base):
+    """Count commits on the worktree branch since the base revision."""
+    out = git_output(["rev-list", "--count", f"{base}..HEAD"], cwd=path)
+    try:
+        return int(out)
+    except (TypeError, ValueError):
+        return None
+
+
+def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base_branch=None, cli_fn=run_cli):
+    """Push a session's committed work and open a draft PR when none exists.
+
+    The session keeps the content and commit role. This closes the gap that the
+    epic #1434 trial showed: a session that commits and stops leaves the delivery
+    invisible. ``pr create`` refuses an existing open PR, so a session that
+    published its own PR keeps that PR instead of a duplicate.
+    """
+    if not worktree or not worktree.get("path"):
+        return None
+    if not repo:
+        print(f"[{time.strftime('%X')}] Cannot publish: the issue's repository is unknown", flush=True)
+        return None
+    path, branch = worktree["path"], worktree["branch"]
+    base_ref = worktree.get("base") or "origin/main"
+    count_ref = base_ref
+    if base_branch:
+        for candidate in (base_branch, f"origin/{base_branch}"):
+            if git_output(["rev-parse", "--verify", "--quiet", candidate], cwd=path):
+                count_ref = candidate
+                break
+    count = committed_count(path, count_ref)
+    if not count:
+        return None
+    print(f"[{time.strftime('%X')}] Publishing {count} committed change(s) from {branch}", flush=True)
+    pushed, code = cli_fn("exec", "--", "git", "-C", path, "push", "-u", "origin", branch,
+                          cwd=options.get("cwd"))
+    if code != 0:
+        print(f"[{time.strftime('%X')}] Push failed (exit {code}): {pushed}", flush=True)
+        return None
+    head = git_output(["rev-parse", "HEAD"], cwd=path)
+    if not head:
+        print(f"[{time.strftime('%X')}] Could not read the worktree head after the push", flush=True)
+        return None
+    number = str(issue_url).rstrip("/").split("/")[-1]
+    subjects = git_output(["log", "--format=- `%h` %s", f"{count_ref}..HEAD"], cwd=path) or ""
+    body_file = notes_dir / f"draft-pr-{number}-{time.strftime('%Y%m%d-%H%M%S')}.md"
+    body_file.write_text("\n".join([
+        f"Draft checkpoint for {issue_url}.",
+        "",
+        "The queue runner published committed work that the implementation session left unpublished.",
+        "",
+        "## Commits",
+        "",
+        subjects,
+        "",
+        f"Part of #{number}",
+        "",
+    ]), encoding="utf-8")
+    base = base_branch or base_ref.removeprefix("origin/") or "main"
+    out, code = cli_fn("pr", "create", "--repo", repo, "--head", branch, "--base", base,
+                       "--title", title or branch, "--body-file", str(body_file), "--draft",
+                       "--expect-head", head, cwd=options.get("cwd"))
+    url = (out or {}).get("url") if isinstance(out, dict) else None
+    if code == 0:
+        print(f"[{time.strftime('%X')}] Opened draft PR {url} at {head[:7]}", flush=True)
+        return out
+    if code == 3:
+        print(f"[{time.strftime('%X')}] An open PR already exists for {branch}; no duplicate created", flush=True)
+        return None
+    print(f"[{time.strftime('%X')}] Draft PR creation failed (exit {code}): {out}", flush=True)
+    return None
 
 
 def park_issue(issue_url, pr_url, kind, text_or_reason, notes_dir, cli_fn=run_cli, cwd=None):
@@ -553,6 +651,8 @@ def main(argv=None):
     parser.add_argument("--notes-dir", help="custom task notes directory")
     parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS, help="maximum turns per session (default 100)")
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
+    parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
+    parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
     args = parser.parse_args(argv)
 
     if not args.allow_concurrent:
@@ -595,6 +695,24 @@ def main(argv=None):
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
     }
     attempted, delivered, park_failures = set(), [], []
+
+    target = (f"parent {args.parent}" if args.parent
+              else f"project {owner}/{project}" if owner and project else None)
+    notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
+                                     category=args.narrative_category,
+                                     enabled=not args.no_notebook)
+    notebook.start(target=target, model=model, hours=args.hours, notes_dir=notes_dir)
+
+    def note_session(step, issue_url, success, info, log_path, state):
+        """Summarize one session attempt and append it to the run notebook."""
+        if not notebook.available:
+            return
+        summary, source = narrative.summarize_session(step, issue_url, success, info,
+                                                      log_path or "", options)
+        pr = state.get("pr") or {}
+        posted = notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
+        if posted is not None:
+            print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
 
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
@@ -662,6 +780,7 @@ def main(argv=None):
             if step == "implement-issue":
                 set_board_status(issue_ref, "In progress", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
 
+            worktree = None
             preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
             step_options = dict(options)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
@@ -705,8 +824,20 @@ def main(argv=None):
                         directive += (
                             f" Worktree: {worktree['path']} on branch {worktree['branch']}, reused from an earlier attempt."
                             " Read its uncommitted changes and its task notes first, and continue that work instead of"
-                            " starting a competing implementation or resetting the branch. Do the project's worktree setup"
-                            " only where it is still missing, so an existing configuration is not overwritten."
+                            " starting a competing implementation or resetting the branch."
+                        )
+                    setup = worktree.get("setup") or {}
+                    if setup.get("source") == "project_facts":
+                        directive += (
+                            " The runner applied the project facts worktree declaration"
+                            f" (copy: {', '.join(setup.get('copy') or []) or 'none'};"
+                            f" setup: {', '.join(setup.get('setup') or []) or 'none'})."
+                            " Do not repeat those steps; check only where a command did not apply."
+                        )
+                    elif not worktree["created"]:
+                        directive += (
+                            " Do the project's worktree setup only where it is still missing,"
+                            " so an existing configuration is not overwritten."
                         )
                 else:
                     directive += (
@@ -721,13 +852,37 @@ def main(argv=None):
                            if worktree else "")
                         + f" and set `--base {preceding_pr['branch']}` when the draft PR is created."
                     )
+                checkpoint = f"**Work started** — `{step}` for {state['issue']}."
+                if worktree:
+                    checkpoint += f" Branch `{worktree['branch']}` in `{worktree['path']}`."
+                if notebook.discussion and notebook.discussion.get("url"):
+                    checkpoint += f" Run narrative: {notebook.discussion['url']}"
+                narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint,
+                                                cwd=options.get("cwd"))
                 step_options["extra_text"] = directive
+            captured = {}
+
+            def publish_step_work():
+                """Publish committed implementation work that the session left unpublished."""
+                if step == "implement-issue":
+                    publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
+                                      notes_dir, step_options,
+                                      base_branch=preceding_pr["branch"] if preceding_pr else None,
+                                      cli_fn=run_cli)
+
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
-            success, info = run_session(step, state["issue"], notes_dir, step_options)
+            success, info = run_session(step, state["issue"], notes_dir, step_options,
+                                        log_hook=lambda path: captured.update(log=path))
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
+            note_session(step, state["issue"], success, info, captured.get("log"), state)
+            publish_step_work()
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
-                success, info = run_session(step, state["issue"], notes_dir, step_options)
+                captured = {}
+                success, info = run_session(step, state["issue"], notes_dir, step_options,
+                                            log_hook=lambda path: captured.update(log=path))
+                note_session(step, state["issue"], success, info, captured.get("log"), state)
+                publish_step_work()
                 if not success:
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
@@ -736,6 +891,7 @@ def main(argv=None):
         if args.once:
             break
 
+    notebook.finish(delivered, park_failures)
     if delivered and owner and project:
         run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
     elif delivered:
