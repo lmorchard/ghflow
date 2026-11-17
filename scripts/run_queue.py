@@ -11,6 +11,8 @@ import sys
 import time
 from pathlib import Path
 
+import narrative
+
 DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 100
@@ -363,8 +365,12 @@ def compose_prompt(skill_dir, handoff_prompt):
     return f"{clean_body}\n\nBase directory for this skill: {skill_dir}\n\n{handoff_prompt}"
 
 
-def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
-    """Create a handoff and execute one OpenCode session."""
+def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
+    """Create a handoff and execute one OpenCode session.
+
+    ``log_hook`` receives the session log path before the session is deleted, so a
+    caller can summarize it without guessing the name.
+    """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     handoff_file = notes_dir / f"handoff-{step}-{stamp}.md"
     args = ["handoff", step, issue_url, "--out", str(handoff_file)]
@@ -494,6 +500,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli):
     finally:
         log_fp.close()
 
+    if log_hook:
+        try:
+            log_hook(session_log)
+        except Exception as error:
+            print(f"[{time.strftime('%X')}] Session log hook failed: {error}", flush=True)
+
     if session_id:
         subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
@@ -553,6 +565,8 @@ def main(argv=None):
     parser.add_argument("--notes-dir", help="custom task notes directory")
     parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS, help="maximum turns per session (default 100)")
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
+    parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
+    parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
     args = parser.parse_args(argv)
 
     if not args.allow_concurrent:
@@ -595,6 +609,23 @@ def main(argv=None):
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
     }
     attempted, delivered, park_failures = set(), [], []
+
+    target = (f"parent {args.parent}" if args.parent
+              else f"project {owner}/{project}" if owner and project else None)
+    notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
+                                     category=args.narrative_category,
+                                     enabled=not args.no_notebook)
+    notebook.start(target=target, model=model, hours=args.hours, notes_dir=notes_dir)
+
+    def note_session(step, issue_url, success, info, log_path, state):
+        """Summarize one session attempt and append it to the run notebook."""
+        if not notebook.available:
+            return
+        summary, source = narrative.summarize_session(step, issue_url, success, info,
+                                                      log_path or "", options)
+        pr = state.get("pr") or {}
+        notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
+        print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
 
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
@@ -714,14 +745,27 @@ def main(argv=None):
                            if worktree else "")
                         + f" and set `--base {preceding_pr['branch']}` when the draft PR is created."
                     )
+                checkpoint = f"**Work started** — `{step}` for {state['issue']}."
+                if worktree:
+                    checkpoint += f" Branch `{worktree['branch']}` in `{worktree['path']}`."
+                if notebook.discussion and notebook.discussion.get("url"):
+                    checkpoint += f" Run narrative: {notebook.discussion['url']}"
+                narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint,
+                                                cwd=options.get("cwd"))
                 step_options["extra_text"] = directive
+            captured = {}
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
-            success, info = run_session(step, state["issue"], notes_dir, step_options)
+            success, info = run_session(step, state["issue"], notes_dir, step_options,
+                                        log_hook=lambda path: captured.update(log=path))
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
+            note_session(step, state["issue"], success, info, captured.get("log"), state)
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
-                success, info = run_session(step, state["issue"], notes_dir, step_options)
+                captured = {}
+                success, info = run_session(step, state["issue"], notes_dir, step_options,
+                                            log_hook=lambda path: captured.update(log=path))
                 if not success:
+                    note_session(step, state["issue"], success, info, captured.get("log"), state)
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
@@ -729,6 +773,7 @@ def main(argv=None):
         if args.once:
             break
 
+    notebook.finish(delivered, park_failures)
     if delivered and owner and project:
         run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
     elif delivered:

@@ -70,6 +70,14 @@ A head that moves during the command is reported under `errors` with the part `h
 
 Run `python3 "$GHFLOW_CLI" pr review-post PR_URL --state comment --body-file FILE` to post one review with the verdict `comment`, `approve`, or `request-changes`. Run `python3 "$GHFLOW_CLI" pr comment PR_URL --body-file FILE` to post a top-level comment on the PR. Both commands read the PR first, confirm the write identity, submit from the file, and read the result back: the review's or comment's author, state, and body. The body comparison tolerates line-ending and trailing-whitespace differences, which `gh` introduces. The commands write nothing and exit 3 when the PR is not open. They exit 1 on a write error and 2 when the read-back does not match. Report the read-back values, not just the exit status.
 
+## Publishing a run narrative
+
+`discussion post --category SLUG --title TEXT --body-file FILE` appends a note to one open discussion in that category. It reads the repository's Discussions flag and the category first, finds the discussion by exact title, creates it when it is absent, and reads the written comment back: author and body. Pass `--repo OWNER/NAME` outside a checkout. It exits 3 with `available: false` and writes nothing when Discussions are disabled, the category is missing, or the token lacks `write:discussion`, so a caller can fall back without failing its run. It exits 1 on a write error and 2 when the read-back differs.
+
+`issue comment ISSUE --text FILE` posts a native checkpoint on the issue and reads back its author and body. It exits 1 without a confirmed write and 2 when the read-back differs.
+
+The queue runner uses both. It starts or reuses the day's `Run notebook YYYY-MM-DD` thread in the category, appends one note for each session, and appends the run result. One short model call summarizes each session log; when that call fails, the note states the step and outcome instead. An unavailable notebook prints its reason once and the run continues. `--narrative-category` sets the category and `--no-notebook` disables the thread. The runner comments "Work started" on the issue when implementation begins.
+
 ## Merging a PR
 
 Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` with the method the project uses: `merge`, `squash`, or `rebase`. The command reads the PR first and writes nothing, with exit 3, when the PR is not open, is a draft, is not mergeable, or the current head is not the commit in `--expect-head`. It confirms the write identity, merges with the head match, and reads the merged state back. It reports `merge_commit`, and exits 2 when the read-back does not show a merged PR. Report the merge commit and time from the output.

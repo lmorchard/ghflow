@@ -82,6 +82,17 @@ The runner reads the clock and measures each step itself. It starts a new issue 
 
 The runner runs one session at a time in single-session mode, without subagents. It deletes each OpenCode session after its step. It refuses to start when another run is active.
 
+### Run narrative
+
+The runner publishes a remote-visible narrative, so an operator can follow a run without the local notes directory:
+
+- At run start it finds or creates the day's `Run notebook YYYY-MM-DD` discussion in the configured category (default `lab-notebook`) and appends the target, model, budget, and local notes path.
+- After each session attempt it appends one note. A short model call summarizes the session log; when that call fails, the note states the step and outcome. The runner makes no model call when the notebook is unavailable.
+- At run end it appends the delivered items and any failed park attempts.
+- When implementation starts it posts a `Work started` comment on the issue with the branch and worktree.
+
+The writes go through `discussion post` and `issue comment`, which read each write back. Exit 3 from `discussion post` means Discussions are disabled, the category is missing, or the token lacks `write:discussion`. The runner prints the reason once, posts no further discussion notes for that run, and continues; the issue checkpoint still runs. `--no-notebook` disables the thread and its model calls.
+
 ## Confirmed decisions
 
 Les settled these on 2026-11-15:
@@ -103,6 +114,10 @@ Les settled these on 2026-11-15:
 11. Project discovery: the runner uses the one open project linked to the repository via `gh repo view --json projectsV2`. If 0 or >1, it stops with the list unless `--project OWNER/NUMBER` is given.
 12. No issue parameter required.
 
+Les settled this on 2026-11-16:
+
+13. Publish the run narrative to a GitHub Discussion in a `Lab Notebook` category, with native issue checkpoints as the fallback, and one model-written summary for each step. An unavailable notebook must never stop the run.
+
 ## Overnight use
 
 During the day, Les stages work with `curate-ready-queue` and answers parked questions with `sweep-needs-input`. At night, the runner takes the in-flight and time-parked deliveries first, then the curated Ready column. In the morning, Les finds ready PRs, parked questions under `triage:needs-input`, and the summary table.
@@ -119,6 +134,8 @@ During the day, Les stages work with `curate-ready-queue` and answers parked que
 - `--allow-concurrent`
 - `--max-turns N` (turn ceiling per session, default 100)
 - `--session-timeout SECONDS` (wall-clock ceiling per session, default 5400)
+- `--narrative-category SLUG` (discussion category for the run notebook, default `lab-notebook`)
+- `--no-notebook` (do not publish the run narrative or make its model calls)
 
 Tests use `unittest` in `scripts/test_run_queue.py` and `cli/test_ghflow.py`.
 
@@ -135,6 +152,7 @@ The runner performs every mechanic that has one correct answer. A model session 
 | Move the issue In progress and In review | Runner | `set_board_status` |
 | Detect no progress, failure, or a stall | Runner | Progress rule, session ceilings, reasoning-loop abort |
 | Park an issue, with or without a PR | Runner | `park_issue` and `park` |
+| Publish the run narrative and issue checkpoint | Runner | `scripts/narrative.py`: `RunNotebook`, `summarize_session`, `post_issue_checkpoint` |
 | Answer the issue: scope, design, code, tests | Session | The issue body and decisions |
 | Prepare the project's worktree setup | Session, for now | Project facts, such as copying `.env` and running `uv sync` |
 | Commit, push, and open the draft PR | Session | Task references |
@@ -146,12 +164,13 @@ The last two rows are open. A session that spends its budget on setup or on publ
 1. One process, one session at a time, one repository. No locks, worker pools, or multi-repository support.
 2. The runner selects only from In progress, In review, time-parked deliveries, and Ready, in the order of decision 9. It never selects from Backlog.
 3. Command-line inputs only. No configuration file or rule language.
-4. GitHub holds the state. The runner never reads its own log back.
+4. GitHub holds the state. The runner never reads its own log back to choose a step; it reads a session log only to summarize the notebook note.
 5. The runner never merges. It has no gate or trust mechanism.
 6. Les starts each run. No cron, daemon, or event listener in the skill.
 7. OpenCode only, behind one function.
 8. A new step, state, or selection rule needs a trial record that shows the need.
 9. Size checkpoint: keep `scripts/run_queue.py` under about 500 lines.
+10. The narrative spends one model call for each session summary. A failed or unavailable call uses deterministic facts instead.
 
 ## Relation to agent-sessions
 
