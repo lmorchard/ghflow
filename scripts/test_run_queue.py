@@ -225,6 +225,28 @@ class ProjectDiscoveryTests(unittest.TestCase):
         self.assertEqual((owner, number), ("lmorchard", 12))
 
     @patch("subprocess.run")
+    def test_nodes_object_with_user_path(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({"projectsV2": {"Nodes": [
+                {"number": 6, "title": "decafclaw", "resourcePath": "/users/lmorchard/projects/6", "closed": False},
+            ]}}),
+        )
+        owner, number = run_queue.discover_project()
+        self.assertEqual((owner, number), ("lmorchard", 6))
+
+    @patch("subprocess.run")
+    def test_nodes_object_with_org_path(self, mock_run):
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps({"projectsV2": {"Nodes": [
+                {"number": 3, "title": "Org board", "url": "https://github.com/orgs/acme/projects/3", "closed": False},
+            ]}}),
+        )
+        owner, number = run_queue.discover_project()
+        self.assertEqual((owner, number), ("acme", 3))
+
+    @patch("subprocess.run")
     def test_no_open_project_raises(self, mock_run):
         mock_run.return_value = MagicMock(returncode=0, stdout=json.dumps({"projectsV2": []}))
         with self.assertRaises(RuntimeError) as ctx:

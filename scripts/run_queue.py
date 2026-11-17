@@ -54,6 +54,23 @@ def run_cli(*args, cwd=None, cli_path=None):
     return out, proc.returncode
 
 
+def project_owner(project):
+    """Return the owner login for a projectsV2 node, from its owner or path."""
+    owner = project.get("owner")
+    if isinstance(owner, dict):
+        login = owner.get("login")
+        if isinstance(login, str) and login:
+            return login
+    for key in ("resourcePath", "url"):
+        value = project.get(key)
+        if not isinstance(value, str):
+            continue
+        match = re.search(r"/(?:users|orgs)/([^/]+)/projects/\d+", value)
+        if match:
+            return match.group(1)
+    return None
+
+
 def discover_project(owner_project=None, cwd=None, gh_cmd="gh"):
     """Return (owner, number) for the project board, or raise an error."""
     if owner_project:
@@ -65,16 +82,19 @@ def discover_project(owner_project=None, cwd=None, gh_cmd="gh"):
     if proc.returncode != 0:
         raise RuntimeError(f"Failed to query repository projects: {proc.stderr.strip()}")
     data = json.loads(proc.stdout) if proc.stdout.strip() else {}
-    projects = [p for p in data.get("projectsV2") or [] if isinstance(p, dict) and not p.get("closed")]
+    raw = data.get("projectsV2") or []
+    if isinstance(raw, dict):
+        raw = raw.get("Nodes") or raw.get("nodes") or []
+    projects = [p for p in raw if isinstance(p, dict) and not p.get("closed")]
     if len(projects) == 1:
         proj = projects[0]
-        owner = ((proj.get("owner") or {}).get("login")) or ""
+        owner = project_owner(proj) or ""
         number = proj.get("number")
         if owner and number is not None:
             return owner, int(number)
     if not projects:
         raise RuntimeError("No open projects found for repository. Pass --project OWNER/NUMBER.")
-    names = [f"{(p.get('owner') or {}).get('login')}/{p.get('number')} ({p.get('title')})" for p in projects]
+    names = [f"{project_owner(p) or '?'}/{p.get('number')} ({p.get('title')})" for p in projects]
     raise RuntimeError(f"Multiple open projects found: {', '.join(names)}. Pass --project OWNER/NUMBER.")
 
 
