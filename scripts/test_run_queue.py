@@ -243,6 +243,20 @@ class ActiveRunCheckTests(unittest.TestCase):
 
     @patch("shutil.which", return_value="/usr/local/bin/opencode")
     @patch("subprocess.run")
+    def test_active_session_with_dead_process_ignored(self, mock_run, _mock_which):
+        import time
+        now_ms = time.time() * 1000
+        mock_run.return_value = MagicMock(
+            returncode=0,
+            stdout=json.dumps([
+                {"id": "ses_1", "title": "Unattended burndown active", "time": {"updated": now_ms - 60000}}
+            ]),
+        )
+        # Should not raise when process is dead
+        run_queue.check_active_runs(process_checker=lambda: False)
+
+    @patch("shutil.which", return_value="/usr/local/bin/opencode")
+    @patch("subprocess.run")
     def test_stale_session_ignored(self, mock_run, _mock_which):
         import time
         now_ms = time.time() * 1000
@@ -254,7 +268,6 @@ class ActiveRunCheckTests(unittest.TestCase):
         )
         # Should not raise
         run_queue.check_active_runs()
-
 
 class ComposePromptTests(unittest.TestCase):
     """Tests for prompt composition."""
@@ -402,6 +415,24 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             self.assertFalse(ok)
             self.assertIn("exceeded timeout", reason)
             mock_proc.terminate.assert_called()
+    def test_run_session_aborts_on_step_idle_timeout(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = MagicMock()
+        mock_proc.stdout.fileno.return_value = 1
+        mock_proc.stdout.readline.return_value = ""
+        mock_proc.poll.return_value = None
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            options = {"skill_dir": str(notes_dir), "session_timeout": 5400, "step_idle_timeout": 0.001}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"), \
+                 patch("select.select", return_value=([], [], [])), \
+                 patch("time.time", side_effect=[100.0, 100.0, 100.0, 200.0, 200.0, 200.0]):
+                ok, reason = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertFalse(ok)
+            self.assertIn("idle timeout", reason)
+            mock_proc.terminate.assert_called()
 
     def test_review_directives_applied_to_initial_review_and_submit(self):
         captured_options = []
@@ -436,7 +467,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)):
-                run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
+                run_queue.main(["--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
 
         steps = [s for s, _ in captured_options]
         self.assertEqual(steps, ["review-changes", "submit-pr"])
@@ -483,12 +514,93 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes", "submit-pr"])
                 # queue summary was called
                 summary_calls = [c for c in mock_cli.call_args_list if "summary" in c[0]]
                 self.assertTrue(summary_calls)
+
+    def test_end_to_end_reconciliation_flow_deterministic_pr(self):
+        """By default, submit-pr runs deterministically without an LLM worker session."""
+        states = [
+            # 1. Initially no PR
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"], "pr": None},
+            # 2. After implement: draft PR exists, no verdict
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": True}, "review_verdicts": []},
+            # 3. After review: draft PR with clean verdict
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": True},
+             "review_verdicts": [{"head": "c1", "verdict": "clean"}]},
+            # 4. After deterministic submit-pr: ready PR with green CI
+            {"issue": "https://github.com/o/r/issues/1", "number": 1, "labels": ["triage:ready"],
+             "pr": {"url": "https://github.com/o/r/pull/1", "head": "c1", "is_draft": False},
+             "ci": "green", "pending_review_requests": []},
+        ]
+        step_calls = []
+        observe_count = 0
+
+        def fake_observe(issue_ref, cli_fn=None, cwd=None):
+            nonlocal observe_count
+            idx = min(observe_count, len(states) - 1)
+            observe_count += 1
+            return dict(states[idx])
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            step_calls.append(step)
+            return True, "ses_id"
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            board = {
+                "in_flight": [],
+                "parked": [],
+                "selection": [{"number": 1, "issue": "https://github.com/o/r/issues/1"}],
+            }
+            with patch("run_queue.discover_project", return_value=("o", 12)), \
+                 patch("run_queue.check_active_runs"), \
+                 patch("run_queue.observe_board", return_value=board), \
+                 patch("run_queue.observe_issue", side_effect=fake_observe), \
+                 patch("run_queue.run_session", side_effect=fake_run_session), \
+                 patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
+                ret = run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
+                self.assertEqual(ret, 0)
+                self.assertEqual(step_calls, ["implement-issue", "review-changes"])
+                ready_calls = [c for c in mock_cli.call_args_list if c[0][:2] == ("pr", "ready")]
+                self.assertTrue(ready_calls)
+
+    def test_execute_submit_pr_composes_body_and_marks_ready(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            (notes_dir / "pr-summary-42.md").write_text("Summary text", encoding="utf-8")
+            (notes_dir / "pr-review-42.md").write_text("Review text", encoding="utf-8")
+            (notes_dir / "pr-decisions-42.md").write_text("Decisions text", encoding="utf-8")
+
+            cli_calls = []
+            def fake_cli(*args, **kwargs):
+                cli_calls.append(args)
+                if args[:2] == ("pr", "body"):
+                    Path(args[args.index("--out") + 1]).write_text("Full body", encoding="utf-8")
+                return {"url": "https://github.com/o/r/pull/42"}, 0
+
+            state = {
+                "issue": "https://github.com/o/r/issues/42",
+                "repo": "o/r",
+                "pr": {"url": "https://github.com/o/r/pull/42", "number": 42, "head": "head123"},
+            }
+            options = {"cwd": "/repo"}
+            ok, out = run_queue.execute_submit_pr(state, "o", 12, notes_dir, options, cli_fn=fake_cli)
+            self.assertTrue(ok)
+            body_call = next(c for c in cli_calls if c[:2] == ("pr", "body"))
+            self.assertIn("--summary", body_call)
+            self.assertIn("--review", body_call)
+            self.assertIn("--decisions", body_call)
+            ready_call = next(c for c in cli_calls if c[:2] == ("pr", "ready"))
+            self.assertIn("--expect-head", ready_call)
+            self.assertIn("head123", ready_call)
+            self.assertIn("--status", ready_call)
+            self.assertIn("In review", ready_call)
 
 
 class ParentSubIssueTests(unittest.TestCase):
@@ -935,6 +1047,49 @@ class PublishCommittedTests(unittest.TestCase):
         counted.assert_called_once_with("/repo/.claude/worktrees/issue-9-fix", "issue-8")
         self.assertEqual(calls[-1][calls[-1].index("--base") + 1], "issue-8")
 
+    def test_falls_back_to_default_base_when_stacked_base_branch_deleted(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        def fake_git(args, cwd=None):
+            if args[0] == "rev-parse":
+                return self.HEAD
+            if args[0] == "ls-remote":
+                return ""
+            return "- `abc1234` Change"
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=1), \
+             patch("run_queue.git_output", side_effect=fake_git):
+            run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", self.worktree(),
+                                        "o/r", Path(tmp), {}, base_branch="deleted-stacked-branch", cli_fn=fake_cli)
+            create = next(c for c in calls if c[:2] == ("pr", "create"))
+            self.assertEqual(create[create.index("--base") + 1], "main")
+
+    def test_auto_commits_uncommitted_changes_before_publishing(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wt_path = Path(tmp) / "wt"
+            wt_path.mkdir()
+            worktree = {"path": str(wt_path), "branch": "issue-9-fix", "base": "origin/main"}
+            counts = [0, 1]
+            with patch("run_queue.committed_count", side_effect=lambda *a: counts.pop(0)), \
+                 patch("run_queue.git_output", side_effect=[" M file.py", self.HEAD, "- `abc1234` Change"]):
+                result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", worktree,
+                                                     "o/r", Path(tmp), {}, cli_fn=fake_cli)
+            self.assertIsNotNone(result)
+            add_call = next(c for c in calls if len(c) > 6 and c[5:7] == ("add", "-A"))
+            self.assertTrue(add_call)
+            commit_call = next(c for c in calls if len(c) > 6 and c[5:7] == ("commit", "-m"))
+            self.assertIn("Fix it", commit_call[-1])
     def test_implementation_step_publishes_after_the_session(self):
         state = {"issue": "https://github.com/o/r/issues/1", "number": 1, "title": "Fix it", "repo": "o/r",
                  "labels": ["triage:ready"], "pr": None}
