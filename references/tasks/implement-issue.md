@@ -23,7 +23,7 @@ Inspect the current status, branches, and existing worktrees before you change a
 
 Determine the base branch from the project or the request. Do not assume it is `main` or that the current checkout is the right base. Refresh its remote reference when access permits.
 
-Create a worktree and task branch following project conventions. For a new branch, run `python3 "$GHFLOW_CLI" worktree create ISSUE_URL --branch BRANCH` with `--copy` for each file the project facts say to copy, such as `.env`, `--setup` for each setup command, such as `uv sync`, `--notes` when the project commits session notes, and `--owner` and `--project` to move the issue In progress; it refuses an existing branch or path, which means you are resuming. Do not reset or switch the shared checkout. Do not reuse another session's worktree because its name matches the issue.
+Create a worktree and task branch following project conventions. For a new branch, run `python3 "$GHFLOW_CLI" worktree create ISSUE_URL --branch BRANCH`. It applies the project facts file's `worktree:` declaration, so do not repeat a declared copy or setup command; pass `--copy` or `--setup` only for a project without a declaration, or to replace it. Add `--notes` when the project commits session notes, and `--owner` and `--project` to move the issue In progress; it refuses an existing branch or path, which means you are resuming. Do not reset or switch the shared checkout. Do not reuse another session's worktree because its name matches the issue.
 
 If resuming, confirm the supplied worktree and branch before you edit, and read their existing changes. Continue that work instead of starting a competing implementation.
 

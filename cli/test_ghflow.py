@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1933,6 +1933,93 @@ class PrWriteCommandTests(unittest.TestCase):
         self.assertFalse(result["readback"]["merged"])
 
 
+class FakePrCreateGitHub:
+    """A fake gh for pr create: list, create, and view with a stored body."""
+
+    def __init__(self, head=HEAD, existing=None, body=None, created_head=None):
+        self.head, self.existing, self.body = head, list(existing or []), body
+        self.created_head = created_head or head
+        self.draft = False
+        self.writes = []
+
+    def gh(self, args):
+        if args[:2] == ["pr", "list"]:
+            return self.existing
+        if args[:2] == ["pr", "view"]:
+            return {"url": args[2], "state": "OPEN", "isDraft": self.draft,
+                    "headRefName": "task", "baseRefName": "main", "headRefOid": self.created_head,
+                    "title": "Fix it", "body": self.body}
+        raise AssertionError(args)
+
+    def gh_text(self, args):
+        self.writes.append(args)
+        self.draft = "--draft" in args
+        self.body = Path(args[args.index("--body-file") + 1]).read_text()
+        return "https://github.com/o/r/pull/8\n"
+
+
+class PrCreateTests(unittest.TestCase):
+    BODY = "A draft checkpoint.\n"
+
+    def setUp(self):
+        self.body = Path(tempfile.mkdtemp(prefix="ghflow-test-")) / "body.md"
+        self.body.write_text(self.BODY, encoding="utf-8")
+
+    def create(self, fake, expect_head=None, confirm=lambda: None, title="Fix it"):
+        return pr_create("o/r", "task", "main", title, self.body, draft=True, expect_head=expect_head,
+                         gh=fake.gh, gh_text=fake.gh_text, confirm=confirm)
+
+    def test_creates_a_draft_and_reads_each_field_back(self):
+        fake = FakePrCreateGitHub(head=HEAD)
+        result, status = self.create(fake, expect_head=HEAD)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["url"], "https://github.com/o/r/pull/8")
+        self.assertEqual(result["writes"], ["pr create"])
+        self.assertEqual(result["readback"], {"url": True, "draft": True, "head_branch": True,
+                                              "base_branch": True, "title": True, "body": True, "head": True})
+        self.assertIn("--draft", fake.writes[0])
+        self.assertEqual(fake.body, self.BODY)
+
+    def test_refuses_an_existing_open_pr_without_writing(self):
+        fake = FakePrCreateGitHub(existing=[{"url": "https://github.com/o/r/pull/3", "isDraft": True}])
+        result, status = self.create(fake)
+        self.assertEqual((status, fake.writes, result["action"]), (3, [], "exists"))
+        self.assertIn("nothing was written", result["reason"])
+
+    def test_reports_a_head_mismatch_as_exit_2(self):
+        fake = FakePrCreateGitHub(created_head="b" * 40)
+        result, status = self.create(fake, expect_head=HEAD)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["readback"]["head"])
+
+    def test_refuses_an_empty_body_and_a_missing_identity(self):
+        self.body.write_text("  \n", encoding="utf-8")
+        result, status = self.create(FakePrCreateGitHub())
+        self.assertEqual((status, result["errors"][0]["part"]), (1, "body"))
+
+        self.body.write_text(self.BODY, encoding="utf-8")
+        def refuse():
+            raise IdentityError("not ready")
+        result, status = self.create(FakePrCreateGitHub(), confirm=refuse)
+        self.assertEqual((status, result["errors"][0]["part"]), (1, "identity"))
+
+
+    def test_cli_passes_the_arguments_and_exit_status(self):
+        captured = {}
+
+        def fake_create(*args, **kwargs):
+            captured["args"] = args
+            return {"url": "https://github.com/o/r/pull/8"}, 0
+
+        argv = ["pr", "create", "--repo", "o/r", "--head", "task", "--base", "main", "--title", "Fix it",
+                "--body-file", str(self.body), "--draft", "--expect-head", HEAD]
+        with patch.object(ghflow, "pr_create", side_effect=fake_create), \
+             contextlib.redirect_stdout(io.StringIO()):
+            status = main(argv)
+        self.assertEqual(status, 0)
+        self.assertEqual(captured["args"], ("o/r", "task", "main", "Fix it", str(self.body), True, HEAD))
+
+
 class PrStateSubprocessTests(unittest.TestCase):
     def _harness(self, head=HEAD, reviews=None, comments=None, issue_comments=None,
                  timeline=None, rules_data=None, rules_pages=None, behind_by=0, missing=(),
@@ -2880,6 +2967,7 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual(result["required_checks"], ["lint", "test"])
         self.assertEqual(result["identity"], {"login": "bot", "configured": True, "ready": True, "source": "env"})
         self.assertEqual(result["project_facts"], {"path": ".ghflow/project.md", "present": False,
+                                                   "worktree": None, "worktree_errors": [],
                                                    "origin": {"ref": "origin/main", "present": False}})
         self.assertIsNone(result["issue"])
 
@@ -3124,6 +3212,44 @@ class ProjectFactsTests(unittest.TestCase):
         self.assertEqual(sources, [("X", "1"), ("Y", "2")])
         self.assertEqual(parse_facts_sources("no frontmatter"), (None, []))
 
+    def test_parse_facts_worktree_reads_copy_and_setup(self):
+        text = ("---\nwritten: 2026-11-16\nworktree:\n  copy:\n    - .env\n    - config/local.json\n"
+                "  setup:\n    - uv sync\nsources:\n  - AGENTS.md 1\n---\nbody")
+        self.assertEqual(parse_facts_worktree(text),
+                         ({"copy": [".env", "config/local.json"], "setup": ["uv sync"]}, []))
+        self.assertEqual(parse_facts_worktree("---\nwritten: 2026-11-16\n---\n"), (None, []))
+        self.assertEqual(parse_facts_worktree("no frontmatter"), (None, []))
+
+    def test_parse_facts_worktree_reports_malformed_lines(self):
+        cases = {
+            "inline value": "worktree: .env",
+            "unknown key": "worktree:\n  copies:\n    - .env",
+            "string not list": "worktree:\n  copy: .env",
+            "item outside": "worktree:\n    - .env",
+            "not a list item": "worktree:\n  copy:\n    .env",
+            "empty item": "worktree:\n  copy:\n    - ",
+            "duplicate key": "worktree:\n  copy:\n    - .env\n  copy:\n    - .env",
+        }
+        for label, body in cases.items():
+            with self.subTest(label):
+                declaration, errors = parse_facts_worktree(f"---\n{body}\n---\n")
+                self.assertTrue(errors, label)
+
+    def test_facts_file_reports_the_worktree_declaration(self):
+        self.write(".ghflow/project.md", "---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
+                                         "worktree:\n  copy:\n    - .env\n  setup:\n    - uv sync\n---\n# Facts\n")
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["project_facts"]["worktree"], {"copy": [".env"], "setup": ["uv sync"]})
+        self.assertEqual(result["project_facts"]["worktree_errors"], [])
+
+    def test_facts_file_reports_a_malformed_worktree_declaration(self):
+        self.write(".ghflow/project.md", "---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
+                                         "worktree:\n  copy: .env\n---\n# Facts\n")
+        result, status = self.facts()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["project_facts"]["worktree_errors"], ["worktree: copy must be a list."])
+
     def test_main_facts_passes_issue(self):
         captured = {}
 
@@ -3240,6 +3366,49 @@ class WorktreeCreateTests(unittest.TestCase):
         self.assertEqual(result["setup"][0]["exit"], 4)
         self.assertFalse((Path(result["path"]) / "later.txt").exists())
         self.assertEqual(self.moves, [])
+
+    def write_facts(self, body):
+        path = Path(self.clone) / ".ghflow" / "project.md"
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(body, encoding="utf-8")
+
+    def test_facts_declaration_prepares_the_worktree(self):
+        self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
+                         "worktree:\n  copy:\n    - .env\n  setup:\n    - touch declared.txt\n---\n# Facts\n")
+        result, status = self.create()
+        self.assertEqual(status, 0, result["errors"])
+        path = Path(result["path"])
+        self.assertEqual((path / ".env").read_text(), "PORT=1\n")
+        self.assertTrue((path / "declared.txt").exists())
+        self.assertEqual(result["worktree_setup"],
+                         {"source": "project_facts", "copy": [".env"], "setup": ["touch declared.txt"]})
+
+    def test_explicit_setup_replaces_the_declaration(self):
+        self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
+                         "worktree:\n  copy:\n    - .env\n  setup:\n    - exit 7\n---\n# Facts\n")
+        result, status = self.create(setup=["touch explicit.txt"])
+        self.assertEqual(status, 0, result["errors"])
+        path = Path(result["path"])
+        self.assertTrue((path / "explicit.txt").exists())
+        self.assertFalse((path / ".env").exists())
+        self.assertEqual(result["worktree_setup"]["source"], "arguments")
+
+    def test_malformed_declaration_refuses_without_creating(self):
+        self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
+                         "worktree:\n  setup: exit 7\n---\n# Facts\n")
+        result, status = self.create()
+        self.assertEqual(status, 2)
+        self.assertEqual(result["errors"][0]["part"], "facts")
+        self.assertIn(".ghflow/project.md: worktree: setup must be a list.", result["errors"][0]["error"])
+        self.assertFalse(Path(result["path"]).exists())
+        self.assertEqual(self.moves, [])
+
+    def test_facts_file_without_a_declaration_keeps_previous_behavior(self):
+        self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n---\n# Facts\n")
+        result, status = self.create()
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["worktree_setup"], {"source": "none", "copy": [], "setup": []})
+        self.assertFalse((Path(result["path"]) / ".env").exists())
 
 
 class PrBodyTests(unittest.TestCase):

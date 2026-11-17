@@ -1352,6 +1352,72 @@ def parse_facts_sources(text):
     return written, sources
 
 
+def parse_facts_worktree(text):
+    """Return (declaration, errors) for a project facts file's optional worktree setup.
+
+    The declaration is a frontmatter mapping. ``copy`` names files to copy from the
+    primary checkout; ``setup`` names commands to run in the new worktree::
+
+        worktree:
+          copy:
+            - .env
+          setup:
+            - uv sync
+
+    ``declaration`` is None when the file has no ``worktree:`` key. Errors name each
+    malformed line so that ``facts`` and ``worktree create`` can report them instead
+    of silently preparing a different worktree.
+    """
+    if not text.startswith("---\n"):
+        return None, []
+    end = text.find("\n---", 4)
+    if end < 0:
+        return None, []
+    lines = text[4:end].splitlines()
+    starts = [index for index, line in enumerate(lines) if line.startswith("worktree:")]
+    if not starts:
+        return None, []
+    if len(starts) > 1:
+        return None, ["worktree: is declared more than once."]
+    index = starts[0]
+    if lines[index].split(":", 1)[1].strip():
+        return None, ["worktree: must be a mapping of copy and setup lists."]
+    declaration = {"copy": [], "setup": []}
+    errors, seen, current = [], set(), None
+    for line in lines[index + 1:]:
+        if not line.strip():
+            continue
+        if not line.startswith(" "):
+            break
+        if line.startswith("  ") and not line.startswith("   "):
+            name, _, value = line[2:].strip().partition(":")
+            if name not in declaration:
+                errors.append(f"worktree: unknown key {name!r}; use copy or setup.")
+                current = None
+            elif name in seen:
+                errors.append(f"worktree: {name} is declared more than once.")
+                current = None
+            elif value.strip():
+                errors.append(f"worktree: {name} must be a list.")
+                current = None
+            else:
+                seen.add(name)
+                current = name
+        elif line.startswith("    ") and not line.startswith("     "):
+            item = line[4:].strip()
+            if current is None:
+                errors.append(f"worktree: {item!r} is outside copy or setup.")
+            elif not item.startswith("- "):
+                errors.append(f"worktree: {current} must be a list of items such as '- .env'.")
+            elif not item[2:].strip():
+                errors.append(f"worktree: {current} has an empty item.")
+            else:
+                declaration[current].append(item[2:].strip())
+        else:
+            errors.append(f"worktree: unexpected indentation in {line.strip()!r}.")
+    return declaration, errors
+
+
 SKILL_ROOT = Path(__file__).resolve().parent.parent
 
 
@@ -1576,9 +1642,10 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
     def read_facts_file():
         path = root / PROJECT_FACTS_PATH
         if not path.exists():
-            return {"path": str(PROJECT_FACTS_PATH), "present": False}
+            return {"path": str(PROJECT_FACTS_PATH), "present": False, "worktree": None, "worktree_errors": []}
         text = path.read_text(encoding="utf-8")
         written, sources = parse_facts_sources(text)
+        declaration, declaration_errors = parse_facts_worktree(text)
         stale = []
         for source, recorded in sources:
             source_path = root / source
@@ -1589,7 +1656,8 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
             if current != recorded:
                 stale.append({"path": source, "reason": "changed", "recorded": recorded, "current": current})
         return {"path": str(PROJECT_FACTS_PATH), "present": True, "written": written, "sources": len(sources),
-                "stale_sources": stale, "lines": len(text.splitlines())}
+                "stale_sources": stale, "lines": len(text.splitlines()),
+                "worktree": declaration, "worktree_errors": declaration_errors}
 
     facts_file = part("project_facts", read_facts_file)
 
@@ -1755,7 +1823,10 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
     """Create an issue worktree from origin's default branch and prepare it.
 
     ``board`` is ``(owner, project)`` or ``None``. Refuses, writing nothing, when the
-    branch or path already exists, so a resumed task reuses existing work.
+    branch or path already exists, so a resumed task reuses existing work. Without
+    explicit ``copy`` or ``setup`` arguments, it applies the ``worktree:`` declaration
+    in the primary checkout's project facts file, so every worktree of a run is
+    prepared the same way.
     """
     shell = shell or (lambda command, where: subprocess.run(command, shell=True, cwd=where, capture_output=True, text=True))
     board_write = board_write or board_set_status
@@ -1773,6 +1844,24 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
     if target.exists() or existing:
         result.update(action="exists", reason="The branch or path already exists; resume from it instead of creating another.")
         return result, 3
+    setup_source = "arguments" if (copy or setup) else "none"
+    if not copy and not setup:
+        facts_path = root / PROJECT_FACTS_PATH
+        if facts_path.is_file():
+            try:
+                text = facts_path.read_text(encoding="utf-8")
+            except OSError as error:
+                result["errors"].append({"part": "facts", "error": str(error)})
+                return result, 2
+            declaration, declaration_errors = parse_facts_worktree(text)
+            if declaration_errors:
+                result["errors"] += [{"part": "facts", "error": f"{PROJECT_FACTS_PATH}: {item}"}
+                                     for item in declaration_errors]
+                return result, 2
+            if declaration is not None:
+                copy, setup = declaration["copy"], declaration["setup"]
+                setup_source = "project_facts"
+    result["worktree_setup"] = {"source": setup_source, "copy": list(copy), "setup": list(setup)}
     try:
         git(["fetch", "--quiet", "origin", base_name], root)
         git(["worktree", "add", "--quiet", "-b", branch, str(target), f"origin/{base_name}"], root)
@@ -1877,6 +1966,87 @@ def _identity_login(identity):
     config = identity if identity is not None else resolve_identity()
     login = config.get("login")
     return login if isinstance(login, str) and login else None
+
+
+def pr_create(repo, head, base, title, body_file, draft=False, expect_head=None,
+              gh=run_gh, gh_text=run_gh_text, confirm=confirm_write_identity):
+    """Create a PR from a pushed branch and read its live state back.
+
+    Refuses, writing nothing, when an open PR already exists for ``head`` or the
+    body or title is empty. The caller has already pushed the branch; the read-back
+    checks the URL, draft state, head and base branches, title, body, and the
+    expected head commit so a publication keeps its own evidence.
+    """
+    result = {"repo": repo, "head_branch": head, "base_branch": base, "draft": bool(draft),
+              "writes": [], "errors": []}
+    try:
+        body = Path(body_file).read_text(encoding="utf-8")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "body", "error": str(error)})
+        return result, 1
+    if not body.strip():
+        result["errors"].append({"part": "body", "error": "The body file is empty."})
+        return result, 1
+    if not title.strip():
+        result["errors"].append({"part": "title", "error": "The title is empty."})
+        return result, 1
+    try:
+        existing = response_type(gh(["pr", "list", "--repo", repo, "--head", head, "--state", "open",
+                                     "--json", "url,isDraft,state,headRefOid"]), list, "The open PR list")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "read", "error": str(error)})
+        return result, 1
+    if existing:
+        result.update(action="exists", pr=existing[0],
+                      reason="An open PR already exists for this head branch; nothing was written.")
+        return result, 3
+    try:
+        confirm()
+    except IdentityError as error:
+        result["errors"].append({"part": "identity", "error": str(error)})
+        return result, 1
+    tmp = Path(tempfile.mkdtemp(prefix="ghflow-pr-create-"))
+    try:
+        body_path = tmp / "body.md"
+        body_path.write_text(body, encoding="utf-8")
+        args = ["pr", "create", "--repo", repo, "--head", head, "--base", base,
+                "--title", title, "--body-file", str(body_path)]
+        if draft:
+            args.append("--draft")
+        output = gh_text(args)
+        result["writes"].append("pr create")
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+        return result, 1
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+    match = re.search(PR_URL_PATTERN, output or "")
+    if not match:
+        result["errors"].append({"part": "url", "error": f"gh did not print a PR URL: {(output or '').strip()!r}"})
+        return result, 2
+    url = match.group(0)
+    result.update(pr=f"{match.group(1)}#{match.group(2)}", url=url, action="created")
+    try:
+        data = response_type(gh(["pr", "view", url, "--json",
+                                 "url,state,isDraft,headRefName,baseRefName,headRefOid,title,body"]),
+                             dict, "The PR response")
+        result["head"] = data.get("headRefOid")
+        result["readback"] = {
+            "url": data.get("url") == url,
+            "draft": bool(data.get("isDraft")) == bool(draft),
+            "head_branch": data.get("headRefName") == head,
+            "base_branch": data.get("baseRefName") == base,
+            "title": data.get("title") == title,
+            "body": normalized_body(data.get("body")) == normalized_body(body),
+        }
+        if expect_head is not None:
+            result["readback"]["head"] = data.get("headRefOid") == expect_head
+    except READ_ERRORS as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    if not all(result["readback"].values()):
+        return result, 2
+    return result, 0
 
 
 def pr_review_post(repo, number, state, body_file, gh=run_gh, gh_text=run_gh_text,
@@ -3387,6 +3557,14 @@ def main(argv=None):
     set_field.add_argument("--value", required=True, help="target option name")
     pr_group = commands.add_parser("pr", help="PR write operations with read-backs.")
     pr_commands = pr_group.add_subparsers(dest="pr_command", required=True)
+    create = pr_commands.add_parser("create", help="Create a PR from a pushed branch and read its state back.")
+    create.add_argument("--repo", required=True, help="OWNER/NAME of the repository")
+    create.add_argument("--head", required=True, help="pushed branch name for the PR head")
+    create.add_argument("--base", required=True, help="target branch name")
+    create.add_argument("--title", required=True, help="PR title")
+    create.add_argument("--body-file", required=True, metavar="FILE", help="UTF-8 file with the PR description")
+    create.add_argument("--draft", action="store_true", help="create the PR as a draft")
+    create.add_argument("--expect-head", metavar="SHA", help="refuse to report success unless the PR head is this commit")
     ready = pr_commands.add_parser("ready", help="Refresh the description, mark a draft ready, move its issue In review, and read each back.")
     ready.add_argument("pr", help="PR URL, or PR number with --repo")
     ready.add_argument("--repo", help="OWNER/NAME when giving a PR number")
@@ -3399,12 +3577,12 @@ def main(argv=None):
 
     wt_group = commands.add_parser("worktree", help="Issue worktree operations.")
     wt_commands = wt_group.add_subparsers(dest="worktree_command", required=True)
-    wt_create = wt_commands.add_parser("create", help="Create an issue worktree from origin's default branch, copy files, run setup, and optionally start notes and move the board.")
+    wt_create = wt_commands.add_parser("create", help="Create an issue worktree from origin's default branch, apply the project facts worktree declaration, and optionally start notes and move the board.")
     wt_create.add_argument("issue", help="issue URL")
     wt_create.add_argument("--branch", required=True, help="new branch name")
     wt_create.add_argument("--path", help="worktree path (default .claude/worktrees/BRANCH in the primary checkout)")
-    wt_create.add_argument("--copy", action="append", default=[], metavar="FILE", help="file to copy from the primary checkout, such as .env; repeatable")
-    wt_create.add_argument("--setup", action="append", default=[], metavar="COMMAND", help="setup command to run in the worktree, such as 'uv sync'; repeatable")
+    wt_create.add_argument("--copy", action="append", default=[], metavar="FILE", help="file to copy from the primary checkout; replaces the facts declaration")
+    wt_create.add_argument("--setup", action="append", default=[], metavar="COMMAND", help="setup command to run in the worktree; replaces the facts declaration")
     wt_create.add_argument("--notes", action="store_true", help="create docs/dev-sessions/STAMP-BRANCH/notes.md with a Resume here skeleton")
     wt_create.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
     wt_create.add_argument("--project", type=int, help="board number")
@@ -3570,6 +3748,9 @@ def main(argv=None):
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
                                        args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline, verdict=args.verdict)
+    elif args.command == "pr" and args.pr_command == "create":
+        result, status = pr_create(args.repo, args.head, args.base, args.title, args.body_file,
+                                   args.draft, args.expect_head)
     elif args.command == "pr" and args.pr_command == "body":
         repo, number = parse_pr(args.pr, args.repo)
         try:
