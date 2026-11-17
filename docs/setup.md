@@ -128,7 +128,7 @@ After the first task in a project, ask for the project facts file:
 Use ghflow to prepare the project facts for this repository.
 ```
 
-The agent writes `.ghflow/project.md` with the worktree setup, gates, generated files, test layout, and conventions that workers otherwise rediscover in every session, and records the source files it read. `python3 "$GHFLOW_CLI" facts` reports the live checkout and issue state and names the sources that changed since the file was written. Refresh the file when it reports stale sources, not on a schedule.
+The agent writes `.ghflow/project.md` with the worktree setup, gates, generated files, test layout, and conventions that workers otherwise rediscover in every session, and records the source files it read. A `worktree:` frontmatter declaration makes the setup executable, and `worktree create` applies it to every child worktree. `python3 "$GHFLOW_CLI" facts` reports the live checkout and issue state and names the sources that changed since the file was written. Refresh the file when it reports stale sources, not on a schedule.
 
 ## Request another operation
 
