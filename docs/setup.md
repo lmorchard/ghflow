@@ -186,6 +186,8 @@ python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 --
 
 `--project OWNER/NUMBER` selects the project board. If omitted, the runner automatically discovers the single open project linked to the repository. `--hours` sets the time budget (default 8). `--once` drives the single next item to its desired state and exits. `--model` overrides the model for worker sessions. On macOS it runs under `caffeinate` so the machine does not sleep.
 
+When the repository has Discussions and a `Lab Notebook` category (slug `lab-notebook`), the runner publishes a run notebook: it starts or reuses the day's `Run notebook YYYY-MM-DD` thread, appends one note for each session, and appends the run result. One short model call summarizes each session log; when that call fails, the note states the step and outcome. The runner also comments "Work started" on the issue when implementation begins. Use `--narrative-category SLUG` for another category, or `--no-notebook` to disable the thread and its model calls. When Discussions are disabled or the category is missing, the runner prints the reason once and continues with the local notes and the issue checkpoint.
+
 In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
 
 The runner runs one session at a time and deletes each OpenCode session after its step. It refuses to start while an unattended session was active in the last 30 minutes; pass `--allow-concurrent` only on purpose. It also starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`.

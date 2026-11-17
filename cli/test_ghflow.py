@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -3876,6 +3876,165 @@ class ParkTests(unittest.TestCase):
                            "--kind", "blocker", "--text", str(self.text)])
         self.assertEqual(status, 0)
         self.assertEqual(calls, [("o/r", 5, None, None)])
+
+
+class FakeDiscussionGitHub:
+    """Minimal GraphQL surface for the discussion and issue comment commands."""
+
+    def __init__(self, enabled=True, category=True, discussions=None, title="Run notebook 2026-11-16",
+                 fail_write=None):
+        self.enabled = enabled
+        self.category = category
+        self.discussions = discussions or []
+        self.title = title
+        self.fail_write = fail_write
+        self.body = None
+        self.writes = []
+
+    def gh(self, args):
+        self.assert_graphql(args)
+        fields = {}
+        for item in args[3:]:
+            key, _, value = item.partition("=")
+            fields[key] = value
+        query = fields.get("query", "")
+        if "hasDiscussionsEnabled" in query:
+            repository = {"id": "R_1", "hasDiscussionsEnabled": self.enabled}
+            repository["discussionCategory"] = (
+                {"id": "C_1", "name": "Lab Notebook", "slug": "lab-notebook"} if self.category else None)
+            return {"data": {"repository": repository}}
+        if "discussions(first: 100" in query:
+            return {"data": {"repository": {"discussions": {
+                "pageInfo": {"hasNextPage": False, "endCursor": None},
+                "nodes": self.discussions,
+            }}}}
+        if "addDiscussionComment" in query:
+            if self.fail_write:
+                raise GhError(self.fail_write)
+            self.body = fields["body"]
+            self.writes.append("comment")
+            return {"data": {"addDiscussionComment": {"comment": {
+                "id": "DC_1", "url": "https://github.com/o/r/discussions/5#comment-1",
+                "body": self.body, "createdAt": "2026-11-16T00:00:00Z",
+                "author": {"login": "MokaGnome"},
+            }}}}
+        if "createDiscussion" in query:
+            if self.fail_write:
+                raise GhError(self.fail_write)
+            self.body = fields["body"]
+            self.writes.append("discussion")
+            return {"data": {"createDiscussion": {"discussion": {
+                "id": "D_1", "number": 5, "title": self.title,
+                "url": "https://github.com/o/r/discussions/5",
+            }}}}
+        if "DiscussionComment" in query:
+            return {"data": {"node": {
+                "id": fields["id"], "url": "https://github.com/o/r/discussions/5#comment-1",
+                "body": self.body, "createdAt": "2026-11-16T00:00:00Z",
+                "author": {"login": "MokaGnome"},
+            }}}
+        if "on Discussion" in query:
+            return {"data": {"node": {
+                "id": "D_1", "number": 5, "title": self.title,
+                "url": "https://github.com/o/r/discussions/5", "body": self.body,
+                "author": {"login": "MokaGnome"},
+            }}}
+
+        raise AssertionError(args)
+
+    def assert_graphql(self, args):
+        if args[:3] != ["api", "graphql", "-f"]:
+            raise AssertionError(args)
+
+
+class DiscussionPostTests(unittest.TestCase):
+    def setUp(self):
+        self.body_file = Path(tempfile.mkdtemp()) / "note.md"
+        self.body_file.write_text("### 12:00 — implement-issue\n\n- Started.\n", encoding="utf-8")
+        self.discussion = {"id": "D_1", "number": 5, "title": "Run notebook 2026-11-16",
+                           "url": "https://github.com/o/r/discussions/5", "closed": False}
+
+    def post(self, fake):
+        return discussion_post("o/r", "lab-notebook", "Run notebook 2026-11-16", self.body_file,
+                               gh=fake.gh, confirm=lambda: None, identity={"login": "MokaGnome"})
+
+    def test_existing_discussion_gets_a_read_back_comment(self):
+        fake = FakeDiscussionGitHub(discussions=[self.discussion])
+        result, status = self.post(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertFalse(result["created"])
+        self.assertEqual(fake.writes, ["comment"])
+        self.assertEqual(result["discussion"]["url"], "https://github.com/o/r/discussions/5")
+        self.assertEqual(result["readback"], {"body": True, "author": True})
+
+    def test_missing_discussion_is_created_once(self):
+        fake = FakeDiscussionGitHub()
+        result, status = self.post(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertTrue(result["created"])
+        self.assertEqual(fake.writes, ["discussion"])
+        self.assertEqual(result["readback"], {"title": True, "body": True, "author": True})
+
+    def test_disabled_discussions_are_unavailable_without_a_write(self):
+        fake = FakeDiscussionGitHub(enabled=False)
+        result, status = self.post(fake)
+        self.assertEqual(status, 3)
+        self.assertFalse(result["available"])
+        self.assertIn("disabled", result["reason"])
+        self.assertEqual(fake.writes, [])
+
+    def test_missing_category_is_unavailable_without_a_write(self):
+        fake = FakeDiscussionGitHub(category=False)
+        result, status = self.post(fake)
+        self.assertEqual(status, 3)
+        self.assertIn("lab-notebook", result["reason"])
+
+    def test_missing_token_scope_is_unavailable(self):
+        fake = FakeDiscussionGitHub(discussions=[self.discussion],
+                                    fail_write="Resource not accessible by personal access token")
+        result, status = self.post(fake)
+        self.assertEqual(status, 3)
+        self.assertFalse(result["available"])
+        self.assertIn("not accessible", result["reason"])
+
+
+class FakeIssueCommentGitHub:
+    def __init__(self, author="MokaGnome"):
+        self.author = author
+        self.texts = []
+
+    def gh_text(self, args):
+        self.texts.append(Path(args[args.index("--body-file") + 1]).read_text())
+        return ""
+
+    def gh(self, args):
+        if args[:2] != ["issue", "view"]:
+            raise AssertionError(args)
+        return {"comments": [{"body": self.texts[-1], "author": {"login": self.author},
+                              "url": "https://github.com/o/r/issues/5#issuecomment-1"}]}
+
+
+class IssueCommentTests(unittest.TestCase):
+    def setUp(self):
+        self.text = Path(tempfile.mkdtemp()) / "checkpoint.md"
+        self.text.write_text("**Work started** — branch `issue-5`.", encoding="utf-8")
+
+    def comment(self, fake):
+        return issue_comment("o/r", 5, self.text, gh=fake.gh, gh_text=fake.gh_text,
+                             confirm=lambda: None, identity={"login": "MokaGnome"})
+
+    def test_comment_is_posted_and_read_back(self):
+        fake = FakeIssueCommentGitHub()
+        result, status = self.comment(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertIn("Work started", fake.texts[-1])
+        self.assertEqual(result["readback"], {"author": True, "body": True})
+
+    def test_another_author_fails_the_read_back(self):
+        fake = FakeIssueCommentGitHub(author="SomeoneElse")
+        result, status = self.comment(fake)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["readback"]["author"])
 
 
 if __name__ == "__main__":
