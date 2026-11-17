@@ -13,8 +13,10 @@
 - Review (fresh context, same model `otari-mozilla/deepseek/deepseek-v4.1-flash-1017`): verdict `findings` on `35bf74e` with one blocking finding (a successful retry posted no note) and notes.
 - Corrections: post the retry note; delete the summary session; drop NUL bytes and catch any spawn failure; print "posted" only after a post; document the notebook in `docs/setup.md`.
 - Declined note: reading post-session state for the note costs an extra GitHub read per step; the next observation shows the PR.
-- Re-review of `78eab09`: verdict `clean`, no blocking findings. Notes settled: delete the summary session on a timeout, pass stdin=DEVNULL, print only for a real post; declined pre-session state; the notes line is updated here.
-- Next action: commit these final notes fixes, rerun `make check`, push, then the ready submission with the reviewed head.
+- Final review of `5bd1bf8`: blocking finding that a bytes `TimeoutExpired.output` could raise out of the fallback. Fixed in `fe8e455` by decoding bytes; the regression test now puts the truncated UTF-8 before the session line so it fails on the pre-fix code.
+- Base moved to `origin/main` `6ab8f8e` (PR #167). Merge `4b15310` resolved `cli/test_ghflow.py`, `scripts/run_queue.py`, and `scripts/test_run_queue.py`, keeping `publish_committed` and both notebook notes.
+- Current head: `4b15310` plus the test-ordering fix; `make check` passes and hosted `check` was green at `4b15310`.
+- Next action: ready submission with the reviewed head and board target project 12.
 
 ## Verified facts (2026-11-16)
 

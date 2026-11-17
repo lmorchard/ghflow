@@ -58,7 +58,7 @@ def parse_session_id(stdout):
     for line in (stdout or "").splitlines():
         try:
             event = json.loads(line)
-        except (json.JSONDecodeError, UnicodeDecodeError):
+        except json.JSONDecodeError:
             continue
         if isinstance(event, dict) and isinstance(event.get("sessionID"), str):
             return event["sessionID"]

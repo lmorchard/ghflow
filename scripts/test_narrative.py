@@ -113,7 +113,7 @@ class SummaryTests(unittest.TestCase):
                 return SimpleNamespace(returncode=0, stdout="", stderr="")
             raise subprocess.TimeoutExpired(
                 cmd=cmd, timeout=1,
-                output=b'{"type": "step_start", "sessionID": "ses_7"}\n\xe2\x82')
+                output=b'\xe2\x82\n{"type": "step_start", "sessionID": "ses_7"}\n')
 
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "session.log"
