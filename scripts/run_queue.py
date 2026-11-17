@@ -17,7 +17,8 @@ DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 100
 DEFAULT_SESSION_TIMEOUT = 5400
-MAX_DEGENERATE_REASONING = 16000
+DEFAULT_STEP_IDLE_TIMEOUT = 600
+MAX_DEGENERATE_REASONING = 10000
 
 
 def find_cli():
@@ -77,8 +78,39 @@ def discover_project(owner_project=None, cwd=None, gh_cmd="gh"):
     raise RuntimeError(f"Multiple open projects found: {', '.join(names)}. Pass --project OWNER/NUMBER.")
 
 
-def check_active_runs(opencode_cmd="opencode"):
-    """Raise RuntimeError if an unattended session was active in the last 30 minutes."""
+def is_runner_or_session_process_alive(current_pid=None):
+    """Check if another run_queue.py or an opencode run process is alive on the system."""
+    if current_pid is None:
+        current_pid = os.getpid()
+    try:
+        proc = subprocess.run(["ps", "-eo", "pid,args"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if proc.returncode != 0:
+            proc = subprocess.run(["ps", "-eo", "pid,command"], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if proc.returncode != 0:
+            return True
+        stdout = proc.stdout.strip()
+        if stdout.startswith(("[", "{")):
+            return True
+        for line in stdout.splitlines():
+            parts = line.strip().split(None, 1)
+            if len(parts) < 2:
+                continue
+            try:
+                pid = int(parts[0])
+            except ValueError:
+                continue
+            if pid == current_pid:
+                continue
+            cmd = parts[1]
+            if ("run_queue.py" in cmd or "opencode run" in cmd) and "def is_runner_or_session_process_alive" not in cmd:
+                return True
+        return False
+    except Exception:
+        return True
+
+
+def check_active_runs(opencode_cmd="opencode", process_checker=None):
+    """Raise RuntimeError if an unattended session was active in the last 30 minutes and its process is alive."""
     if not shutil.which(opencode_cmd):
         return
     proc = subprocess.run([opencode_cmd, "session", "list", "--format", "json"], stdin=subprocess.DEVNULL,
@@ -99,8 +131,12 @@ def check_active_runs(opencode_cmd="opencode"):
             if now_ms - updated < 30 * 60 * 1000:
                 active.append(f"{s.get('id')} ({title})")
     if active:
-        raise RuntimeError("An unattended burndown session was active in the last 30 minutes:\n  " +
-                           "\n  ".join(active) + "\nPass --allow-concurrent to override.")
+        is_alive = process_checker() if process_checker is not None else is_runner_or_session_process_alive()
+        if is_alive:
+            raise RuntimeError("An unattended burndown session was active in the last 30 minutes:\n  " +
+                               "\n  ".join(active) + "\nPass --allow-concurrent to override.")
+        print(f"[{time.strftime('%X')}] Stale unattended session records found in database, "
+              "but no active runner or worker process is alive. Proceeding.", flush=True)
 
 
 def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome"):
@@ -412,11 +448,14 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     step_num = 0
     max_turns = options.get("max_turns", DEFAULT_MAX_TURNS)
     timeout_sec = options.get("session_timeout", DEFAULT_SESSION_TIMEOUT)
+    step_idle_timeout = options.get("step_idle_timeout", DEFAULT_STEP_IDLE_TIMEOUT)
     start_ts = time.time()
+    last_event_ts = time.time()
     abort_reason = None
 
     def process_line(line_str):
-        nonlocal session_id, step_num, abort_reason
+        nonlocal session_id, step_num, abort_reason, last_event_ts
+        last_event_ts = time.time()
         log_fp.write(line_str)
         log_fp.flush()
         stripped = line_str.strip()
@@ -460,8 +499,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
         has_fd = hasattr(proc.stdout, "fileno")
         if has_fd:
             while True:
-                if time.time() - start_ts > timeout_sec:
+                now = time.time()
+                if now - start_ts > timeout_sec:
                     abort_reason = f"Session exceeded timeout ({timeout_sec}s)"
+                    break
+                if now - last_event_ts > step_idle_timeout:
+                    abort_reason = f"Session idle timeout ({step_idle_timeout}s without events)"
                     break
                 if abort_reason:
                     break
@@ -545,9 +588,13 @@ def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli):
 
 def git_output(args, cwd=None):
     """Run a read-only git command and return stripped stdout, or None on failure."""
-    proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
-    return proc.stdout.strip() if proc.returncode == 0 else None
-
+    if cwd and not Path(cwd).is_dir():
+        return None
+    try:
+        proc = subprocess.run(["git", *args], cwd=cwd, capture_output=True, text=True)
+        return proc.stdout.strip() if proc.returncode == 0 else None
+    except OSError:
+        return None
 
 def committed_count(path, base):
     """Count commits on the worktree branch since the base revision."""
@@ -581,6 +628,15 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
                 break
     count = committed_count(path, count_ref)
     if not count:
+        status = git_output(["status", "--porcelain"], cwd=path)
+        if status:
+            print(f"[{time.strftime('%X')}] Committing uncommitted worktree changes for {branch}", flush=True)
+            cli_fn("exec", "--", "git", "-C", path, "add", "-A", cwd=options.get("cwd"))
+            number = str(issue_url).rstrip("/").split("/")[-1].split("#")[-1]
+            commit_msg = f"refactor: {title or branch} (Closes #{number})"
+            cli_fn("exec", "--", "git", "-C", path, "commit", "-m", commit_msg, cwd=options.get("cwd"))
+            count = committed_count(path, count_ref)
+    if not count:
         return None
     print(f"[{time.strftime('%X')}] Publishing {count} committed change(s) from {branch}", flush=True)
     pushed, code = cli_fn("exec", "--", "git", "-C", path, "push", "-u", "origin", branch,
@@ -608,6 +664,10 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         "",
     ]), encoding="utf-8")
     base = base_branch or base_ref.removeprefix("origin/") or "main"
+    if base_branch:
+        remote_heads = git_output(["ls-remote", "--heads", "origin", base_branch], cwd=path)
+        if not remote_heads:
+            base = base_ref.removeprefix("origin/") or "main"
     out, code = cli_fn("pr", "create", "--repo", repo, "--head", branch, "--base", base,
                        "--title", title or branch, "--body-file", str(body_file), "--draft",
                        "--expect-head", head, cwd=options.get("cwd"))
@@ -635,6 +695,67 @@ def park_issue(issue_url, pr_url, kind, text_or_reason, notes_dir, cli_fn=run_cl
         print(f"[{time.strftime('%X')}] Park failed (exit {code}): {out}", flush=True)
     return out, code
 
+def find_issue_notes(issue_ref, notes_dir):
+    """Locate summary, decisions, and review markdown files in notes_dir for an issue."""
+    if not notes_dir or not Path(notes_dir).is_dir():
+        return {}
+    number = str(issue_ref).rstrip("/").split("/")[-1].split("#")[-1]
+    res = {}
+    for path in sorted(Path(notes_dir).glob(f"*{number}*")):
+        if not path.is_file():
+            continue
+        name = path.stem.lower()
+        if "summary" in name and "summary" not in res:
+            res["summary"] = str(path)
+        elif ("review" in name or "verdict" in name) and "review" not in res:
+            res["review"] = str(path)
+        elif "decision" in name and "decisions" not in res:
+            res["decisions"] = str(path)
+        elif "body" in name and "body" not in res:
+            res["body"] = str(path)
+    return res
+
+
+def execute_submit_pr(state, owner, project, notes_dir, options, cli_fn=run_cli):
+    """Submit a PR deterministically: compose body from notes, mark ready, and move board status."""
+    pr = state.get("pr") or {}
+    pr_url = pr.get("url")
+    pr_num = pr.get("number")
+    current_head = pr.get("head")
+    issue_url = state.get("issue") or ""
+    issue_num = str(issue_url).rstrip("/").split("/")[-1].split("#")[-1]
+    repo = state.get("repo")
+    target_pr = pr_url or (f"{repo}#{pr_num}" if repo and pr_num else str(pr_num or ""))
+
+    notes = find_issue_notes(issue_url, notes_dir)
+    body_file = None
+
+    if repo and pr_num and notes_dir:
+        out_file = Path(notes_dir) / f"pr-body-final-{issue_num}.md"
+        body_args = ["pr", "body", str(pr_num), "--repo", repo, "--out", str(out_file), "--issue-number", str(issue_num)]
+        if notes.get("summary"):
+            body_args += ["--summary", notes["summary"]]
+        if notes.get("review"):
+            body_args += ["--review", notes["review"]]
+        if notes.get("decisions"):
+            body_args += ["--decisions", notes["decisions"]]
+        out, code = cli_fn(*body_args, cwd=options.get("cwd"))
+        if code == 0 and out_file.is_file():
+            body_file = str(out_file)
+
+    ready_args = ["pr", "ready", target_pr]
+    if repo:
+        ready_args += ["--repo", repo]
+    if current_head:
+        ready_args += ["--expect-head", current_head]
+    if body_file:
+        ready_args += ["--body-file", body_file]
+    if owner and project:
+        ready_args += ["--issue", str(issue_url), "--owner", owner, "--project", str(project), "--status", "In review"]
+
+    out, code = cli_fn(*ready_args, cwd=options.get("cwd"))
+    return code == 0, out
+
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Deterministic runner for unattended delivery from the project board.")
@@ -653,6 +774,8 @@ def main(argv=None):
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
     parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
     parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
+    parser.add_argument("--no-deterministic-pr", action="store_true",
+                        help="dispatch an LLM worker session for submit-pr instead of submitting deterministically")
     args = parser.parse_args(argv)
 
     if not args.allow_concurrent:
@@ -693,6 +816,7 @@ def main(argv=None):
         "model": model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
+        "deterministic_pr": not args.no_deterministic_pr,
     }
     attempted, delivered, park_failures = set(), [], []
 
@@ -785,7 +909,22 @@ def main(argv=None):
             step_options = dict(options)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if v.get("verdict") in ("findings", "blocked"))
-            if step == "submit-pr":
+            if step == "submit-pr" and options.get("deterministic_pr", True):
+                print(f"[{time.strftime('%X')}] Submitting PR for {issue_ref} deterministically...", flush=True)
+                success, info = execute_submit_pr(state, owner, project, notes_dir, step_options, cli_fn=run_cli)
+                print(f"[{time.strftime('%X')}] PR submission {'succeeded' if success else 'failed'}: {info}", flush=True)
+                checkpoint = f"**PR submitted** — `{step}` for {state['issue']}."
+                if notebook.discussion and notebook.discussion.get("url"):
+                    checkpoint += f" Run narrative: {notebook.discussion['url']}"
+                narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
+                note_session(step, state["issue"], success, "deterministic", None, state)
+                if not success:
+                    pr_url = (state.get("pr") or {}).get("url") or ""
+                    record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
+                    delivered.append(issue_ref)
+                    break
+                continue
+            elif step == "submit-pr":
                 target_base = f"Target base branch `{preceding_pr['branch']}`. " if preceding_pr else ""
                 step_options["extra_text"] = (
                     f"Direct submission: do not read shared reference files or re-verify code. {target_base}"
@@ -811,7 +950,9 @@ def main(argv=None):
                 directive = (
                     "Workspace: the runner already prepared the task worktree from the fetched default branch. "
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
-                    "`git grep origin/...` instead of the worktree: those reads publish nothing."
+                    "`git grep origin/...` instead of the worktree: those reads publish nothing. "
+                    "Focus solely on editing files in the worktree and passing test gates (`make check`). "
+                    "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
                 )
                 if worktree:
                     step_options["branch"] = worktree["branch"]
@@ -865,9 +1006,10 @@ def main(argv=None):
             def publish_step_work():
                 """Publish committed implementation work that the session left unpublished."""
                 if step == "implement-issue":
+                    live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
                     publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
                                       notes_dir, step_options,
-                                      base_branch=preceding_pr["branch"] if preceding_pr else None,
+                                      base_branch=live_preceding["branch"] if live_preceding else None,
                                       cli_fn=run_cli)
 
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
