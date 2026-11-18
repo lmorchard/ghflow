@@ -51,13 +51,18 @@ def main():
     args = parser.parse_args()
     root = (args.project or args.home or Path.home()).expanduser().resolve()
     locations = PROJECT if args.project else PERSONAL
-    coord_source = SOURCE / "coord"
-    has_coord = (coord_source / "SKILL.md").is_file()
+    role_skills = {
+        "ghflow": SOURCE,
+        "ghflow-build": SOURCE / "skills/build",
+        "ghflow-review": SOURCE / "skills/review",
+        "ghflow-define": SOURCE / "skills/define",
+        "ghflow-coord": SOURCE / "skills/coord",
+    }
+    available_skills = {k: v for k, v in role_skills.items() if (v / "SKILL.md").is_file()}
     destinations = []
     for name in dict.fromkeys(args.agents):
-        destinations.append((root / locations[name] / "ghflow", SOURCE))
-        if has_coord:
-            destinations.append((root / locations[name] / "ghflow-coord", coord_source))
+        for skill_name, skill_src in available_skills.items():
+            destinations.append((root / locations[name] / skill_name, skill_src))
     try:
         install(destinations)
     except (OSError, ValueError) as error:

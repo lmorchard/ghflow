@@ -82,12 +82,18 @@ class InstallationTests(unittest.TestCase):
                                  "--project", str(self.root), "claude", "codex"],
                                 cwd=self.root, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        expected_skills = ["ghflow", "ghflow-coord"] if (ROOT / "coord/SKILL.md").is_file() else ["ghflow"]
+        role_skills = {
+            "ghflow": ROOT,
+            "ghflow-build": ROOT / "skills/build",
+            "ghflow-review": ROOT / "skills/review",
+            "ghflow-define": ROOT / "skills/define",
+            "ghflow-coord": ROOT / "skills/coord",
+        }
+        expected_skills = sorted(k for k, v in role_skills.items() if (v / "SKILL.md").is_file())
         self.assertEqual(sorted(p.name for p in (self.root / ".agents/skills").iterdir()), expected_skills)
-        if "ghflow-coord" in expected_skills:
-            coord_installed = self.root / ".agents/skills/ghflow-coord"
-            self.assertEqual(coord_installed.resolve(), (ROOT / "coord").resolve())
-            self.assertTrue((coord_installed / "SKILL.md").is_file())
+        for s in expected_skills:
+            p = self.root / ".agents/skills" / s
+            self.assertTrue((p / "SKILL.md").is_file())
         installed = self.root / ".agents/skills/ghflow"
         self.assertEqual(installed.resolve(), ROOT)
         task = installed / "references/tasks/define-issue.md"

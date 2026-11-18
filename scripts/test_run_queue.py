@@ -313,7 +313,7 @@ class ComposePromptTests(unittest.TestCase):
             tasks_dir.mkdir(parents=True)
             (tasks_dir / "implement-issue.md").write_text("# Implement", encoding="utf-8")
             prompt = run_queue.compose_prompt(skill_dir, "Follow the handoff.", step="implement-issue")
-            self.assertIn("# GitHub Workflow: implement-issue", prompt)
+            self.assertIn("# ghflow-build: implement-issue", prompt)
             self.assertIn("Local-model single session", prompt)
             self.assertIn("implement-issue.md", prompt)
             self.assertIn("export GHFLOW_CLI=", prompt)

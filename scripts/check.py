@@ -55,20 +55,24 @@ def check_skills(root=ROOT):
                        if name and (root / name).is_file())
     else:
         paths = sorted(root.glob("**/SKILL.md"))
-    expected_root = root / "SKILL.md"
-    expected_coord = root / "coord" / "SKILL.md"
-    expected = sorted([p for p in (expected_root, expected_coord) if p.exists()])
+    expected_skills = {
+        root / "SKILL.md": "ghflow",
+        root / "skills/build/SKILL.md": "ghflow-build",
+        root / "skills/review/SKILL.md": "ghflow-review",
+        root / "skills/define/SKILL.md": "ghflow-define",
+        root / "skills/coord/SKILL.md": "ghflow-coord",
+    }
+    expected = sorted([p for p in expected_skills if p.exists()])
     if paths != expected:
-        errors.append(f"skills: expected root SKILL.md and coord/SKILL.md, got {[str(p.relative_to(root)) for p in paths]}")
+        errors.append(f"skills: expected skills {[str(p.relative_to(root)) for p in expected]}, got {[str(p.relative_to(root)) for p in paths]}")
     task_dir = root / "references/tasks"
     tasks = set(task_dir.glob("*.md")) - {task_dir / "research.md"}
     if not tasks:
         errors.append("skills: no task references")
     routed = set()
-    for p in (expected_root, expected_coord):
-        if p.exists():
-            routed.update((p.parent / target.split("#")[0]).resolve()
-                          for target in LINK.findall(p.read_text()))
+    for p in expected:
+        routed.update((p.parent / target.split("#")[0]).resolve()
+                      for target in LINK.findall(p.read_text()))
     for task in sorted(tasks):
         if task.resolve() not in routed:
             errors.append(f"{task.relative_to(root)}: not reachable from entry skills")
@@ -81,7 +85,7 @@ def check_skills(root=ROOT):
             errors.append(f"{rel}: missing frontmatter")
             continue
         name = fields.get("name", "")
-        expected_name = "ghflow-coord" if path == expected_coord else "ghflow"
+        expected_name = expected_skills.get(path, "ghflow")
         if name != expected_name:
             errors.append(f"{rel}: name {name!r} must be {expected_name}")
         if not NAME.match(name):
