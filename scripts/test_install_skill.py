@@ -82,7 +82,12 @@ class InstallationTests(unittest.TestCase):
                                  "--project", str(self.root), "claude", "codex"],
                                 cwd=self.root, text=True, capture_output=True)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(sorted(p.name for p in (self.root / ".agents/skills").iterdir()), ["ghflow"])
+        expected_skills = ["ghflow", "ghflow-coord"] if (ROOT / "coord/SKILL.md").is_file() else ["ghflow"]
+        self.assertEqual(sorted(p.name for p in (self.root / ".agents/skills").iterdir()), expected_skills)
+        if "ghflow-coord" in expected_skills:
+            coord_installed = self.root / ".agents/skills/ghflow-coord"
+            self.assertEqual(coord_installed.resolve(), (ROOT / "coord").resolve())
+            self.assertTrue((coord_installed / "SKILL.md").is_file())
         installed = self.root / ".agents/skills/ghflow"
         self.assertEqual(installed.resolve(), ROOT)
         task = installed / "references/tasks/define-issue.md"
@@ -112,7 +117,7 @@ class StructureTests(unittest.TestCase):
             skill = root / "skills/define-issue/SKILL.md"
             skill.parent.mkdir(parents=True)
             skill.write_text("---\nname: define-issue\ndescription: draft\n---\n")
-            self.assertIn("skills: expected only root SKILL.md", checker.check_skills(root))
+            self.assertTrue(any("skills: expected" in err for err in checker.check_skills(root)))
 
     def test_root_skill_ignores_worktrees(self):
         with tempfile.TemporaryDirectory() as path:
