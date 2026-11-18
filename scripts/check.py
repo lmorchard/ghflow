@@ -7,6 +7,11 @@ import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+try:
+    import bundle_skill
+except ImportError:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    import bundle_skill
 LINK = re.compile(r"\[[^\]]*\]\(([^)\s]+)\)")
 NAME = re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$")
 TASK_NAME = NAME
@@ -59,6 +64,8 @@ def check_skills(root=ROOT):
         root / "SKILL.md": "ghflow",
         root / "skills/build/SKILL.md": "ghflow-build",
         root / "skills/review/SKILL.md": "ghflow-review",
+        root / "skills/build-slim/SKILL.md": "ghflow-build-slim",
+        root / "skills/review-slim/SKILL.md": "ghflow-review-slim",
         root / "skills/define/SKILL.md": "ghflow-define",
         root / "skills/coord/SKILL.md": "ghflow-coord",
     }
@@ -234,7 +241,7 @@ def check_line_width(root=ROOT):
 
 
 def main():
-    errors = (check_skills() + check_links() + check_scenario_skills()
+    errors = (check_skills() + bundle_skill.check_bundles(ROOT) + check_links() + check_scenario_skills()
               + check_bare_gh_writes() + check_line_width())
     for error in errors:
         print(error, file=sys.stderr)
