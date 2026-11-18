@@ -41,6 +41,14 @@ import time
 from datetime import datetime, timezone
 from pathlib import Path
 
+try:
+    import tags
+except ImportError:
+    try:
+        from cli import tags
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import tags
 CHECK_RUN_STATES = {
     "SUCCESS": "passed",
     "NEUTRAL": "passed",
@@ -3691,6 +3699,22 @@ def main(argv=None):
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
     exec_cmd.add_argument("exec_args", nargs=argparse.REMAINDER, help="command and arguments to run")
+    tags_parser = commands.add_parser("tags", help="Universal Ctags symbol indexing, definition search, and outlines.")
+    tags_commands = tags_parser.add_subparsers(dest="tags_command", required=True)
+    tags_gen = tags_commands.add_parser("generate", help="Generate or refresh tags for git-tracked source files.")
+    tags_gen.add_argument("--repo", help="repository root (default current directory)")
+    tags_gen.add_argument("--out", help="output tags file path (default .git/tags)")
+    tags_gen.add_argument("--languages", help="comma-separated languages to index (e.g. Python,JavaScript,TypeScript)")
+    tags_find = tags_commands.add_parser("find", help="Find definitions matching a symbol name.")
+    tags_find.add_argument("symbol", help="symbol name to look up")
+    tags_find.add_argument("--repo", help="repository root (default current directory)")
+    tags_find.add_argument("--tags-file", help="tags file path (default .git/tags)")
+    tags_find.add_argument("--kind", help="filter by symbol kind (function, class, method, variable, etc.)")
+    tags_find.add_argument("--prefix", action="store_true", help="prefix match instead of exact match")
+    tags_outline = tags_commands.add_parser("outline", help="List all symbol definitions in a file.")
+    tags_outline.add_argument("file", help="path to source file")
+    tags_outline.add_argument("--repo", help="repository root (default current directory)")
+    tags_outline.add_argument("--tags-file", help="tags file path (default .git/tags)")
     args = parser.parse_args(argv)
 
     if args.command == "pr-state":
@@ -3746,6 +3770,14 @@ def main(argv=None):
             result, status = budget(args.log, args.deadline, args.start, args.end, need)
         except (OSError, ValueError) as error:
             result, status = {"errors": [{"part": "budget", "error": str(error)}]}, 1
+    elif args.command == "tags" and args.tags_command == "generate":
+        languages = [l.strip() for l in args.languages.split(",")] if args.languages else None
+        result, status = tags.generate_tags(repo_root=args.repo, out_path=args.out, languages=languages)
+    elif args.command == "tags" and args.tags_command == "find":
+        result, status = tags.find_tags(args.symbol, repo_root=args.repo, tags_file=args.tags_file,
+                                        exact=not args.prefix, kind=args.kind)
+    elif args.command == "tags" and args.tags_command == "outline":
+        result, status = tags.outline_file(args.file, repo_root=args.repo, tags_file=args.tags_file)
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
                                        args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline, verdict=args.verdict)
