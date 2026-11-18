@@ -456,7 +456,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     handoff_file = notes_dir / f"handoff-{step}-{stamp}.md"
-    args = ["handoff", step, issue_url, "--out", str(handoff_file)]
+    args = ["handoff", step, issue_url, "--out", str(handoff_file), "--runner"]
     if step == "review-changes":
         args.append("--verdict")
     if options.get("model"):

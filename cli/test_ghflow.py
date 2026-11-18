@@ -3547,6 +3547,19 @@ class HandoffTests(unittest.TestCase):
         self.assertIn("Verdict comment:", content)
         self.assertIn("<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->", content)
 
+
+    def test_write_handoff_with_runner_tailors_scope_and_return(self):
+        tmp = Path(tempfile.mkdtemp())
+        result, status = write_handoff("implement-issue", "https://github.com/o/r/issues/5",
+                                       tmp / "runner_handoff.md", facts=self.facts, runner=True)
+        self.assertEqual(status, 0, result.get("errors"))
+        content = (tmp / "runner_handoff.md").read_text()
+        self.assertIn("Produce tested, committed changes in the task worktree", content)
+        self.assertIn("Do not push to remote or open a pull request", content)
+        self.assertIn("Return the committed head SHA", content)
+        self.assertNotIn("Return the PR URL", content)
+        self.assertNotIn("SKILL.md", content)
+        self.assertIn("implement-issue.md", content)
     def test_facts_refresh_needs_no_issue_and_says_ready_without_review(self):
         def facts(issue=None):
             info, _ = self.facts()
