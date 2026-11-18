@@ -415,6 +415,12 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
     and high-level coordinator rules. Falls back to SKILL.md body if step is None.
     """
     if step:
+        role_map = {
+            "implement-issue": ("ghflow-build", "skills/build/SKILL.md"),
+            "address-pr-review": ("ghflow-build", "skills/build/SKILL.md"),
+            "review-changes": ("ghflow-review", "skills/review/SKILL.md"),
+        }
+        role_name, role_skill = role_map.get(step, (f"ghflow:{step}", "SKILL.md"))
         cli_py = Path(skill_dir) / "cli" / "ghflow.py"
         task_ref = Path(skill_dir) / "references" / "tasks" / f"{step}.md"
         task_line = (
@@ -423,7 +429,7 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             if task_ref.is_file() else ""
         )
         return (
-            f"# GitHub Workflow: {step}\n\n"
+            f"# {role_name}: {step}\n\n"
             f"You are executing the `{step}` operation for an assigned issue in an isolated worktree.\n"
             "Execution mode: Local-model single session. Stay in this session; do not spawn subagents.\n\n"
             "Tools:\n"
