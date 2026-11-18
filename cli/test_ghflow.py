@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1904,6 +1904,14 @@ class PrWriteCommandTests(unittest.TestCase):
         result, status = self.pr_comment(fake)
         self.assertEqual(status, 0, result["errors"])
         self.assertTrue(result["readback"]["body"])
+
+    def test_comment_posts_and_extracts_verdict(self):
+        verdict_body = "<!-- ghflow-review head=aaaaaaa verdict=clean -->\n\nLooks good."
+        self.body.write_text(verdict_body, encoding="utf-8")
+        fake = FakeReviewGitHub(comments=[("FakeBot", verdict_body)])
+        result, status = self.pr_comment(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["verdict"], {"head": "aaaaaaa", "verdict": "clean"})
 
     def test_merge_squashes_the_expected_head_and_reads_back(self):
         fake = FakeReviewGitHub()
@@ -3807,6 +3815,52 @@ class ReviewPrepareTests(unittest.TestCase):
             out.write("probe\n")
         cleaned, status = review_cleanup(7, cwd=self.clone)
         self.assertEqual((status, cleaned["action"]), (3, "refused"))
+
+    def test_prepare_applies_project_facts_copy_and_setup(self):
+        with open(os.path.join(self.clone, ".env"), "w") as out:
+            out.write("SECRET=123\n")
+        facts_path = Path(self.clone) / ".ghflow" / "project.md"
+        facts_path.parent.mkdir(parents=True, exist_ok=True)
+        facts_path.write_text(
+            "---\nghflow_project_facts: 1\nwritten: 2026-11-18\n"
+            "worktree:\n  copy:\n    - .env\n  setup:\n    - touch review-ready.txt\n---\n# Facts\n",
+            encoding="utf-8",
+        )
+        result, status = review_prepare("o/r", 7, cwd=self.clone, gh=self.gh)
+        self.assertEqual(status, 0, result["errors"])
+        path = Path(result["path"])
+        self.assertEqual((path / ".env").read_text(), "SECRET=123\n")
+        self.assertTrue((path / "review-ready.txt").exists())
+        self.assertEqual(result["worktree_setup"],
+                         {"source": "project_facts", "copy": [".env"], "setup": ["touch review-ready.txt"]})
+
+
+class GateCommandTests(unittest.TestCase):
+    def test_run_gate_success(self):
+        class MockProc:
+            returncode = 0
+            stdout = "Ran 42 tests in 2.1s\n\nOK (42 passed)\n"
+
+        result, status = run_gate(command="make check", shell=lambda cmd, where, t: MockProc())
+        self.assertEqual(status, 0)
+        self.assertTrue(result["success"])
+        self.assertEqual(result["exit_code"], 0)
+        self.assertIn("passed", result["summary"])
+        self.assertEqual(result["test_counts"], "42 passed")
+        self.assertEqual(result["failures"], [])
+
+    def test_run_gate_failure(self):
+        class MockProc:
+            returncode = 1
+            stdout = "Ran 10 tests\n\nFAIL: test_broken (test_foo.py:12)\nAssertionError\nFAILED (failures=1)\n"
+
+        result, status = run_gate(command="make check", shell=lambda cmd, where, t: MockProc())
+        self.assertEqual(status, 1)
+        self.assertFalse(result["success"])
+        self.assertEqual(result["exit_code"], 1)
+        self.assertIn("failed", result["summary"])
+        self.assertTrue(len(result["failures"]) >= 1)
+        self.assertIn("FAILED", result["failures"][-1])
 
 
 class FakeParkGitHub:
