@@ -1278,7 +1278,18 @@ def main(argv=None):
         if args.once:
             break
 
-    notebook.finish(delivered, park_failures)
+    toil_report = None
+    try:
+        from audit_toil import audit_toil, format_markdown_report
+        toil_res, _ = audit_toil(dirs=[str(notes_dir)], min_strikes=3)
+        patterns = toil_res.get("patterns") or []
+        if patterns:
+            toil_report = format_markdown_report(patterns, toil_res.get("scanned", 0))
+            print(f"\n[{time.strftime('%X')}] Toil audit detected {len(patterns)} pattern(s) hitting Strike 3:\n{toil_report}\n", flush=True)
+    except Exception as e:
+        print(f"[{time.strftime('%X')}] Toil audit skipped: {e}", flush=True)
+
+    notebook.finish(delivered, park_failures, toil_report=toil_report)
     if delivered and owner and project:
         run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
     elif delivered:

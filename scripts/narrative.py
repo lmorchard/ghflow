@@ -222,7 +222,7 @@ class RunNotebook:
             lines.append(f"PR: {pr_url}" + (f" at `{head}`" if head else "") + "\n")
         return self._post("\n".join(lines) + "\n")
 
-    def finish(self, delivered, park_failures, stop_reason=None):
+    def finish(self, delivered, park_failures, stop_reason=None, toil_report=None):
         lines = [f"## Run end {time.strftime('%H:%M')}", "",
                  f"- Delivered or reached an endpoint: {len(delivered or [])}"]
         for item in delivered or []:
@@ -233,4 +233,6 @@ class RunNotebook:
                 lines.append(f"  - {failure.get('issue')}: {failure.get('reason')}")
         if stop_reason:
             lines.append(f"- Stopped: {stop_reason}")
+        if toil_report:
+            lines.extend(["", "## Operational Toil Audit", "", toil_report.strip()])
         return self._post("\n".join(lines) + "\n")
