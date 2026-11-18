@@ -257,6 +257,7 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
         "url": issue.get("url") or str(issue_ref),
         "number": issue_ref if isinstance(issue_ref, int) else (issue.get("number")),
         "title": issue.get("title"),
+        "body": issue.get("body") or "",
         "repo": (facts.get("repository") or {}).get("remote"),
         "labels": issue.get("labels") or [],
         "pr": pr,
@@ -699,6 +700,145 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
     print(f"[{time.strftime('%X')}] Draft PR creation failed (exit {code}): {out}", flush=True)
     return None
 
+def run_precomputed_gate(wt_path, timeout=300):
+    """Run local project test gates deterministically before a review-changes session."""
+    if not wt_path or not Path(wt_path).is_dir():
+        return None
+    makefile = Path(wt_path) / "Makefile"
+    if not makefile.is_file():
+        return None
+    try:
+        content = makefile.read_text(encoding="utf-8", errors="ignore")
+    except OSError:
+        return None
+    if not re.search(r"^check\s*:", content, re.MULTILINE):
+        return None
+
+    print(f"[{time.strftime('%X')}] Running pre-computed test gate (make check) in {wt_path}...", flush=True)
+    try:
+        proc = subprocess.run(["make", "check"], cwd=wt_path, stdout=subprocess.PIPE,
+                              stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        output = proc.stdout or ""
+        test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?)", output)
+        test_info = f", {test_match.group(1)}" if test_match else ""
+        if proc.returncode == 0:
+            print(f"[{time.strftime('%X')}] Pre-computed gate passed: make check exit 0{test_info}", flush=True)
+            return {
+                "success": True,
+                "command": "make check",
+                "exit_code": 0,
+                "summary": f"make check passed (exit 0{test_info})",
+                "text": f"Pre-computed gate status at head: `make check` passed (exit 0{test_info}). "
+                        "Local gates are verified; do not spend turns re-running full test suites unless investigating a specific defect."
+            }
+        else:
+            tail = "\n".join(output.strip().splitlines()[-5:])
+            print(f"[{time.strftime('%X')}] Pre-computed gate failed: exit {proc.returncode}", flush=True)
+            return {
+                "success": False,
+                "command": "make check",
+                "exit_code": proc.returncode,
+                "summary": f"make check failed (exit {proc.returncode})",
+                "text": f"Pre-computed gate status at head: `make check` FAILED (exit {proc.returncode}):\n{tail}\n"
+                        "Focus review on investigating this failure."
+            }
+    except subprocess.TimeoutExpired:
+        print(f"[{time.strftime('%X')}] Pre-computed gate timed out after {timeout}s", flush=True)
+        return {
+            "success": False,
+            "command": "make check",
+            "exit_code": -1,
+            "summary": f"make check timed out after {timeout}s",
+            "text": f"Pre-computed gate timed out after {timeout}s. Verify test gates manually."
+        }
+    except Exception as e:
+        print(f"[{time.strftime('%X')}] Pre-computed gate error: {e}", flush=True)
+        return None
+
+
+EXCLUDE_SYMBOL_KEYWORDS = {
+    "python", "javascript", "typescript", "test", "tests", "pytest", "vitest",
+    "true", "false", "none", "null", "self", "return", "import", "export",
+    "class", "function", "method", "issue", "pull", "request", "branch",
+    "commit", "worktree", "repo", "make", "check", "file", "files", "code",
+    "line", "lines", "error", "errors", "fail", "fails", "failed", "pass",
+    "passes", "passed", "todo", "fix", "args", "kwargs", "main", "base",
+    "head", "diff", "spec", "plan", "notes", "type", "types", "data",
+}
+
+
+def extract_candidate_symbols(title, body=""):
+    """Extract backticked identifiers and distinct symbol names from issue text."""
+    candidates = []
+    seen = set()
+    text = f"{title or ''}\n{body or ''}"
+
+    # 1. Backticked tokens: `foo`, `#bar`, `_baz`
+    for m in re.finditer(r"`([^`\n]+)`", text):
+        raw = m.group(1).strip()
+        clean = re.sub(r"\(\s*\)$", "", raw).strip()
+        clean_id = clean.lstrip("#")
+        if re.match(r"^[a-zA-Z_][a-zA-Z0-9_]{2,}$", clean_id):
+            lower = clean_id.lower()
+            if lower not in EXCLUDE_SYMBOL_KEYWORDS and lower not in seen:
+                seen.add(lower)
+                candidates.append(clean_id)
+
+    # 2. Distinctive identifiers matching _*[a-zA-Z0-9_]+ in title
+    for m in re.finditer(r"\b(_+[a-zA-Z0-9_]{2,}|[a-z]+[A-Z][a-zA-Z0-9_]+|[A-Z][a-z0-9]+[A-Z][a-zA-Z0-9]+)\b", title or ""):
+        sym = m.group(1).strip()
+        lower = sym.lower()
+        if lower not in EXCLUDE_SYMBOL_KEYWORDS and lower not in seen:
+            seen.add(lower)
+            candidates.append(sym)
+
+    return candidates[:5]
+
+
+def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
+    """Find definition and reference locations for symbols using git grep."""
+    if not symbols or not cwd or not Path(cwd).is_dir():
+        return []
+    results = []
+    for sym in symbols:
+        clean_sym = sym.lstrip("#")
+        try:
+            proc = subprocess.run(
+                ["git", "grep", "-n", "-I", "-m", str(limit_per_symbol), "--", clean_sym],
+                cwd=cwd, capture_output=True, text=True, timeout=10
+            )
+        except Exception:
+            continue
+        if proc.returncode == 0 and proc.stdout.strip():
+            lines = proc.stdout.strip().splitlines()
+            code_lines = [ln for ln in lines if not ln.startswith("docs/dev-sessions/")]
+            filtered = code_lines if code_lines else lines
+            matches = []
+            for match_line in filtered[:limit_per_symbol]:
+                parts = match_line.split(":", 2)
+                if len(parts) >= 2:
+                    loc = f"{parts[0]}:{parts[1]}"
+                    code_snip = parts[2].strip() if len(parts) > 2 else ""
+                    matches.append((loc, code_snip))
+            if matches:
+                results.append({"symbol": sym, "matches": matches})
+    return results
+
+
+def format_symbol_index(symbol_results):
+    """Format symbol discovery locations for injection into task directive."""
+    if not symbol_results:
+        return ""
+    lines = ["Target symbol locations in repository:"]
+    for res in symbol_results:
+        sym = res["symbol"]
+        for loc, snip in res["matches"]:
+            if snip:
+                lines.append(f"- `{sym}` at `{loc}`: `{snip[:80]}`")
+            else:
+                lines.append(f"- `{sym}` at `{loc}`")
+    return "\n".join(lines)
+
 
 def park_issue(issue_url, pr_url, kind, text_or_reason, notes_dir, cli_fn=run_cli, cwd=None):
     """Park an issue with ghflow park, naming the PR only when one exists."""
@@ -792,6 +932,10 @@ def main(argv=None):
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
     parser.add_argument("--step-idle-timeout", type=int, default=DEFAULT_STEP_IDLE_TIMEOUT,
                         help=f"maximum idle seconds without stream events before session abort (default {DEFAULT_STEP_IDLE_TIMEOUT})")
+    parser.add_argument("--no-precompute-gates", action="store_true",
+                        help="do not run pre-computed test gates before review-changes")
+    parser.add_argument("--no-symbol-indexing", action="store_true",
+                        help="do not index subsystem symbols before implement-issue")
     parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
     parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
     parser.add_argument("--no-deterministic-pr", action="store_true",
@@ -837,6 +981,8 @@ def main(argv=None):
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
         "step_idle_timeout": args.step_idle_timeout,
+        "no_precompute_gates": args.no_precompute_gates,
+        "no_symbol_indexing": args.no_symbol_indexing,
         "deterministic_pr": not args.no_deterministic_pr,
     }
     attempted, delivered, park_failures = set(), [], []
@@ -956,17 +1102,30 @@ def main(argv=None):
                 base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
                 stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo, so rely exclusively on local worktree gate checks." if preceding_pr else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
+
+                gate_note = ""
+                if not options.get("no_precompute_gates", False):
+                    review_wt = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
+                    if review_wt and review_wt.get("path"):
+                        gate_res = run_precomputed_gate(review_wt["path"])
+                        if gate_res and gate_res.get("text"):
+                            gate_note = f" {gate_res['text']}"
+                            checkpoint = f"**Gate check** — `{step}` for {state['issue']}: {gate_res['summary']}."
+                            if notebook.discussion and notebook.discussion.get("url"):
+                                checkpoint += f" Run narrative: {notebook.discussion['url']}"
+                            narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
+
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`), run existing project test gates (`make check`, `make test`), "
                         f"and post the verdict comment directly with `pr comment`. "
-                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}"
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}{gate_note}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
@@ -1016,6 +1175,13 @@ def main(argv=None):
                            if worktree else "")
                         + f" and set `--base {preceding_pr['branch']}` when the draft PR is created."
                     )
+                if not options.get("no_symbol_indexing", False):
+                    symbols = extract_candidate_symbols(state.get("title"), state.get("body", ""))
+                    if symbols and worktree and worktree.get("path"):
+                        sym_matches = find_subsystem_symbols(symbols, cwd=worktree["path"])
+                        sym_text = format_symbol_index(sym_matches)
+                        if sym_text:
+                            directive += f"\n\n{sym_text}"
                 checkpoint = f"**Work started** — `{step}` for {state['issue']}."
                 if worktree:
                     checkpoint += f" Branch `{worktree['branch']}` in `{worktree['path']}`."

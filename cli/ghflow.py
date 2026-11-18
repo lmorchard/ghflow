@@ -1741,7 +1741,7 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
 
         def read_issue():
             data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json",
-                       "url,title,state,labels,projectItems,closedByPullRequestsReferences"])
+                       "url,title,state,labels,projectItems,closedByPullRequestsReferences,body"])
             response_type(data, dict, "The issue response")
             items = []
             for item in response_type(data.get("projectItems") or [], list, "The issue project items"):
@@ -1756,6 +1756,7 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
                     if isinstance(p, dict) and p.get("number") is not None:
                         linked_pr_numbers.add(p["number"])
             return {"url": response_string(data["url"], "The issue url"), "title": data.get("title"), "state": data.get("state"),
+                    "body": data.get("body"),
                     "labels": [label.get("name") for label in data.get("labels") or [] if isinstance(label, dict)],
                     "board_items": items}
 
