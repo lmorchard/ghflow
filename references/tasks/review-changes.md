@@ -62,7 +62,7 @@ When the handoff requests a verdict comment, post it with `python3 "$GHFLOW_CLI"
 ```
 
 Use:
-- `clean`: no blocking findings.
+- `clean`: no blocking findings (even if non-blocking suggestions or observations are listed under `## Notes`).
 - `findings`: actionable blocking findings that a correction worker can resolve.
 - `blocked`: architectural or requirement blockers that cannot be resolved without user input.
 
