@@ -16,6 +16,9 @@ Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` in the source checkout 
 ```sh
 export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
+
+# Audit runner session logs for repeated procedural toil (Three Strikes and You Automate):
+python3 "$GHFLOW_CLI" audit toil [--last 30] [--min-strikes 3]
 ```
 
 For unattended queue burndowns across a parent epic or Ready queue, drive the deterministic queue runner:
@@ -51,4 +54,4 @@ For single-issue implementation, code changes, PR review, or feedback resolution
 
 In delegated mode, apply [Coordination](../references/shared/coordination.md#handoffs). Write the handoff file before dispatching worker sessions, and carry decisions, base revisions, and limits across tasks.
 
-Maintain project notes under [Task notes](../references/shared/task-notes.md) when findings or decisions are costly to reconstruct. Return verified results, remaining blockers, and decision points clearly to the user.
+Maintain project notes under [Task notes](../references/shared/task-notes.md) when findings or decisions are costly to reconstruct. Return verified results, remaining blockers, and decision points clearly to the user. After an unattended burndown or multi-issue run, audit worker operational logs with `python3 "$GHFLOW_CLI" audit toil` to identify repeated friction patterns hitting the Three Strikes threshold for deterministic automation.

@@ -60,4 +60,4 @@ Keep automated tests, hosted CI, deployment, and user-reported smoke checks dist
 
 If the authorized endpoint and all completion conditions are met, have a subagent close the parent and apply its board transition with ghflow commands or `exec`, then read back the result. Otherwise leave it open and report exactly what remains.
 
-Return the child and PR links, parent state, current coverage, decisions made, blockers, and verification limits. Do not move on to unrelated backlog work.
+Return the child and PR links, parent state, current coverage, decisions made, blockers, and verification limits. Run `python3 "$GHFLOW_CLI" audit toil` over the children's session logs to report recurring procedural friction hitting the Three Strikes threshold. Do not move on to unrelated backlog work.

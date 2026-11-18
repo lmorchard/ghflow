@@ -170,6 +170,15 @@ class RunNotebookTests(unittest.TestCase):
         self.assertIn("https://github.com/o/r/pull/1", fake.texts[1])
         self.assertIn("Run end", fake.texts[2])
 
+    def test_finish_appends_toil_report(self):
+        fake = FakeCli()
+        notebook = narrative.RunNotebook(fake, print_fn=lambda *a: None)
+        toil = "### Pattern 1: make to tail\n- **Strike Count**: 3 occurrences"
+        notebook.finish(["https://github.com/o/r/issues/1"], [], toil_report=toil)
+        self.assertEqual(len(fake.calls), 1)
+        self.assertIn("## Operational Toil Audit", fake.texts[0])
+        self.assertIn("Strike Count**: 3", fake.texts[0])
+
     def test_unavailable_notebook_stops_posting(self):
         fake = FakeCli(code=3, out={"available": False, "reason": "Discussions are disabled."})
         notebook = narrative.RunNotebook(fake, print_fn=lambda *a: None)
