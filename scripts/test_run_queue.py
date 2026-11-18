@@ -42,6 +42,27 @@ class NextStepTableTests(unittest.TestCase):
         }
         self.assertEqual(run_queue.next_step(state), "submit-pr")
 
+    def test_draft_findings_verdict_with_no_blockers_is_submit_pr(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
+            "review_verdicts": [{
+                "head": "abc",
+                "verdict": "findings",
+                "body": "## Verdict: findings (no blockers)\n\n## Blocking findings\n\nNone.\n\n## Notes\n\n1. Note.",
+            }],
+        }
+        self.assertEqual(run_queue.next_step(state), "submit-pr")
+
+    def test_draft_uses_latest_verdict_on_head(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
+            "review_verdicts": [
+                {"head": "abc", "verdict": "findings"},
+                {"head": "abc", "verdict": "clean"},
+            ],
+        }
+        self.assertEqual(run_queue.next_step(state), "submit-pr")
+
     def test_draft_blocking_findings_under_limit_is_address_review(self):
         state = {
             "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
@@ -58,6 +79,9 @@ class NextStepTableTests(unittest.TestCase):
             ],
         }
         self.assertEqual(run_queue.next_step(state, correction_limit=2), "park-blocker")
+    def test_default_step_idle_timeout_is_300(self):
+        self.assertEqual(run_queue.DEFAULT_STEP_IDLE_TIMEOUT, 300)
+
 
     def test_human_changes_requested_on_draft_triggers_address_review(self):
         state = {

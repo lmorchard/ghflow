@@ -17,7 +17,7 @@ DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 100
 DEFAULT_SESSION_TIMEOUT = 5400
-DEFAULT_STEP_IDLE_TIMEOUT = 600
+DEFAULT_STEP_IDLE_TIMEOUT = 300
 MAX_DEGENERATE_REASONING = 10000
 
 
@@ -139,6 +139,24 @@ def check_active_runs(opencode_cmd="opencode", process_checker=None):
               "but no active runner or worker process is alive. Proceeding.", flush=True)
 
 
+def is_verdict_blocking(verdict_entry):
+    """Determine whether a review verdict entry contains blocking feedback."""
+    if not verdict_entry:
+        return False
+    v = verdict_entry.get("verdict")
+    if v == "blocked":
+        return True
+    if v != "findings":
+        return False
+    body = verdict_entry.get("body") or ""
+    m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", body, re.IGNORECASE)
+    if m:
+        val = m.group(1).strip().lower().rstrip(".")
+        if val in ("none", "no blocking findings", "no blockers", "none —", "none -"):
+            return False
+    return True
+
+
 def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome"):
     """Pure function returning the next operation for an observed issue state."""
     labels = state.get("labels") or []
@@ -162,13 +180,13 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
 
     # Also check review verdicts (fallback for automated inter-agent comment markers)
     verdicts = state.get("review_verdicts") or []
-    head_verdict = next((v for v in verdicts if v.get("head") == current_head), None)
-    verdict_blocking = head_verdict and (head_verdict.get("verdict") in ("findings", "blocked"))
-    verdict_clean = head_verdict and (head_verdict.get("verdict") == "clean")
+    head_verdict = next((v for v in reversed(verdicts) if v.get("head") == current_head), None)
+    verdict_blocking = is_verdict_blocking(head_verdict)
+    verdict_clean = head_verdict and (head_verdict.get("verdict") == "clean" or not verdict_blocking)
 
     has_blocking_feedback = bool(changes_requested) or verdict_blocking
     earlier_blocking = sum(1 for r in reviews if r.get("state") == "CHANGES_REQUESTED") + \
-                       sum(1 for v in verdicts if v.get("verdict") in ("findings", "blocked"))
+                       sum(1 for v in verdicts if is_verdict_blocking(v))
 
     if is_draft:
         if not head_reviews and not head_verdict:
@@ -772,6 +790,8 @@ def main(argv=None):
     parser.add_argument("--notes-dir", help="custom task notes directory")
     parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS, help="maximum turns per session (default 100)")
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
+    parser.add_argument("--step-idle-timeout", type=int, default=DEFAULT_STEP_IDLE_TIMEOUT,
+                        help=f"maximum idle seconds without stream events before session abort (default {DEFAULT_STEP_IDLE_TIMEOUT})")
     parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
     parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
     parser.add_argument("--no-deterministic-pr", action="store_true",
@@ -816,6 +836,7 @@ def main(argv=None):
         "model": model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
+        "step_idle_timeout": args.step_idle_timeout,
         "deterministic_pr": not args.no_deterministic_pr,
     }
     attempted, delivered, park_failures = set(), [], []
@@ -908,7 +929,7 @@ def main(argv=None):
             preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
             step_options = dict(options)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
-                               sum(1 for v in (state.get("review_verdicts") or []) if v.get("verdict") in ("findings", "blocked"))
+                               sum(1 for v in (state.get("review_verdicts") or []) if is_verdict_blocking(v))
             if step == "submit-pr" and options.get("deterministic_pr", True):
                 print(f"[{time.strftime('%X')}] Submitting PR for {issue_ref} deterministically...", flush=True)
                 success, info = execute_submit_pr(state, owner, project, notes_dir, step_options, cli_fn=run_cli)
@@ -933,17 +954,19 @@ def main(argv=None):
                 )
             elif step == "review-changes":
                 base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
+                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo, so rely exclusively on local worktree gate checks." if preceding_pr else ""
+                verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        "and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files."
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`), run existing project test gates (`make check`, `make test`), "
-                        "and post the verdict comment directly with `pr comment`. "
-                        "Do not write new end-to-end integration test suites, browser harnesses, or query session databases."
+                        f"and post the verdict comment directly with `pr comment`. "
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
