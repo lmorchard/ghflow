@@ -56,7 +56,7 @@ def main():
         "ghflow-build": SOURCE / "skills/build",
         "ghflow-review": SOURCE / "skills/review",
         "ghflow-define": SOURCE / "skills/define",
-        "ghflow-coord": SOURCE / "coord",
+        "ghflow-coord": SOURCE / "skills/coord",
     }
     available_skills = {k: v for k, v in role_skills.items() if (v / "SKILL.md").is_file()}
     destinations = []

@@ -60,7 +60,7 @@ def check_skills(root=ROOT):
         root / "skills/build/SKILL.md": "ghflow-build",
         root / "skills/review/SKILL.md": "ghflow-review",
         root / "skills/define/SKILL.md": "ghflow-define",
-        root / "coord/SKILL.md": "ghflow-coord",
+        root / "skills/coord/SKILL.md": "ghflow-coord",
     }
     expected = sorted([p for p in expected_skills if p.exists()])
     if paths != expected:

@@ -87,7 +87,7 @@ class InstallationTests(unittest.TestCase):
             "ghflow-build": ROOT / "skills/build",
             "ghflow-review": ROOT / "skills/review",
             "ghflow-define": ROOT / "skills/define",
-            "ghflow-coord": ROOT / "coord",
+            "ghflow-coord": ROOT / "skills/coord",
         }
         expected_skills = sorted(k for k, v in role_skills.items() if (v / "SKILL.md").is_file())
         self.assertEqual(sorted(p.name for p in (self.root / ".agents/skills").iterdir()), expected_skills)

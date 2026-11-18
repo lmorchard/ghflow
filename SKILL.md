@@ -10,7 +10,7 @@ Prepare GitHub issues, implement selected issues, review changes, submit PRs, ad
 * **[ghflow-build](skills/build/SKILL.md)**: Issue builder — code changes, tests, local test gates (`make check`), and local commits in an isolated worktree.
 * **[ghflow-review](skills/review/SKILL.md)**: Independent change reviewer — diff inspection against issue requirements, gate verification, and structured review verdicts. Strictly read-only.
 * **[ghflow-define](skills/define/SKILL.md)**: Issue definition — user interviews, technical specifications, and structured issue filing.
-* **[ghflow-coord](coord/SKILL.md)**: Project orchestration — parent epics, Ready queue delivery, board triage sweeps, and queue runner automation.
+* **[ghflow-coord](skills/coord/SKILL.md)**: Project orchestration — parent epics, Ready queue delivery, board triage sweeps, and queue runner automation.
 
 Before choosing how to execute an operation, apply [Execution mode](references/shared/coordination.md#execution-mode). In single-session mode with a local model, execute authorized operations directly without subagents.
 
@@ -55,18 +55,18 @@ Match the user's explicit request to the operation below:
 
 | Request | Task reference | Role skill |
 |---|---|---|
-| Deliver an agreed parent issue (epic) | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) | [ghflow-coord](coord/SKILL.md) |
-| Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) | [ghflow-coord](coord/SKILL.md) |
-| Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) | [ghflow-coord](coord/SKILL.md) |
-| Split a broad parent into children | [decompose-parent-issue](references/tasks/decompose-parent-issue.md) | [ghflow-coord](coord/SKILL.md) |
-| Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) | [ghflow-coord](coord/SKILL.md) |
-| Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) | [ghflow-coord](coord/SKILL.md) |
-| Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) | [ghflow-coord](coord/SKILL.md) |
-| Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) | [ghflow-coord](coord/SKILL.md) |
-| Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) | [ghflow-coord](coord/SKILL.md) |
-| Return unblocked issues to definition | [sweep-blocked](references/tasks/sweep-blocked.md) | [ghflow-coord](coord/SKILL.md) |
-| Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) | [ghflow-coord](coord/SKILL.md) |
-| Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) | [ghflow-coord](coord/SKILL.md) |
+| Deliver an agreed parent issue (epic) | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Split a broad parent into children | [decompose-parent-issue](references/tasks/decompose-parent-issue.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Return unblocked issues to definition | [sweep-blocked](references/tasks/sweep-blocked.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) | [ghflow-coord](skills/coord/SKILL.md) |
 
 ## Execute and hand off
 
