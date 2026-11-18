@@ -49,6 +49,15 @@ except ImportError:
     except ImportError:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import tags
+
+try:
+    from audit_toil import audit_toil, format_markdown_report
+except ImportError:
+    try:
+        from scripts.audit_toil import audit_toil, format_markdown_report
+    except ImportError:
+        sys.path.insert(0, str(Path(__file__).resolve().parent.parent / "scripts"))
+        from audit_toil import audit_toil, format_markdown_report
 CHECK_RUN_STATES = {
     "SUCCESS": "passed",
     "NEUTRAL": "passed",
@@ -3832,9 +3841,23 @@ def main(argv=None):
     gate_cmd.add_argument("--path", help="directory to run gate in (default: current directory)")
     gate_cmd.add_argument("--timeout", type=int, default=300, help="timeout in seconds (default: 300)")
     gate_cmd.add_argument("--summary", action="store_true", help="output only the compact summary string")
+    audit_parser = commands.add_parser("audit", help="Audit runner session logs and operational traces.")
+    audit_sub = audit_parser.add_subparsers(dest="audit_command", required=True)
+    audit_toil_cmd = audit_sub.add_parser("toil", help="Mine session logs for repeated procedural toil (Three Strikes and You Automate).")
+    audit_toil_cmd.add_argument("--dir", action="append", default=[], help="directory to scan for session logs")
+    audit_toil_cmd.add_argument("--last", type=int, default=30, help="maximum session logs to analyze (default: 30)")
+    audit_toil_cmd.add_argument("--min-strikes", type=int, default=3, help="minimum distinct sessions required (default: 3)")
+    audit_toil_cmd.add_argument("--min-length", type=int, default=2, help="minimum sequence length (default: 2)")
+    audit_toil_cmd.add_argument("--json", action="store_true", help="output structured JSON instead of Markdown")
     args = parser.parse_args(argv)
 
-    if args.command == "gate":
+    if args.command == "audit" and args.audit_command == "toil":
+        result, status = audit_toil(dirs=args.dir, last=args.last, min_strikes=args.min_strikes, min_length=args.min_length)
+        if not args.json:
+            report = format_markdown_report(result.get("patterns") or [], result.get("scanned", 0))
+            sys.stdout.write(report + "\n")
+            return status
+    elif args.command == "gate":
         result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
         if args.summary:
             summary = result.get("summary") or ""

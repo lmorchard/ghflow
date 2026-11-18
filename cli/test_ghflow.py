@@ -3863,6 +3863,39 @@ class GateCommandTests(unittest.TestCase):
         self.assertIn("FAILED", result["failures"][-1])
 
 
+class AuditCommandTests(unittest.TestCase):
+    def test_audit_toil_cli_json_and_markdown(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp_path = Path(tmp)
+            for i in range(3):
+                log = tmp_path / f"session-review-changes-20261118-{i}.log"
+                lines = [
+                    json.dumps({"type": "step_start", "sessionID": f"ses_{i}"}),
+                    json.dumps({"type": "tool", "part": {"name": "bash", "state": {"input": {"command": "git fetch origin --quiet"}}}}),
+                    json.dumps({"type": "tool", "part": {"name": "bash", "state": {"input": {"command": "git merge-base --is-ancestor origin/b origin/main"}}}}),
+                ]
+                log.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+            # Test JSON mode
+            stdout = io.StringIO()
+            with patch("sys.stdout", stdout):
+                status = main(["audit", "toil", "--dir", str(tmp_path), "--min-strikes", "3", "--json"])
+            self.assertEqual(status, 0)
+            data = json.loads(stdout.getvalue())
+            self.assertEqual(data["scanned"], 3)
+            self.assertEqual(len(data["patterns"]), 1)
+            self.assertEqual(data["patterns"][0]["strike_count"], 3)
+
+            # Test Markdown mode
+            stdout_md = io.StringIO()
+            with patch("sys.stdout", stdout_md):
+                status_md = main(["audit", "toil", "--dir", str(tmp_path), "--min-strikes", "3"])
+            self.assertEqual(status_md, 0)
+            text = stdout_md.getvalue()
+            self.assertIn("Strike Count**: 3", text)
+            self.assertIn("git merge-base", text)
+
+
 class FakeParkGitHub:
     def __init__(self, labels=("triage:ready", "enhancement"), body="Summary.", state="OPEN"):
         self.labels, self.body, self.state, self.comments, self.writes = list(labels), body, state, [], []

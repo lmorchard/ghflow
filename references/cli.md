@@ -125,6 +125,8 @@ Without `--copy` and `--setup`, the command applies the `worktree:` declaration 
 
 `gate [--cmd "COMMAND"] [--path DIR] [--summary]` runs local project test gates (defaulting to `make check`), bounding output to protect agent context. With `--summary`, it outputs a 1-3 line text summary (exit code, test counts, and failing test names) instead of full output.
 
+`audit toil [--dir DIR] [--last N] [--min-strikes N] [--json]` scans runner session logs, normalizes variable arguments, and mines recurring tool operation sequences that repeat across distinct sessions (Three Strikes and You Automate). It outputs a Markdown or structured JSON report with strike counts, evidence session IDs, and repeated command sequences.
+
 `park ISSUE_URL --pr PR_URL --kind time|question|blocker --text FILE` confirms the write identity, replaces `triage:ready` with `triage:needs-input`, posts the file as an issue comment under a "Parked" heading, adds a "## Parked" section to the PR description once, and reads each back. It leaves the PR draft state and the board unchanged, and writes nothing when the PR is not open.
 
 ## Queue helpers
