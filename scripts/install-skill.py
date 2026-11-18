@@ -11,26 +11,35 @@ PROJECT = {"claude": ".claude/skills", "codex": ".agents/skills", "opencode": ".
 
 
 def install(destinations, source=SOURCE):
-    source = source.resolve()
-    if not (source / "SKILL.md").is_file():
-        raise ValueError(f"Missing source skill: {source}")
+    pairs = []
+    for item in destinations:
+        if isinstance(item, tuple):
+            dest, src = item
+            src = src.resolve()
+        else:
+            dest = item
+            src = source.resolve()
+        if not (src / "SKILL.md").is_file():
+            raise ValueError(f"Missing source skill: {src}")
+        pairs.append((dest, src))
+
     # Check the full request before creating any links.
-    for destination in destinations:
+    for destination, src in pairs:
         for ancestor in destination.parents:
             if os.path.lexists(ancestor) and not ancestor.is_dir():
                 raise ValueError(f"Destination ancestor is not a directory: {ancestor}")
         if os.path.lexists(destination):
-            if destination.is_symlink() and destination.resolve() == source:
+            if destination.is_symlink() and destination.resolve() == src:
                 continue
             raise ValueError(f"Refusing to overwrite existing entry: {destination}")
-    for destination in destinations:
-        if destination.is_symlink() and destination.resolve() == source:
+    for destination, src in pairs:
+        if destination.is_symlink() and destination.resolve() == src:
             print(f"Already linked: {destination}")
             continue
         destination.parent.mkdir(parents=True, exist_ok=True)
         # symlink_to refuses a destination created after the preflight too.
-        destination.symlink_to(source, target_is_directory=True)
-        print(f"Linked: {destination} -> {source}")
+        destination.symlink_to(src, target_is_directory=True)
+        print(f"Linked: {destination} -> {src}")
 
 
 def main():
@@ -42,7 +51,13 @@ def main():
     args = parser.parse_args()
     root = (args.project or args.home or Path.home()).expanduser().resolve()
     locations = PROJECT if args.project else PERSONAL
-    destinations = [root / locations[name] / "ghflow" for name in dict.fromkeys(args.agents)]
+    coord_source = SOURCE / "coord"
+    has_coord = (coord_source / "SKILL.md").is_file()
+    destinations = []
+    for name in dict.fromkeys(args.agents):
+        destinations.append((root / locations[name] / "ghflow", SOURCE))
+        if has_coord:
+            destinations.append((root / locations[name] / "ghflow-coord", coord_source))
     try:
         install(destinations)
     except (OSError, ValueError) as error:

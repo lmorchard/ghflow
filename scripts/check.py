@@ -55,21 +55,25 @@ def check_skills(root=ROOT):
                        if name and (root / name).is_file())
     else:
         paths = sorted(root.glob("**/SKILL.md"))
-    expected = root / "SKILL.md"
-    if paths != [expected]:
-        errors.append("skills: expected only root SKILL.md")
+    expected_root = root / "SKILL.md"
+    expected_coord = root / "coord" / "SKILL.md"
+    expected = sorted([p for p in (expected_root, expected_coord) if p.exists()])
+    if paths != expected:
+        errors.append(f"skills: expected root SKILL.md and coord/SKILL.md, got {[str(p.relative_to(root)) for p in paths]}")
     task_dir = root / "references/tasks"
     tasks = set(task_dir.glob("*.md")) - {task_dir / "research.md"}
     if not tasks:
         errors.append("skills: no task references")
-    if expected.exists():
-        routed = {(expected.parent / target.split("#")[0]).resolve()
-                  for target in LINK.findall(expected.read_text())}
-        for task in sorted(tasks):
-            if task.resolve() not in routed:
-                errors.append(f"{task.relative_to(root)}: not reachable from entry skill")
-            if frontmatter(task.read_text()) is not None:
-                errors.append(f"{task.relative_to(root)}: task reference has skill frontmatter")
+    routed = set()
+    for p in (expected_root, expected_coord):
+        if p.exists():
+            routed.update((p.parent / target.split("#")[0]).resolve()
+                          for target in LINK.findall(p.read_text()))
+    for task in sorted(tasks):
+        if task.resolve() not in routed:
+            errors.append(f"{task.relative_to(root)}: not reachable from entry skills")
+        if frontmatter(task.read_text()) is not None:
+            errors.append(f"{task.relative_to(root)}: task reference has skill frontmatter")
     for path in paths:
         rel = path.relative_to(root)
         fields = frontmatter(path.read_text())
@@ -77,8 +81,9 @@ def check_skills(root=ROOT):
             errors.append(f"{rel}: missing frontmatter")
             continue
         name = fields.get("name", "")
-        if name != "ghflow":
-            errors.append(f"{rel}: name {name!r} must be ghflow")
+        expected_name = "ghflow-coord" if path == expected_coord else "ghflow"
+        if name != expected_name:
+            errors.append(f"{rel}: name {name!r} must be {expected_name}")
         if not NAME.match(name):
             errors.append(f"{rel}: name {name!r} is not lowercase-hyphenated")
         description = fields.get("description", "")

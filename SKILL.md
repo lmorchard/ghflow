@@ -1,35 +1,35 @@
 ---
 name: ghflow
-description: Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate explicitly requested delivery. Use for Git and GitHub project tasks, including requests to tackle or deliver an issue. Merge requires explicit authorization; do not select backlog work unless requested.
+description: Implement, test, review, and address feedback for a single assigned GitHub issue in an isolated worktree. Use when tackling, implementing, or reviewing an assigned issue. Merge requires explicit authorization.
 ---
 
-# GitHub workflow
+# GitHub issue delivery
 
-Select the requested operation and follow its task reference. Each operation works on an ordinary issue or PR without earlier ghflow tasks. Load only the task and shared rules needed now. Apply [Working context and tool output](references/shared/context.md) to reference loading, searches, and handoffs.
+Implement, review, address feedback, and prepare pull requests for an assigned GitHub issue or pull request. The worker operates in an isolated worktree, focuses strictly on the code changes and test gates (`make check`) required for the issue, and creates local commits. It does not manage boards, reschedule tasks, or close epics.
 
-Before choosing how to execute the operation, apply [Execution mode](references/shared/coordination.md#execution-mode). Local-model work stays in the current session without subagents. This mode overrides task instructions to dispatch workers or start fresh review sessions.
+Before choosing how to execute an operation, apply [Execution mode](references/shared/coordination.md#execution-mode). In single-session mode with a local model, execute authorized operations directly without subagents.
 
 ## Locate the source and tools
 
-Resolve this `SKILL.md` path through any symbolic link. Its parent is `GHFLOW_SKILL_DIR`. Use absolute paths below that directory for references and subagent handoffs. Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` below it before running command examples. Quote the path. A command tool can start a new shell for each call, so export the variable in each command that uses it, or write the full path:
+Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` in the source checkout root:
 
 ```sh
 export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
 ```
 
-Replace `ABSOLUTE_SKILL_DIRECTORY` with the resolved directory. The resolved skill directory is the source checkout root. Use its `cli/ghflow.py` directly. Keep the current directory at the target project so Git, GitHub, and identity configuration use that project. Resolve writing guidance through each reference's links, not through the current directory. If source reads need external directory permission, report the resolved checkout path and use the setup instructions in [Source access permissions](docs/setup.md#source-access-permissions). Do not silently change agent permissions.
+For symbol discovery and code navigation, use `tags find` and `tags outline` for instant definition lookups across git-tracked source files:
 
-The selected task reference names the shared rules it needs. Open a shared reference when its condition applies, and read the section that owns the decision; do not read every shared reference before the first action. The conditions: [Authorization](references/shared/authorization.md) when a permission or scope question arises; [Evidence](references/shared/evidence.md) before you report a result or pass on an identifier; [Decisions](references/shared/decisions.md) when a fact or choice is missing; [Agent identity](references/shared/identity.md) before an agent runs Git or GitHub commands; [GitHub writes](references/shared/github-writes.md) before changing GitHub records. CLI reads do not grant permission to write.
+```sh
+python3 "$GHFLOW_CLI" tags find <symbol>
+python3 "$GHFLOW_CLI" tags outline <file>
+```
 
-## Select the requested operation
+Open shared references when their conditions apply: [Authorization](references/shared/authorization.md) when permission or scope boundaries arise; [Evidence](references/shared/evidence.md) before reporting results; [Decisions](references/shared/decisions.md) when a choice is missing; [Agent identity](references/shared/identity.md) before Git or GitHub writes; [GitHub writes](references/shared/github-writes.md) before mutating records.
 
-Match the user's explicit request to the operation below. Identify the subject repository from the user's request or the target checkout. `python3 "$GHFLOW_CLI" facts` reports the checkout, repository, tooling, identity readiness, and the project facts file; with `--issue` and an issue URL or a bare number from the checkout, it adds the issue's branches, worktrees, PRs, and board items. Use it instead of separate `git` and `gh` reads for that state, and read `.ghflow/project.md` when it reports one. For symbol discovery and code exploration, `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` report exact definition files, line numbers, and scopes across git-tracked source files.
-For a local-model session start, `preamble ISSUE_URL` prints these facts as a compact block that fits in the first prompt. The source checkout supplies instructions and tools; its remote and the configured account do not identify the subject. If the selected repository, issue, or PR is missing, return the needed input before GitHub searches or dispatch.
-For an assessment-only request, explain the operation and limits without performing delivery. If a material endpoint is unclear, ask only for that decision. Do not choose backlog work or add a fixed sequence. A delivery request defaults to review follow-up with its PR left open. Read its coordinator reference and apply the selected execution mode to dispatch and review requirements.
-### Single-issue delivery operations
+## Select the delivery operation
 
-For focused work on an assigned issue or pull request in an isolated worktree:
+Match the assigned task to the single-issue delivery operation below:
 
 | Request | Task reference |
 |---|---|
@@ -44,30 +44,10 @@ For focused work on an assigned issue or pull request in an isolated worktree:
 | Reassess an existing issue | [reconsider-issue](references/tasks/reconsider-issue.md) |
 | Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) |
 
-### Portfolio and queue orchestration
+For multi-issue roadmaps, parent epics, triage sweeps, queue management, or automated queue burndowns, use the companion orchestration skill [ghflow-coord](coord/SKILL.md).
 
-For multi-issue roadmaps, parent epics, triage sweeps, and queue management:
-
-| Request | Task reference |
-|---|---|
-| Deliver an agreed parent issue | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) |
-| Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
-| Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) |
-| Split a broad parent into children | [decompose-parent-issue](references/tasks/decompose-parent-issue.md) |
-| Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) |
-| Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) |
-| Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) |
-| Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) |
-| Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) |
-| Return unblocked issues to definition | [sweep-blocked](references/tasks/sweep-blocked.md) |
-| Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) |
-| Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) |
 ## Execute and hand off
 
-For sustained work or findings that would be costly to reconstruct, apply [Task notes](references/shared/task-notes.md). On resumption or after context compaction, read the task's existing notes before repeating research or reopening decisions.
+Work exclusively inside the assigned worktree. Preserve unrelated changes, run the required project checks (`make check`), and commit under the configured agent identity.
 
-Follow the selected reference's scope and stopping point. Carry existing authorization across included tasks. Draft-only and read-only limits still apply; implementation or submission never implies merge permission.
-
-In delegated mode, apply [Coordination](references/shared/coordination.md#handoffs). Give the subagent the selected operation and required inputs. If delegation or the required reviewer model is unavailable, follow the shared rules and report the limit.
-
-Return the operation's actual result, sources, checks, and remaining decisions. Report missing capabilities and incomplete evidence explicitly.
+For sustained work or findings that would be costly to reconstruct, apply [Task notes](references/shared/task-notes.md). Return the committed head SHA, test results with their commits, evidence limits, and remaining work.
