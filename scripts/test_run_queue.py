@@ -1219,6 +1219,19 @@ class SymbolIndexTests(unittest.TestCase):
             self.assertEqual(len(res), 1)
             self.assertEqual(res[0]["symbol"], "_foo")
             self.assertEqual(res[0]["matches"][0], ("src/a.py:10", "def _foo(): pass"))
+    def test_find_subsystem_symbols_prefers_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_tag_res = {
+                "matches": [{
+                    "name": "_foo", "path": "src/a.py", "line": 42,
+                    "kind": "function", "scope": None, "pattern": "def _foo(): pass"
+                }]
+            }
+            with patch("cli.tags.find_tags", return_value=(fake_tag_res, 0)):
+                res = run_queue.find_subsystem_symbols(["_foo"], cwd=tmp)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["symbol"], "_foo")
+            self.assertEqual(res[0]["matches"][0], ("src/a.py:42", "def _foo(): pass"))
 
 if __name__ == "__main__":
     unittest.main()

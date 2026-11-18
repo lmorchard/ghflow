@@ -796,32 +796,61 @@ def extract_candidate_symbols(title, body=""):
 
 
 def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
-    """Find definition and reference locations for symbols using git grep."""
+    """Find definition and reference locations for symbols using tags or git grep."""
     if not symbols or not cwd or not Path(cwd).is_dir():
         return []
+
+    tags_mod = None
+    try:
+        from cli import tags as tags_mod
+    except ImportError:
+        try:
+            import tags as tags_mod
+        except ImportError:
+            pass
+
     results = []
     for sym in symbols:
         clean_sym = sym.lstrip("#")
-        try:
-            proc = subprocess.run(
-                ["git", "grep", "-n", "-I", "-m", str(limit_per_symbol), "--", clean_sym],
-                cwd=cwd, capture_output=True, text=True, timeout=10
-            )
-        except Exception:
-            continue
-        if proc.returncode == 0 and proc.stdout.strip():
-            lines = proc.stdout.strip().splitlines()
-            code_lines = [ln for ln in lines if not ln.startswith("docs/dev-sessions/")]
-            filtered = code_lines if code_lines else lines
-            matches = []
-            for match_line in filtered[:limit_per_symbol]:
-                parts = match_line.split(":", 2)
-                if len(parts) >= 2:
-                    loc = f"{parts[0]}:{parts[1]}"
-                    code_snip = parts[2].strip() if len(parts) > 2 else ""
-                    matches.append((loc, code_snip))
-            if matches:
-                results.append({"symbol": sym, "matches": matches})
+        matches = []
+        # 1. Try tags lookup first (exact definitions)
+        if tags_mod:
+            try:
+                tag_res, code = tags_mod.find_tags(clean_sym, repo_root=cwd, exact=True)
+                if code == 0 and tag_res.get("matches"):
+                    for m in tag_res["matches"][:limit_per_symbol]:
+                        line = m.get("line") or 1
+                        loc = f"{m['path']}:{line}"
+                        kind = f"[{m['kind']}] " if m.get("kind") else ""
+                        scope = f"[{m['scope']}] " if m.get("scope") else ""
+                        snip = m.get("pattern") or f"{kind}{scope}{m.get('name')}"
+                        matches.append((loc, snip))
+            except Exception:
+                pass
+
+        # 2. Fall back to git grep if no tag matches were found
+        if not matches:
+            try:
+                proc = subprocess.run(
+                    ["git", "grep", "-n", "-I", "-m", str(limit_per_symbol), "--", clean_sym],
+                    cwd=cwd, capture_output=True, text=True, timeout=10
+                )
+                if proc.returncode == 0 and proc.stdout.strip():
+                    lines = proc.stdout.strip().splitlines()
+                    code_lines = [ln for ln in lines if not ln.startswith("docs/dev-sessions/")]
+                    filtered = code_lines if code_lines else lines
+                    for match_line in filtered[:limit_per_symbol]:
+                        parts = match_line.split(":", 2)
+                        if len(parts) >= 2:
+                            loc = f"{parts[0]}:{parts[1]}"
+                            code_snip = parts[2].strip() if len(parts) > 2 else ""
+                            matches.append((loc, code_snip))
+            except Exception:
+                pass
+
+        if matches:
+            results.append({"symbol": sym, "matches": matches})
+
     return results
 
 
