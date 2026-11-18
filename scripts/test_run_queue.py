@@ -313,11 +313,26 @@ class ComposePromptTests(unittest.TestCase):
             tasks_dir.mkdir(parents=True)
             (tasks_dir / "implement-issue.md").write_text("# Implement", encoding="utf-8")
             prompt = run_queue.compose_prompt(skill_dir, "Follow the handoff.", step="implement-issue")
-            self.assertIn("# ghflow-build: implement-issue", prompt)
+            self.assertIn("# ghflow-build-slim: implement-issue", prompt)
             self.assertIn("Local-model single session", prompt)
             self.assertIn("implement-issue.md", prompt)
             self.assertIn("export GHFLOW_CLI=", prompt)
             self.assertIn("Follow the handoff.", prompt)
+
+    def test_step_inlines_slim_skill_body_when_available(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+            slim_dir = skill_dir / "skills" / "build-slim"
+            slim_dir.mkdir(parents=True)
+            tasks_dir = skill_dir / "references" / "tasks"
+            tasks_dir.mkdir(parents=True)
+            (tasks_dir / "implement-issue.md").write_text("# Implement", encoding="utf-8")
+            (slim_dir / "SKILL.md").write_text("---\nname: ghflow-build-slim\n---\n# Slim Builder\nDo work in ABSOLUTE_SKILL_DIRECTORY.\n", encoding="utf-8")
+            prompt = run_queue.compose_prompt(skill_dir, "Follow the handoff.", step="implement-issue")
+            self.assertIn("# Slim Builder", prompt)
+            self.assertIn(f"Do work in {skill_dir}.", prompt)
+            self.assertFalse(prompt.startswith("---"))
+            self.assertIn("Operative rules are inlined above.", prompt)
 
 
 class ProgressRuleAndLoopTests(unittest.TestCase):

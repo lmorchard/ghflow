@@ -54,7 +54,9 @@ def main():
     role_skills = {
         "ghflow": SOURCE,
         "ghflow-build": SOURCE / "skills/build",
+        "ghflow-build-slim": SOURCE / "skills/build-slim",
         "ghflow-review": SOURCE / "skills/review",
+        "ghflow-review-slim": SOURCE / "skills/review-slim",
         "ghflow-define": SOURCE / "skills/define",
         "ghflow-coord": SOURCE / "skills/coord",
     }

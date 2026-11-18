@@ -85,7 +85,9 @@ class InstallationTests(unittest.TestCase):
         role_skills = {
             "ghflow": ROOT,
             "ghflow-build": ROOT / "skills/build",
+            "ghflow-build-slim": ROOT / "skills/build-slim",
             "ghflow-review": ROOT / "skills/review",
+            "ghflow-review-slim": ROOT / "skills/review-slim",
             "ghflow-define": ROOT / "skills/define",
             "ghflow-coord": ROOT / "skills/coord",
         }

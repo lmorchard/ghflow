@@ -416,19 +416,32 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
     """
     if step:
         role_map = {
-            "implement-issue": ("ghflow-build", "skills/build/SKILL.md"),
-            "address-pr-review": ("ghflow-build", "skills/build/SKILL.md"),
-            "review-changes": ("ghflow-review", "skills/review/SKILL.md"),
+            "implement-issue": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
+            "address-pr-review": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
+            "review-changes": ("ghflow-review-slim", "skills/review-slim/SKILL.md"),
         }
         role_name, role_skill = role_map.get(step, (f"ghflow:{step}", "SKILL.md"))
         cli_py = Path(skill_dir) / "cli" / "ghflow.py"
         task_ref = Path(skill_dir) / "references" / "tasks" / f"{step}.md"
+        slim_file = Path(skill_dir) / role_skill
+
+        inlined_rules = ""
+        if slim_file.is_file():
+            content = slim_file.read_text(encoding="utf-8")
+            lines = content.splitlines()
+            if lines and lines[0].strip() == "---":
+                end_idx = 1
+                while end_idx < len(lines) and lines[end_idx].strip() != "---":
+                    end_idx += 1
+                lines = lines[end_idx + 1:]
+            inlined_rules = "\n".join(lines).strip().replace("ABSOLUTE_SKILL_DIRECTORY", str(skill_dir))
+
         task_line = (
-            f"Task reference: `{task_ref}`. Load only the task instructions and rules needed for this step.\n"
-            "Do not load multi-issue coordinator or sweep references."
+            f"Task reference: `{task_ref}`. Operative rules are inlined above.\n"
+            "Do not spend tool turns reading external reference files; proceed directly to your task."
             if task_ref.is_file() else ""
         )
-        return (
+        body = inlined_rules or (
             f"# {role_name}: {step}\n\n"
             f"You are executing the `{step}` operation for an assigned issue in an isolated worktree.\n"
             "Execution mode: Local-model single session. Stay in this session; do not spawn subagents.\n\n"
@@ -436,7 +449,10 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             f'export GHFLOW_CLI="{cli_py}"\n'
             'python3 "$GHFLOW_CLI" --help\n\n'
             "Code exploration:\n"
-            'Use `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` for definition lookups.\n\n'
+            'Use `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` for definition lookups.'
+        )
+        return (
+            f"{body}\n\n"
             f"{task_line}\n\n"
             f"Base directory for this skill: {skill_dir}\n\n"
             f"{handoff_prompt}"

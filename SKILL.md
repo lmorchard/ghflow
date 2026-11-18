@@ -7,8 +7,8 @@ description: Prepare GitHub issues, implement selected issues, review changes, s
 
 Prepare GitHub issues, implement selected issues, review changes, submit PRs, address feedback, and coordinate delivery. This repository provides specialized skills for distinct agent roles:
 
-* **[ghflow-build](skills/build/SKILL.md)**: Issue builder — code changes, tests, local test gates (`make check`), and local commits in an isolated worktree.
-* **[ghflow-review](skills/review/SKILL.md)**: Independent change reviewer — diff inspection against issue requirements, gate verification, and structured review verdicts. Strictly read-only.
+* **[ghflow-build](skills/build/SKILL.md)** / **[ghflow-build-slim](skills/build-slim/SKILL.md)**: Issue builder — code changes, tests, local test gates (`make check`), and local commits in an isolated worktree. The `slim` variant inlines all operative rules for lightweight local models.
+* **[ghflow-review](skills/review/SKILL.md)** / **[ghflow-review-slim](skills/review-slim/SKILL.md)**: Independent change reviewer — diff inspection against issue requirements, gate verification, and structured review verdicts. Strictly read-only.
 * **[ghflow-define](skills/define/SKILL.md)**: Issue definition — user interviews, technical specifications, and structured issue filing.
 * **[ghflow-coord](skills/coord/SKILL.md)**: Project orchestration — parent epics, Ready queue delivery, board triage sweeps, and queue runner automation.
 
