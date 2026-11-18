@@ -1925,6 +1925,153 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
     return result, 2 if result["errors"] else 0
 
 
+def worktree_prepare(issue_url, branch=None, cwd=None, path=None, copy=(), setup=(), notes=False, board=None,
+                     git=run_git, gh=run_gh, shell=None, board_write=None, now=None):
+    """Ensure the task worktree exists and is prepared, or confirm if already inside.
+
+    Idempotent: exits 0 if already inside the worktree, if reusing an existing worktree,
+    or after creating and preparing a fresh worktree. Feeds the agent all needful details:
+    path, branch, base, cd_command, gates, instructions, and target symbol locations.
+    """
+    start = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        root = primary_checkout(start, git)
+        base_name = default_branch(root, git)
+    except (GhError, OSError, ValueError) as error:
+        return {"issue": issue_url, "ready": False, "errors": [{"part": "checkout", "error": str(error)}]}, 1
+
+    try:
+        issue_repo, issue_number = parse_issue(issue_url, None)
+    except ValueError as error:
+        return {"issue": issue_url, "ready": False, "errors": [{"part": "issue", "error": str(error)}]}, 1
+
+    # Project metadata from facts
+    facts_path = root / PROJECT_FACTS_PATH
+    gates = []
+    declaration = None
+    if facts_path.is_file():
+        try:
+            facts_text = facts_path.read_text(encoding="utf-8")
+            declaration, _ = parse_facts_worktree(facts_text)
+            for line in facts_text.splitlines():
+                if line.startswith("- `make "):
+                    gates.append(line.strip("- `").split("`")[0])
+        except Exception:
+            pass
+
+    # Fetch issue details for title and body
+    title = ""
+    body = ""
+    try:
+        data = gh(["issue", "view", str(issue_number), "--repo", issue_repo, "--json", "url,title,body"])
+        if isinstance(data, dict):
+            title = data.get("title") or ""
+            body = data.get("body") or ""
+            issue_url = data.get("url") or issue_url
+    except Exception:
+        pass
+
+    # Extract target symbols via tags if available
+    target_symbols = []
+    try:
+        from cli import tags as tags_mod
+        cands = re.findall(r"`([^`\n]+)`", f"{title}\n{body}")
+        clean_cands = [re.sub(r"\(\s*\)$", "", c).strip().lstrip("#") for c in cands]
+        valid_cands = [c for c in clean_cands if len(c) >= 3 and not c.startswith("make")]
+        for cand in valid_cands[:3]:
+            res, c = tags_mod.find_tags(cand, repo_root=str(root), exact=True)
+            if c == 0 and res.get("matches"):
+                target_symbols.extend(res["matches"][:2])
+    except Exception:
+        pass
+
+    # 1. Check if already inside an active worktree for this issue
+    is_linked = (start / ".git").is_file()
+    in_claude_wt = ".claude/worktrees" in str(start) or ".claude/worktrees" in str(start.resolve())
+    if is_linked or in_claude_wt:
+        try:
+            curr_branch = git(["rev-parse", "--abbrev-ref", "HEAD"], start).strip()
+            pattern = str(issue_number)
+            if re.search(rf"(^|[^0-9]){re.escape(pattern)}([^0-9]|$)", curr_branch):
+                return {
+                    "issue": issue_url,
+                    "number": issue_number,
+                    "title": title,
+                    "branch": curr_branch,
+                    "path": str(start),
+                    "base": f"origin/{base_name}",
+                    "ready": True,
+                    "action": "already_inside",
+                    "gates": gates or ["make check"],
+                    "symbols": target_symbols,
+                    "errors": [],
+                }, 0
+        except Exception:
+            pass
+
+    # 2. Derive branch name if omitted
+    if not branch:
+        slug = re.sub(r"[^a-z0-9]+", "-", title.lower()).strip("-")[:40].strip("-") if title else ""
+        branch = f"issue-{issue_number}-{slug}" if slug else f"issue-{issue_number}"
+
+    target = Path(path) if path else root / ".claude" / "worktrees" / branch
+
+    # 3. Check if target worktree already exists
+    if target.is_dir():
+        if declaration and declaration.get("copy"):
+            for rel in declaration["copy"]:
+                src = root / rel
+                dest = target / rel
+                if src.is_file() and not dest.exists():
+                    dest.parent.mkdir(parents=True, exist_ok=True)
+                    shutil.copy2(src, dest)
+        return {
+            "issue": issue_url,
+            "number": issue_number,
+            "title": title,
+            "branch": branch,
+            "path": str(target),
+            "base": f"origin/{base_name}",
+            "ready": True,
+            "action": "reused",
+            "cd_command": f"cd {target}",
+            "gates": gates or ["make check"],
+            "symbols": target_symbols,
+            "errors": [],
+        }, 0
+
+    # 4. Create and prepare fresh worktree
+    res, code = worktree_create(
+        issue_url, branch, cwd=str(root), path=str(target), copy=copy, setup=setup,
+        notes=notes, board=board, git=git, shell=shell, board_write=board_write, now=now
+    )
+    if code in (0, 3):
+        return {
+            "issue": issue_url,
+            "number": issue_number,
+            "title": title,
+            "branch": branch,
+            "path": str(target),
+            "base": f"origin/{base_name}",
+            "ready": True,
+            "action": "created" if code == 0 else "reused",
+            "cd_command": f"cd {target}",
+            "worktree_setup": res.get("worktree_setup"),
+            "gates": gates or ["make check"],
+            "symbols": target_symbols,
+            "errors": res.get("errors", []),
+        }, 0
+    return {
+        "issue": issue_url,
+        "number": issue_number,
+        "title": title,
+        "branch": branch,
+        "path": str(target),
+        "ready": False,
+        "errors": res.get("errors", []),
+    }, code
+
+
 def pr_body(repo, number, out, issue_number=None, summary=None, review=None, decisions=None,
             gh=run_gh, state=pr_state):
     """Write a PR description: the model's summary, review, and decisions files around
@@ -3711,6 +3858,12 @@ def main(argv=None):
     wt_create.add_argument("--notes", action="store_true", help="create docs/dev-sessions/STAMP-BRANCH/notes.md with a Resume here skeleton")
     wt_create.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
     wt_create.add_argument("--project", type=int, help="board number")
+    wt_prepare = wt_commands.add_parser("prepare", help="Ensure an issue worktree exists and is prepared, or confirm it if already inside.")
+    wt_prepare.add_argument("issue", help="issue URL, or issue number from the subject checkout")
+    wt_prepare.add_argument("--branch", help="branch name (default: auto-derived from issue title)")
+    wt_prepare.add_argument("--path", help="worktree path (default: .claude/worktrees/BRANCH in primary checkout)")
+    wt_prepare.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
+    wt_prepare.add_argument("--project", type=int, help="board number")
     body = pr_commands.add_parser("body", help="Write a PR description: your summary, review, and decisions files around commits, checks, and the closing line.")
     body.add_argument("pr", help="PR URL, or PR number with --repo")
     body.add_argument("--repo", help="OWNER/NAME when giving a PR number")
@@ -3882,8 +4035,11 @@ def main(argv=None):
         board = (args.owner, args.project) if args.owner and args.project is not None else None
         if (args.owner or args.project is not None) and board is None:
             parser.error("--owner and --project are required together for a board move.")
-        result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
-                                         notes=args.notes, board=board)
+        if args.worktree_command == "prepare":
+            result, status = worktree_prepare(args.issue, branch=args.branch, path=args.path, board=board)
+        else:
+            result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
+                                             notes=args.notes, board=board)
     elif args.command == "review":
         repo, number = parse_pr(args.pr, args.repo)
         if args.review_command == "prepare":
