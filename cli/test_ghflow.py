@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -3418,6 +3418,31 @@ class WorktreeCreateTests(unittest.TestCase):
         self.assertEqual(result["worktree_setup"], {"source": "none", "copy": [], "setup": []})
         self.assertFalse((Path(result["path"]) / ".env").exists())
 
+
+    def test_prepare_creates_fresh_worktree_idempotently(self):
+        result, status = worktree_prepare("https://github.com/o/r/issues/5", branch="issue-5-prep", cwd=self.clone,
+                                          copy=[".env"], setup=["touch prep.txt"], board=("o", 6),
+                                          board_write=self.board)
+        self.assertEqual(status, 0, result.get("errors"))
+        self.assertTrue(result["ready"])
+        self.assertEqual(result["action"], "created")
+        self.assertEqual(self.moves, [("o/r", 5, "o", 6, "In progress")])
+        self.assertIn("cd ", result["cd_command"])
+
+        # Second call to prepare reuses the worktree idempotently with exit code 0
+        res2, code2 = worktree_prepare("https://github.com/o/r/issues/5", branch="issue-5-prep", cwd=self.clone)
+        self.assertEqual(code2, 0)
+        self.assertTrue(res2["ready"])
+        self.assertEqual(res2["action"], "reused")
+
+    def test_prepare_confirms_when_already_inside(self):
+        self.create()
+        wt_path = Path(self.clone).resolve() / ".claude" / "worktrees" / "issue-5-fix"
+        res, code = worktree_prepare("https://github.com/o/r/issues/5", cwd=str(wt_path))
+        self.assertEqual(code, 0)
+        self.assertTrue(res["ready"])
+        self.assertEqual(res["action"], "already_inside")
+        self.assertNotIn("cd_command", res)
 
 class PrBodyTests(unittest.TestCase):
     def test_body_wraps_model_sections_around_commits_checks_and_closes(self):

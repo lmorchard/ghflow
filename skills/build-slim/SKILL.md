@@ -26,9 +26,15 @@ python3 "$GHFLOW_CLI" tags outline <file>
 ```
 
 ## 2. Workspace and worktree discipline
+Before editing files, run the idempotent worktree precondition command:
 
-- Never edit, test, or commit in the primary checkout. The runner prepares an isolated task worktree under `.claude/worktrees/<branch>`.
-- Change into that worktree immediately and do every read, edit, test run, and commit inside it.
+```sh
+python3 "$GHFLOW_CLI" worktree prepare <issue>
+```
+- **If already inside the worktree**, it returns `"ready": true` with `"action": "already_inside"`. Proceed directly.
+- **If outside**, it prepares the worktree, seeds environment files (`.env`), runs dependency setup, and outputs `"cd_command"`. Run the `cd` command to enter it.
+- **Feed of needful details**: The response supplies the target worktree path, branch, base, test gates (`make check`), and symbol definition locations.
+- **Never edit files in the primary checkout.** Perform all reads, edits, tests, and commits inside your assigned worktree.
 - If the worktree has a `.env` or dependencies, the runner has already applied them. Do not repeat declared setup commands unless a check indicates they are missing.
 - Preserve unrelated changes and files in the worktree.
 
