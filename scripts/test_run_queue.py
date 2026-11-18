@@ -306,6 +306,19 @@ class ComposePromptTests(unittest.TestCase):
             self.assertIn(f"Base directory for this skill: {skill_dir}", prompt)
             self.assertIn("Follow the handoff.", prompt)
 
+    def test_step_composes_focused_worker_prompt(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+            tasks_dir = skill_dir / "references" / "tasks"
+            tasks_dir.mkdir(parents=True)
+            (tasks_dir / "implement-issue.md").write_text("# Implement", encoding="utf-8")
+            prompt = run_queue.compose_prompt(skill_dir, "Follow the handoff.", step="implement-issue")
+            self.assertIn("# GitHub Workflow: implement-issue", prompt)
+            self.assertIn("Local-model single session", prompt)
+            self.assertIn("implement-issue.md", prompt)
+            self.assertIn("export GHFLOW_CLI=", prompt)
+            self.assertIn("Follow the handoff.", prompt)
+
 
 class ProgressRuleAndLoopTests(unittest.TestCase):
     """Tests for session execution, progress detection, and retry rules."""
@@ -1146,6 +1159,92 @@ class PublishCommittedTests(unittest.TestCase):
         self.assertIsNone(published[0][1].get("base_branch"))
         self.assertIn("The runner applied the project facts worktree declaration", sessions[0][1]["extra_text"])
 
+
+class PrecomputedGateTests(unittest.TestCase):
+    """The runner executes local test gates deterministically before review sessions."""
+
+    def test_nonexistent_or_no_makefile_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self.assertIsNone(run_queue.run_precomputed_gate(tmp))
+            self.assertIsNone(run_queue.run_precomputed_gate("/nonexistent/path"))
+
+    def test_makefile_without_check_target_returns_none(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Makefile").write_text("all:\n\techo all\n")
+            self.assertIsNone(run_queue.run_precomputed_gate(tmp))
+
+    def test_passing_make_check_returns_success_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Makefile").write_text("check:\n\techo ok\n")
+            mock_proc = MagicMock(returncode=0, stdout="Ran 10 tests\n5772 passed, 2 skipped\nOK\n")
+            with patch("subprocess.run", return_value=mock_proc):
+                res = run_queue.run_precomputed_gate(tmp)
+            self.assertIsNotNone(res)
+            self.assertTrue(res["success"])
+            self.assertEqual(res["exit_code"], 0)
+            self.assertIn("5772 passed, 2 skipped", res["summary"])
+            self.assertIn("Pre-computed gate status at head: `make check` passed", res["text"])
+
+    def test_failing_make_check_returns_failure_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Makefile").write_text("check:\n\techo fail\n")
+            mock_proc = MagicMock(returncode=1, stdout="SyntaxError: invalid syntax\nmake: *** [check] Error 1\n")
+            with patch("subprocess.run", return_value=mock_proc):
+                res = run_queue.run_precomputed_gate(tmp)
+            self.assertIsNotNone(res)
+            self.assertFalse(res["success"])
+            self.assertEqual(res["exit_code"], 1)
+            self.assertIn("FAILED (exit 1)", res["text"])
+            self.assertIn("SyntaxError", res["text"])
+
+
+class SymbolIndexTests(unittest.TestCase):
+    """The runner extracts symbols from issues and indexes their locations."""
+
+    def test_extract_candidate_symbols(self):
+        title = "[2.6] Clear `_failed_model_info` negative cache on reload"
+        body = "Calls `#flushSave()` in `wiki-editor.js` and `_parse_dict`."
+        symbols = run_queue.extract_candidate_symbols(title, body)
+        self.assertIn("_failed_model_info", symbols)
+        self.assertIn("flushSave", symbols)
+        self.assertIn("_parse_dict", symbols)
+
+    def test_extract_candidate_symbols_filters_common_keywords(self):
+        title = "Fix python tests for make check"
+        body = "return None if self.data is True"
+        symbols = run_queue.extract_candidate_symbols(title, body)
+        self.assertEqual(symbols, [])
+
+    def test_format_symbol_index(self):
+        results = [{
+            "symbol": "_failed_model_info",
+            "matches": [("src/llm/model_info.py:42", "_failed_model_info: set = set()")],
+        }]
+        formatted = run_queue.format_symbol_index(results)
+        self.assertIn("Target symbol locations in repository:", formatted)
+        self.assertIn("`_failed_model_info` at `src/llm/model_info.py:42`: `_failed_model_info: set = set()`", formatted)
+
+    def test_find_subsystem_symbols(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            mock_proc = MagicMock(returncode=0, stdout="src/a.py:10:def _foo(): pass\n")
+            with patch("subprocess.run", return_value=mock_proc):
+                res = run_queue.find_subsystem_symbols(["_foo"], cwd=tmp)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["symbol"], "_foo")
+            self.assertEqual(res[0]["matches"][0], ("src/a.py:10", "def _foo(): pass"))
+    def test_find_subsystem_symbols_prefers_tags(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fake_tag_res = {
+                "matches": [{
+                    "name": "_foo", "path": "src/a.py", "line": 42,
+                    "kind": "function", "scope": None, "pattern": "def _foo(): pass"
+                }]
+            }
+            with patch("cli.tags.find_tags", return_value=(fake_tag_res, 0)):
+                res = run_queue.find_subsystem_symbols(["_foo"], cwd=tmp)
+            self.assertEqual(len(res), 1)
+            self.assertEqual(res[0]["symbol"], "_foo")
+            self.assertEqual(res[0]["matches"][0], ("src/a.py:42", "def _foo(): pass"))
 
 if __name__ == "__main__":
     unittest.main()

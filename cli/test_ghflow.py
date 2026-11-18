@@ -4490,3 +4490,70 @@ class BudgetTests(unittest.TestCase):
         result, status = budget(self.log, end="review:9", now=self.at("12:00"))
         self.assertEqual(status, 1)
         self.assertFalse(self.log.exists())
+
+
+class TagsTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp)
+
+    def test_parse_tag_line_function(self):
+        import tags
+        line = "my_func\tsrc/foo.py\t/^def my_func(x):$/;\"\tkind:function\tline:10"
+        parsed = tags.parse_tag_line(line)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["name"], "my_func")
+        self.assertEqual(parsed["path"], "src/foo.py")
+        self.assertEqual(parsed["line"], 10)
+        self.assertEqual(parsed["kind"], "function")
+
+    def test_parse_tag_line_method_with_class_scope(self):
+        import tags
+        line = "flushSave\tsrc/editor.js\t/^  flushSave() {$/;\"\tkind:m\tclass:Editor\tline:42"
+        parsed = tags.parse_tag_line(line)
+        self.assertIsNotNone(parsed)
+        self.assertEqual(parsed["name"], "flushSave")
+        self.assertEqual(parsed["kind"], "method")
+        self.assertEqual(parsed["scope"], "Editor")
+        self.assertEqual(parsed["line"], 42)
+
+    def test_generate_tags_fallback_and_find(self):
+        import tags
+        src_dir = self.tmp / "src"
+        src_dir.mkdir()
+        py_file = src_dir / "service.py"
+        py_file.write_text("class MyService:\n    def execute(self):\n        pass\n\ndef helper():\n    pass\n")
+
+        out_tags = self.tmp / "tags"
+        # Force python AST generator fallback by mocking find_ctags -> None
+        with patch("tags.find_ctags", return_value=None):
+            res, code = tags.generate_tags(repo_root=self.tmp, out_path=out_tags)
+        self.assertEqual(code, 0)
+        self.assertTrue(out_tags.is_file())
+        self.assertGreaterEqual(res["symbols_indexed"], 2)
+
+        # Test find_tags
+        find_res, find_code = tags.find_tags("MyService", repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(find_code, 0)
+        self.assertEqual(len(find_res["matches"]), 1)
+        self.assertEqual(find_res["matches"][0]["kind"], "class")
+        self.assertEqual(find_res["matches"][0]["line"], 1)
+
+        # Test outline_file
+        outline_res, outline_code = tags.outline_file(py_file, repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(outline_code, 0)
+        self.assertGreaterEqual(len(outline_res["symbols"]), 2)
+        self.assertEqual(outline_res["symbols"][0]["name"], "MyService")
+
+    def test_ghflow_tags_cli_dispatch(self):
+        out_tags = self.tmp / "tags"
+        out_tags.write_text("!_TAG_FILE_SORTED\t1\t/sorted/\nmy_var\tsrc/config.py\t12;\"\tkind:v\tline:12\n")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "find", "my_var", "--repo", str(self.tmp), "--tags-file", str(out_tags)])
+        self.assertEqual(status, 0)
+        output = json.loads(mock_stdout.getvalue())
+        self.assertEqual(output["symbol"], "my_var")
+        self.assertEqual(len(output["matches"]), 1)
+        self.assertEqual(output["matches"][0]["path"], "src/config.py")
+        self.assertEqual(output["matches"][0]["line"], 12)
