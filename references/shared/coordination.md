@@ -24,6 +24,12 @@ For an unpublished implementation handoff, pass the supplied checkout path, bran
 
 In a direct delivery session, the conversation-owning agent is the parent and dispatches subject-repository tasks. A standalone task worker with no coordinator also talks to the user.
 
+### Orchestration and worker delivery separation
+
+This workflow separates portfolio-level orchestration from per-issue delivery:
+- **Orchestration**: Multi-issue planning, epics, queue management, board triage, and the deterministic queue runner (`scripts/run_queue.py`). The coordinator handles queue sequencing, board status transitions, worktree lifecycle, and automated PR submissions. It does not write subject-repository code.
+- **Worker delivery**: Single-issue execution in an isolated worktree (`implement-issue`, `review-changes`, `address-pr-review`). The worker focuses exclusively on code changes, tests, and local commits. It does not manage boards, reschedule tasks, or survey unrelated branches. In unattended runner runs, passing `--runner` to `handoff` tailors the handoff to this focused delivery boundary.
+
 ## Handoffs
 
 A delivery coordinator dispatches implementation, review, and submission to subagents. After ready submission, the conversation-owning parent dispatches PR follow-up to a subagent under [PR follow-up ownership](#pr-follow-up-ownership). Ownership means arranging the task and receiving its result, not performing subject-repository work.

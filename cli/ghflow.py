@@ -2510,6 +2510,8 @@ HANDOFF_DEFAULTS = "handoff-defaults.json"
 HANDOFF_RETURN = ("Return the PR URL, the published head, the check results with their commits, evidence limits, "
                   "remaining work, and the model ID your runtime states to you, not a configured or default model.")
 
+HANDOFF_RUNNER_RETURN = ("Return the committed head SHA, the check results with their commits, evidence limits, "
+                         "remaining work, and the model ID your runtime states to you, not a configured or default model.")
 
 HANDOFF_DEADLINE = ("Deadline: {deadline}. At the deadline, start nothing new: commit the work in progress, publish it to "
                     "the draft PR, record the remaining steps in the task notes, and return them with the PR URL and head, "
@@ -2633,7 +2635,8 @@ def preamble_text(info, operation=None, limits=None, review_plan=None, notes=Non
 
 
 def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, limits=None, notes=None,
-                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None, verdict=False):
+                  branch=None, extra=None, facts_path=None, facts=project_facts, deadline=None, verdict=False,
+                  runner=False):
     """Write a handoff file for one dispatch from live facts plus the coordinator's
     decisions, and return the one-line dispatch prompt that points to it."""
     if operation not in HANDOFF_SCOPE:
@@ -2700,9 +2703,10 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     def read(path):
         return Path(path).read_text(encoding="utf-8").strip() if path else ""
     facts_line = facts_path or (project.get("path") if project.get("present") else None)
+    task_ref = skill_dir / 'references' / 'tasks' / (operation + '.md')
+    read_inst = f"Read {task_ref}; " if runner else f"Read {skill_dir / 'SKILL.md'} and {task_ref}; "
     lines = [
-        f"Operation: {operation}. Read {skill_dir / 'SKILL.md'} and {skill_dir / 'references' / 'tasks' / (operation + '.md')}; "
-        f"use CLI {skill_dir / 'cli' / 'ghflow.py'}.",
+        f"Operation: {operation}. {read_inst}use CLI {skill_dir / 'cli' / 'ghflow.py'}.",
         f"Source: {skill_dir} at {skill.get('head', 'unknown')}.",
         f"Subject: {subject}{' (' + issue.get('title', '') + ')' if issue_url else ''} in {checkout.get('primary_root', checkout.get('root', ''))}; "
         f"project instructions: {', '.join((info.get('project_files') or {}).get('instructions') or []) or 'none found'}.",
@@ -2732,7 +2736,13 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         lines.append(f"Review plan: {review_plan}")
     if limits:
         lines.append(f"Flow and limits: {limits}")
-    lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
+    if runner and operation == "implement-issue":
+        lines.append(
+            "This handoff: Produce tested, committed changes in the task worktree. "
+            "Do not push to remote or open a pull request; the runner publishes committed work and opens PRs automatically."
+        )
+    else:
+        lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
     if operation == "review-changes" and verdict:
         lines.append(
             "Verdict comment: post your review verdict as a PR comment with `python3 "
@@ -2747,7 +2757,7 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
     if extra:
         lines += [read(extra)]
     lines.append("Directive: execute your assigned task directly. Do not pre-load shared reference files; the handoff and CLI provide the required facts and rules.")
-    lines.append(HANDOFF_RETURN)
+    lines.append(HANDOFF_RUNNER_RETURN if runner else HANDOFF_RETURN)
     text = "\n".join(line for line in lines if line is not None).rstrip() + "\n"
     Path(out).parent.mkdir(parents=True, exist_ok=True)
     Path(out).write_text(text, encoding="utf-8")
@@ -3644,6 +3654,8 @@ def main(argv=None):
     handoff_cmd.add_argument("--deadline", help="time budget deadline; implementation and correction handoffs tell the worker to stop and publish at it")
     handoff_cmd.add_argument("--verdict", action="store_true", help="for review-changes, instruct the reviewer to post its verdict as a PR comment with a head-SHA marker")
 
+    handoff_cmd.add_argument("--runner", action="store_true",
+                            help="tailor handoff for unattended runner worker sessions (deterministic PR management)")
     review_group = commands.add_parser("review", help="Review worktree operations.")
     review_commands = review_group.add_subparsers(dest="review_command", required=True)
     rv_prepare = review_commands.add_parser("prepare", help="Create a detached review worktree at a PR's current head and list the changed files.")
@@ -3780,7 +3792,8 @@ def main(argv=None):
         result, status = tags.outline_file(args.file, repo_root=args.repo, tags_file=args.tags_file)
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
-                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline, verdict=args.verdict)
+                                       args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline,
+                                       verdict=args.verdict, runner=args.runner)
     elif args.command == "pr" and args.pr_command == "create":
         result, status = pr_create(args.repo, args.head, args.base, args.title, args.body_file,
                                    args.draft, args.expect_head)
