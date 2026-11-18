@@ -2156,6 +2156,13 @@ def pr_comment(repo, number, body_file, gh=run_gh, gh_text=run_gh_text,
             "author": bool(login) and isinstance(author, str) and author.casefold() == login.casefold(),
             "body": normalized_body(last.get("body")) == normalized_body(body),
         }
+        if last.get("id"):
+            result["comment_id"] = last.get("id")
+        if last.get("url"):
+            result["comment_url"] = last.get("url")
+        verdict_match = re.search(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z0-9_-]+)\s*-->", body)
+        if verdict_match:
+            result["verdict"] = {"head": verdict_match.group(1), "verdict": verdict_match.group(2)}
     except READ_ERRORS as error:
         result["errors"].append({"part": "readback", "error": str(error)})
         return result, 2
@@ -2775,11 +2782,15 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
             "reused": reused, "errors": errors}, 0
 
 
-def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
+def review_prepare(repo, number, cwd=None, path=None, copy=(), setup=(), no_setup=False,
+                   git=run_git, gh=run_gh, shell=None):
     """Create a detached review worktree at a PR's current head and report what changed.
 
-    Refuses, writing nothing, when the path already exists.
+    Refuses, writing nothing, when the path already exists. Without explicit copy or setup
+    arguments, it applies the worktree: declaration in the primary checkout's project facts
+    file, so the review worktree is prepared with necessary environment files and dependencies.
     """
+    shell = shell or (lambda command, where: subprocess.run(command, shell=True, cwd=where, capture_output=True, text=True))
     start = Path.cwd() if cwd is None else Path(cwd)
     result = {"pr": f"{repo}#{number}", "errors": []}
     read_errors = (GhError, OSError, json.JSONDecodeError, TypeError, KeyError, ValueError)
@@ -2798,6 +2809,24 @@ def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
     if target.exists():
         result.update(action="exists", reason="The review path already exists; remove it with review cleanup or pass --path.")
         return result, 3
+    setup_source = "arguments" if (copy or setup) else "none"
+    if not copy and not setup and not no_setup:
+        facts_path = root / PROJECT_FACTS_PATH
+        if facts_path.is_file():
+            try:
+                text = facts_path.read_text(encoding="utf-8")
+            except OSError as error:
+                result["errors"].append({"part": "facts", "error": str(error)})
+                return result, 2
+            declaration, declaration_errors = parse_facts_worktree(text)
+            if declaration_errors:
+                result["errors"] += [{"part": "facts", "error": f"{PROJECT_FACTS_PATH}: {item}"}
+                                     for item in declaration_errors]
+                return result, 2
+            if declaration is not None:
+                copy, setup = declaration["copy"], declaration["setup"]
+                setup_source = "project_facts"
+    result["worktree_setup"] = {"source": setup_source, "copy": list(copy), "setup": list(setup)}
     try:
         git(["fetch", "--quiet", "origin", base, pr["headRefName"]], root)
         if git(["rev-parse", "--verify", f"{head}^{{commit}}"], root).strip() != head:
@@ -2811,7 +2840,25 @@ def review_prepare(repo, number, cwd=None, path=None, git=run_git, gh=run_gh):
     result.update(action="created", merge_base=merge_base,
                   files=[{"path": f[2], "added": f[0], "deleted": f[1]} for f in files if len(f) == 3],
                   diff_command=f"git -C {target} diff {merge_base}..{head}")
-    return result, 0
+    result["copied"] = []
+    for name in copy:
+        source = root / name
+        if source.is_file():
+            destination = target / name
+            destination.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copyfile(source, destination)
+            result["copied"].append(name)
+        else:
+            result["errors"].append({"part": "copy", "error": f"{name} is not a file in the primary checkout."})
+    result["setup"] = []
+    for command in setup:
+        run = shell(command, target)
+        tail = "\n".join(((run.stdout or "") + (run.stderr or "")).strip().splitlines()[-15:])
+        result["setup"].append({"command": command, "exit": run.returncode, "output_tail": tail})
+        if run.returncode != 0:
+            result["errors"].append({"part": "setup", "error": f"{command!r} exited {run.returncode}."})
+            return result, 2
+    return result, 2 if result["errors"] else 0
 
 
 def review_cleanup(number, cwd=None, path=None, git=run_git):
@@ -2829,6 +2876,56 @@ def review_cleanup(number, cwd=None, path=None, git=run_git):
     git(["worktree", "remove", str(target)], root)
     result["action"] = "removed"
     return result, 0
+
+
+def run_gate(command="make check", cwd=None, timeout=300, shell=None):
+    """Run local project test gates with compact, bounded output.
+
+    Executes the gate command in cwd, capturing and bounding stdout/stderr. Parses test counts
+    and failure summaries to protect agent context windows from multi-thousand-line test dumps.
+    """
+    shell = shell or (lambda cmd, where, t: subprocess.run(cmd, shell=True, cwd=where,
+                                                           stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                                                           text=True, timeout=t))
+    target = Path.cwd() if cwd is None else Path(cwd)
+    result = {"command": command, "path": str(target), "errors": []}
+    start = time.time()
+    try:
+        proc = shell(command, target, timeout)
+    except subprocess.TimeoutExpired:
+        result.update(success=False, exit_code=124, summary=f"{command} timed out after {timeout}s",
+                      duration_seconds=round(time.time() - start, 2))
+        return result, 2
+    except OSError as error:
+        result["errors"].append({"part": "gate", "error": str(error)})
+        result.update(success=False, exit_code=1, summary=f"{command} failed to execute: {error}",
+                      duration_seconds=round(time.time() - start, 2))
+        return result, 1
+
+    duration = round(time.time() - start, 2)
+    output = proc.stdout or ""
+    exit_code = proc.returncode
+
+    test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?(?:,\s+\d+\s+failed)?)", output)
+    test_info = f", {test_match.group(1)}" if test_match else ""
+
+    lines = output.splitlines()
+    failures = [l.strip() for l in lines if re.search(r"\b(FAILED|ERROR|FAIL)\b", l)][:10]
+    tail = "\n".join(lines[-25:])
+
+    success = (exit_code == 0)
+    summary = f"{command} {'passed' if success else 'failed'} (exit {exit_code}{test_info})"
+
+    result.update(
+        success=success,
+        exit_code=exit_code,
+        summary=summary,
+        test_counts=test_match.group(1) if test_match else None,
+        failures=failures if not success else [],
+        output_tail=tail if not success else "",
+        duration_seconds=duration,
+    )
+    return result, (0 if success else 1)
 
 
 PARK_MARKER = "## Parked"
@@ -3662,6 +3759,9 @@ def main(argv=None):
     rv_prepare.add_argument("pr", help="PR URL, or PR number with --repo")
     rv_prepare.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     rv_prepare.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
+    rv_prepare.add_argument("--copy", action="append", default=[], metavar="FILE", help="file to copy from the primary checkout; replaces the facts declaration")
+    rv_prepare.add_argument("--setup", action="append", default=[], metavar="COMMAND", help="setup command to run in the worktree; replaces the facts declaration")
+    rv_prepare.add_argument("--no-setup", action="store_true", help="skip project facts copy and setup")
     rv_cleanup = review_commands.add_parser("cleanup", help="Remove a review worktree, refusing one with local changes.")
     rv_cleanup.add_argument("pr", help="PR URL, or PR number with --repo")
     rv_cleanup.add_argument("--repo", help="OWNER/NAME when giving a PR number")
@@ -3727,9 +3827,23 @@ def main(argv=None):
     tags_outline.add_argument("file", help="path to source file")
     tags_outline.add_argument("--repo", help="repository root (default current directory)")
     tags_outline.add_argument("--tags-file", help="tags file path (default .git/tags)")
+    gate_cmd = commands.add_parser("gate", help="Run local project test gates with compact, bounded output.")
+    gate_cmd.add_argument("--cmd", dest="gate_command", default="make check", help="test gate command to execute (default: make check)")
+    gate_cmd.add_argument("--path", help="directory to run gate in (default: current directory)")
+    gate_cmd.add_argument("--timeout", type=int, default=300, help="timeout in seconds (default: 300)")
+    gate_cmd.add_argument("--summary", action="store_true", help="output only the compact summary string")
     args = parser.parse_args(argv)
 
-    if args.command == "pr-state":
+    if args.command == "gate":
+        result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
+        if args.summary:
+            summary = result.get("summary") or ""
+            sys.stdout.write(summary + "\n")
+            if not result.get("success") and result.get("failures"):
+                for f in result["failures"]:
+                    sys.stdout.write(f"  {f}\n")
+            return status
+    elif args.command == "pr-state":
         repo, number = parse_pr(args.pr, args.repo)
         result, status = pr_state(repo, number, bare_login=bare_gh_login, identity=resolve_identity_or_none())
     elif args.command == "verify-commit":
@@ -3750,7 +3864,8 @@ def main(argv=None):
     elif args.command == "review":
         repo, number = parse_pr(args.pr, args.repo)
         if args.review_command == "prepare":
-            result, status = review_prepare(repo, number, path=args.path)
+            result, status = review_prepare(repo, number, path=args.path, copy=args.copy, setup=args.setup,
+                                            no_setup=args.no_setup)
         else:
             result, status = review_cleanup(number, path=args.path)
     elif args.command == "discussion":
