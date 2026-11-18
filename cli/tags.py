@@ -51,7 +51,7 @@ def locate_tags_file(repo_root=None, explicit_path=None):
         p = Path(explicit_path)
         return p if p.is_file() else None
     root = Path(repo_root or os.getcwd()).resolve()
-    
+
     # Check git dir first (.git/tags)
     git_path = root / ".git"
     if git_path.is_dir():
@@ -124,7 +124,7 @@ def parse_tag_line(line):
     name = parts[0]
     file_path = parts[1]
     pattern_or_line = parts[2].rstrip(';"')
-    
+
     fields = {}
     for f in parts[3:]:
         if ":" in f:
@@ -168,10 +168,10 @@ def generate_tags(repo_root=None, out_path=None, languages=None, git=None):
     root = Path(repo_root or os.getcwd()).resolve()
     target_out = Path(out_path).resolve() if out_path else default_tags_path(root)
     target_out.parent.mkdir(parents=True, exist_ok=True)
-    
+
     start_time = time.time()
     ctags_bin = find_ctags()
-    
+
     # 1. Collect tracked source files via git ls-files
     source_patterns = [
         "*.py", "*.js", "*.mjs", "*.cjs", "*.ts", "*.tsx", "*.jsx",
@@ -236,7 +236,7 @@ def generate_tags(repo_root=None, out_path=None, languages=None, git=None):
         target_out.write_text("\n".join(header + tag_lines) + "\n", encoding="utf-8")
 
     duration_ms = int((time.time() - start_time) * 1000)
-    
+
     # Count generated tags
     count = 0
     if target_out.is_file():
@@ -270,7 +270,7 @@ def find_tags(symbol, repo_root=None, tags_file=None, exact=True, kind=None):
 
     matches = []
     readtags_bin = find_readtags()
-    
+
     clean_sym = symbol.lstrip("#")
     if readtags_bin and tf.is_file():
         cmd = [readtags_bin, "-t", str(tf), "-e", "-n"]
