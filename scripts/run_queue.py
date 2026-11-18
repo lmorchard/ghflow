@@ -407,8 +407,35 @@ def set_board_status(issue_ref, status, owner=None, project=None, cli_fn=run_cli
     except Exception:
         pass
 
-def compose_prompt(skill_dir, handoff_prompt):
-    """Compose the prompt from SKILL.md body without YAML frontmatter and the handoff prompt."""
+def compose_prompt(skill_dir, handoff_prompt, step=None):
+    """Compose the session prompt.
+
+    When a specific worker step is given (e.g. implement-issue, review-changes),
+    generates a focused, minimal worker directive, omitting the 21-operation table
+    and high-level coordinator rules. Falls back to SKILL.md body if step is None.
+    """
+    if step:
+        cli_py = Path(skill_dir) / "cli" / "ghflow.py"
+        task_ref = Path(skill_dir) / "references" / "tasks" / f"{step}.md"
+        task_line = (
+            f"Task reference: `{task_ref}`. Load only the task instructions and rules needed for this step.\n"
+            "Do not load multi-issue coordinator or sweep references."
+            if task_ref.is_file() else ""
+        )
+        return (
+            f"# GitHub Workflow: {step}\n\n"
+            f"You are executing the `{step}` operation for an assigned issue in an isolated worktree.\n"
+            "Execution mode: Local-model single session. Stay in this session; do not spawn subagents.\n\n"
+            "Tools:\n"
+            f'export GHFLOW_CLI="{cli_py}"\n'
+            'python3 "$GHFLOW_CLI" --help\n\n'
+            "Code exploration:\n"
+            'Use `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` for definition lookups.\n\n'
+            f"{task_line}\n\n"
+            f"Base directory for this skill: {skill_dir}\n\n"
+            f"{handoff_prompt}"
+        )
+
     skill_md = Path(skill_dir) / "SKILL.md"
     body = skill_md.read_text(encoding="utf-8") if skill_md.is_file() else ""
     lines = body.splitlines()
@@ -446,7 +473,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     if code != 0:
         return False, f"Handoff creation failed: {h_out}"
 
-    prompt_text = compose_prompt(options["skill_dir"], h_out.get("dispatch_prompt", ""))
+    prompt_text = compose_prompt(options["skill_dir"], h_out.get("dispatch_prompt", ""), step=step)
     cmd = [options.get("opencode_cmd", "opencode"), "run", "--auto", "--format", "json",
            "--title", f"Queue runner {step} {stamp}"]
     if options.get("model"):

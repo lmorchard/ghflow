@@ -27,32 +27,41 @@ The selected task reference names the shared rules it needs. Open a shared refer
 Match the user's explicit request to the operation below. Identify the subject repository from the user's request or the target checkout. `python3 "$GHFLOW_CLI" facts` reports the checkout, repository, tooling, identity readiness, and the project facts file; with `--issue` and an issue URL or a bare number from the checkout, it adds the issue's branches, worktrees, PRs, and board items. Use it instead of separate `git` and `gh` reads for that state, and read `.ghflow/project.md` when it reports one. For symbol discovery and code exploration, `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` report exact definition files, line numbers, and scopes across git-tracked source files.
 For a local-model session start, `preamble ISSUE_URL` prints these facts as a compact block that fits in the first prompt. The source checkout supplies instructions and tools; its remote and the configured account do not identify the subject. If the selected repository, issue, or PR is missing, return the needed input before GitHub searches or dispatch.
 For an assessment-only request, explain the operation and limits without performing delivery. If a material endpoint is unclear, ask only for that decision. Do not choose backlog work or add a fixed sequence. A delivery request defaults to review follow-up with its PR left open. Read its coordinator reference and apply the selected execution mode to dispatch and review requirements.
+### Single-issue delivery operations
+
+For focused work on an assigned issue or pull request in an isolated worktree:
 
 | Request | Task reference |
 |---|---|
-| Reassess an existing issue | [reconsider-issue](references/tasks/reconsider-issue.md) |
-| Define an idea or issue, including draft-only work | [define-issue](references/tasks/define-issue.md) |
-| Settle issue decisions with the user | [interview-issue](references/tasks/interview-issue.md) |
-| Split a broad parent into children | [decompose-parent-issue](references/tasks/decompose-parent-issue.md) |
-| Publish a reviewed issue draft | [file-issue](references/tasks/file-issue.md) |
 | Implement an issue through local commits | [implement-issue](references/tasks/implement-issue.md) |
 | Independently review code changes | [review-changes](references/tasks/review-changes.md) |
-| Publish committed changes as a PR | [submit-pr](references/tasks/submit-pr.md) |
 | Address PR feedback and repair CI | [address-pr-review](references/tasks/address-pr-review.md) |
-| Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) |
+| Publish committed changes as a PR | [submit-pr](references/tasks/submit-pr.md) |
 | Deliver or tackle one selected issue | [express-issue](references/tasks/express-issue.md) |
+| Define an idea or issue, including draft-only work | [define-issue](references/tasks/define-issue.md) |
+| Settle issue decisions with the user | [interview-issue](references/tasks/interview-issue.md) |
+| Publish a reviewed issue draft | [file-issue](references/tasks/file-issue.md) |
+| Reassess an existing issue | [reconsider-issue](references/tasks/reconsider-issue.md) |
+| Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) |
+
+### Portfolio and queue orchestration
+
+For multi-issue roadmaps, parent epics, triage sweeps, and queue management:
+
+| Request | Task reference |
+|---|---|
 | Deliver an agreed parent issue | [deliver-parent-issue](references/tasks/deliver-parent-issue.md) |
+| Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
+| Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) |
+| Split a broad parent into children | [decompose-parent-issue](references/tasks/decompose-parent-issue.md) |
 | Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) |
 | Assess a requested set of open issues | [triage-issues](references/tasks/triage-issues.md) |
+| Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) |
 | Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) |
 | Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) |
 | Return unblocked issues to definition | [sweep-blocked](references/tasks/sweep-blocked.md) |
 | Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) |
-| Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) |
-| Stage issues into the Ready queue | [curate-ready-queue](references/tasks/curate-ready-queue.md) |
-| Deliver an explicitly requested Ready queue | [burndown-ready-queue](references/tasks/burndown-ready-queue.md) |
 | Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) |
-
 ## Execute and hand off
 
 For sustained work or findings that would be costly to reconstruct, apply [Task notes](references/shared/task-notes.md). On resumption or after context compaction, read the task's existing notes before repeating research or reopening decisions.
