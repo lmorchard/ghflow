@@ -4754,3 +4754,16 @@ class ReviewVerdictTests(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["verdict"], "clean")
         self.assertIn("verdict=clean", calls[0][2])
+
+    def test_review_verdict_cli_dispatch(self):
+        calls = []
+        def fake_comment(repo, number, path, identity=None):
+            calls.append((repo, number, Path(path).read_text()))
+            return {"comment_id": 456, "comment_url": "https://example.com/c/456"}, 0
+
+        with patch("ghflow.pr_state", return_value=({"head": "feed123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            code = main(["review", "verdict", "https://github.com/o/r/pull/5", "--verdict", "clean", "--body", "LGTM"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("verdict=clean", calls[0][2])

@@ -4214,6 +4214,7 @@ def main(argv=None):
             result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
                                              notes=args.notes, board=board)
     elif args.command == "review":
+        repo, number = parse_pr(args.pr, args.repo)
         if args.review_command == "prepare":
             result, status = review_prepare(repo, number, path=args.path, copy=args.copy, setup=args.setup,
                                             no_setup=args.no_setup)
