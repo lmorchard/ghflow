@@ -4809,8 +4809,11 @@ class BuildPublishTests(unittest.TestCase):
         def fake_gh_text(args, cwd=None):
             return "https://github.com/o/r/pull/1\n"
 
-        res, code = build_publish(issue="42", cwd=self.wt, repo="o/r", owner="o", project=6,
-                                  gh=fake_gh, gh_text=fake_gh_text)
+        with patch("ghflow.resolve_identity", return_value={"name": "MokaGnome", "email": "moka@example.com", "login": "MokaGnome", "ready": True}), \
+             patch("ghflow.confirm_write_identity", return_value=None), \
+             patch("ghflow.confirm_authenticated_login", return_value=None):
+            res, code = build_publish(issue="42", cwd=self.wt, repo="o/r", owner="o", project=6,
+                                      gh=fake_gh, gh_text=fake_gh_text)
         self.assertEqual(code, 0)
         self.assertTrue(res["success"])
         self.assertEqual(res["action"], "created")
