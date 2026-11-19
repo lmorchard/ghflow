@@ -20,14 +20,14 @@ python3 "$GHFLOW_CLI" --help
 
 ## 2. Review workspace and inspection scope
 
-- For a published PR, inspect the worktree prepared by the runner or prepare a detached review worktree with `python3 "$GHFLOW_CLI" review prepare PR_URL`.
-- Inspect the commit diff against the base branch:
-  ```sh
-  git -C WORKTREE diff BASE..HEAD
-  ```
-- If the PR is stacked on another issue branch, hosted CI does not run; rely exclusively on local worktree gate checks.
-- Treat the author's implementation claims as hypotheses: inspect the actual diff and verify tests before accepting stated coverage.
+On Turn 1, run the one-turn inspection command:
 
+```sh
+python3 "$GHFLOW_CLI" review inspect PR_URL
+```
+- Prepares the review worktree with environment files and dependencies already seeded.
+- Returns in a single payload: the worktree path, list of changed files, the exact commit diff (`git diff base..head`), and pre-computed test gate status.
+- If pre-computed gates passed, do not waste turns re-running unchanged full test suites unless investigating a specific defect.
 ## 3. What to examine
 
 Focus on these criteria:
@@ -39,22 +39,14 @@ Focus on these criteria:
 
 ## 4. Post the review verdict
 
-Post your review verdict directly as a PR comment:
+When inspection is complete, post your verdict atomically:
 
 ```sh
-python3 "$GHFLOW_CLI" pr comment PR_URL --body-file VERDICT_FILE
+python3 "$GHFLOW_CLI" review verdict PR_URL --verdict clean|findings|blocked --body-file VERDICT_FILE
 ```
-
-### Verdict comment format
-
-The comment body MUST start with the exact marker:
-```text
-<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->
-```
-
-Verdict rules:
-- `clean`: **No blocking findings.** If `## Blocking findings` is empty, none, or absent, the verdict MUST be `clean`, even if non-blocking suggestions or follow-up ideas appear under `## Notes`.
-- `findings`: Actionable blocking defects that a builder can resolve. List them under `## Blocking findings` with file paths, triggering conditions, and expected behavior.
-- `blocked`: Architectural or requirement blockers requiring human decision.
+- Automatically resolves the PR's current head commit SHA.
+- Automatically formats and prepends the required `<!-- ghflow-review head=SHA verdict=... -->` marker.
+- Enforces verdict rules: if `## Blocking findings` is empty, none, or absent (No blocking findings), the command automatically records `verdict=clean`, preventing accidental review loop lockouts.
+- Verifies comment readback internally before exiting 0. Do not run extra `pr-state` or custom polling scripts.
 
 Under local-model review policies, same-model review is permitted; record your model ID and report different-model review as waived.

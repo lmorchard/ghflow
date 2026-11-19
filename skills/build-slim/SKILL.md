@@ -54,15 +54,17 @@ When tasked with addressing review findings (`address-pr-review`):
 2. For each actionable finding: fix the code, update tests, run `make check`, and commit to the same branch.
 3. For non-blocking notes or disputed suggestions: explain your assessment with evidence in a reply comment (`python3 "$GHFLOW_CLI" pr comment PR_URL --body-file REPLY_FILE`).
 
-## 5. Commits and identity
+## 5. Finish and commit
 
-- Run every Git write command under the configured machine identity:
-  ```sh
-  python3 "$GHFLOW_CLI" exec -- git commit -m "type(scope): concise description"
-  ```
-- Use standard subject conventions: `fix(subsystem): ...` or `feat(subsystem): ...`.
+When implementation and tests are complete, run the atomic finish command:
+
+```sh
+python3 "$GHFLOW_CLI" build finish --message "type(scope): concise description"
+```
+- It automatically executes project test gates (`make check`).
+- If gates pass, it stages (`git add -A`) and commits all worktree changes under the configured machine identity.
+- Returns the committed head commit SHA and gate verification status.
 - Do not push to remote or open pull requests: the queue runner automatically handles remote pushes and draft PR publishing upon session completion.
-
 ## 6. Completion report
 
 Return directly to the caller:

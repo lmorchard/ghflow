@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -4682,3 +4682,88 @@ class TagsTests(unittest.TestCase):
         self.assertEqual(len(output["matches"]), 1)
         self.assertEqual(output["matches"][0]["path"], "src/config.py")
         self.assertEqual(output["matches"][0]["line"], 12)
+
+
+class BuildFinishTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.addCleanup(shutil.rmtree, self.tmp)
+        self.repo = Path(self.tmp) / "repo"
+        subprocess.run(["git", "init", "--quiet", str(self.repo)], check=True)
+        subprocess.run(["git", "config", "user.name", "Tester"], cwd=self.repo, check=True)
+        subprocess.run(["git", "config", "user.email", "test@example.com"], cwd=self.repo, check=True)
+        (self.repo / "README.md").write_text("# Test\n")
+        subprocess.run(["git", "add", "README.md"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.repo, check=True)
+
+        # Create a worktree
+        self.wt = Path(self.tmp) / "wt"
+        subprocess.run(["git", "worktree", "add", "-b", "issue-42-test", str(self.wt)], cwd=self.repo, check=True)
+
+    def test_refuses_primary_checkout(self):
+        res, code = build_finish(cwd=self.repo)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["success"])
+        self.assertIn("Refusing to build finish in primary", res["error"])
+
+    def test_fails_when_gate_fails(self):
+        (self.wt / "foo.txt").write_text("edit")
+        fake_gate = lambda command, cwd, timeout: ({"success": False, "summary": "make check failed (exit 2)"}, 2)
+        res, code = build_finish(cwd=self.wt, gate_fn=fake_gate)
+        self.assertEqual(code, 2)
+        self.assertFalse(res["success"])
+        self.assertIn("Local gate check failed", res["error"])
+
+    def test_commits_when_gate_passes(self):
+        (self.wt / "foo.txt").write_text("edit")
+        fake_gate = lambda command, cwd, timeout: ({"success": True, "summary": "make check passed (exit 0)"}, 0)
+        with patch("ghflow.resolve_identity", return_value={"name": "MokaGnome", "email": "moka@example.com"}), \
+             patch("ghflow.identity_env", return_value={}):
+            res, code = build_finish(message="feat: add foo", cwd=self.wt, gate_fn=fake_gate)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["action"], "committed")
+        self.assertEqual(res["message"], "feat: add foo")
+
+
+class ReviewVerdictTests(unittest.TestCase):
+    def test_formats_marker_and_posts(self):
+        calls = []
+        def fake_comment(repo, number, path, identity=None):
+            calls.append((repo, number, Path(path).read_text()))
+            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            res, code = review_verdict("o/r", 5, "clean", body="## Blocking findings\n\nNone.\n")
+        self.assertEqual(code, 0)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["verdict"], "clean")
+        self.assertIn("<!-- ghflow-review head=abcd123 verdict=clean -->", calls[0][2])
+
+    def test_coerces_clean_when_no_blocking_findings(self):
+        calls = []
+        def fake_comment(repo, number, path, identity=None):
+            calls.append((repo, number, Path(path).read_text()))
+            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            res, code = review_verdict("o/r", 5, "findings", body="## Blocking findings\n\nNone.\n\n## Notes\n\n1. Minor note.")
+        self.assertEqual(code, 0)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["verdict"], "clean")
+        self.assertIn("verdict=clean", calls[0][2])
+
+    def test_review_verdict_cli_dispatch(self):
+        calls = []
+        def fake_comment(repo, number, path, identity=None):
+            calls.append((repo, number, Path(path).read_text()))
+            return {"comment_id": 456, "comment_url": "https://example.com/c/456"}, 0
+
+        with patch("ghflow.pr_state", return_value=({"head": "feed123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            code = main(["review", "verdict", "https://github.com/o/r/pull/5", "--verdict", "clean", "--body", "LGTM"])
+        self.assertEqual(code, 0)
+        self.assertEqual(len(calls), 1)
+        self.assertIn("verdict=clean", calls[0][2])
