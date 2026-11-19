@@ -3128,7 +3128,7 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
 
 
 def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check", timeout=300,
-                 git=run_git, gate_fn=None):
+                 clean_drift=True, git=run_git, gate_fn=None):
     """Run verification gates and commit all changes in the task worktree under machine identity."""
     gate_fn = gate_fn or run_gate
     target = Path.cwd() if cwd is None else Path(cwd)
@@ -3143,6 +3143,13 @@ def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check
             "error": "Refusing to build finish in primary repository checkout. Perform all work inside a task worktree."
         }, 1
 
+    # Snapshot dirty files before gate to protect against pre-existing generated drift
+    status_before_raw = git(["status", "--porcelain"], target) or ""
+    files_before = set()
+    for line in status_before_raw.splitlines():
+        parts = line.strip().split(maxsplit=1)
+        if len(parts) == 2:
+            files_before.add(parts[1])
     gate_result = None
     if not no_gate:
         gate_result, code = gate_fn(command=gate_command, cwd=target, timeout=timeout)
@@ -3154,6 +3161,23 @@ def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check
                 "worktree": str(target),
             }, 2
 
+    # If gate induced modifications in previously clean tracked files, clean them up
+    drift_reverted = []
+    if clean_drift and not no_gate:
+        status_after_raw = git(["status", "--porcelain"], target) or ""
+        files_after = set()
+        for line in status_after_raw.splitlines():
+            parts = line.strip().split(maxsplit=1)
+            if len(parts) == 2:
+                files_after.add(parts[1])
+        gate_induced = files_after - files_before
+        for f in gate_induced:
+            check_proc = subprocess.run(["git", "ls-files", "--error-unmatch", f], cwd=target,
+                                        capture_output=True, text=True)
+            if check_proc.returncode == 0:
+                git(["checkout", "--", f], target)
+                drift_reverted.append(f)
+
     status_output = git(["status", "--porcelain"], target).strip()
     if not status_output:
         head = git(["rev-parse", "HEAD"], target).strip()
@@ -3161,6 +3185,7 @@ def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check
             "success": True,
             "action": "no_changes",
             "head": head,
+            "drift_reverted": drift_reverted,
             "gate": gate_result.get("summary") if gate_result else "bypassed",
             "worktree": str(target),
         }, 0
@@ -3191,7 +3216,106 @@ def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check
         "action": "committed",
         "head": head,
         "message": message,
+        "drift_reverted": drift_reverted,
         "gate": gate_result.get("summary") if gate_result else "bypassed",
+        "worktree": str(target),
+    }, 0
+
+
+def build_publish(issue=None, cwd=None, repo=None, draft=False, title=None, body=None,
+                  owner=None, project=None, git=run_git, gh=run_gh, gh_text=run_gh_text):
+    """Push task branch, open or reuse pull request, and transition board status to In review."""
+    target = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        root = primary_checkout(target, git)
+    except (GhError, OSError, ValueError) as error:
+        return {"success": False, "errors": [{"part": "checkout", "error": str(error)}]}, 1
+
+    if target.resolve() == root.resolve():
+        return {
+            "success": False,
+            "error": "Refusing to build publish in primary repository checkout. Perform all work inside a task worktree."
+        }, 1
+
+    branch = git(["rev-parse", "--abbrev-ref", "HEAD"], target).strip()
+    if not branch or branch == "HEAD":
+        return {"success": False, "error": "Detached HEAD or empty branch in worktree."}, 1
+
+    head = git(["rev-parse", "HEAD"], target).strip()
+    repo = repo or checkout_repo(target, git)
+
+    push_proc = subprocess.run(["git", "push", "-u", "origin", branch], cwd=target,
+                               capture_output=True, text=True)
+    if push_proc.returncode != 0:
+        return {"success": False, "error": f"git push failed: {push_proc.stderr.strip()}"}, 1
+
+    existing = gh(["pr", "list", "--repo", repo, "--head", branch, "--json", "number,url,state", "--limit", "1"], target)
+    pr_url = None
+    pr_number = None
+    action = "reused"
+    if isinstance(existing, list):
+        pr_items = existing
+    elif isinstance(existing, str) and existing.strip():
+        try:
+            pr_items = json.loads(existing)
+        except Exception:
+            pr_items = []
+    else:
+        pr_items = []
+    if pr_items:
+        pr_url = pr_items[0].get("url")
+        pr_number = pr_items[0].get("number")
+    else:
+        action = "created"
+        issue_num = None
+        if issue:
+            try:
+                _, issue_num = parse_issue(issue, repo)
+            except Exception:
+                pass
+
+        if not issue_num and branch.startswith("issue-"):
+            parts = branch.split("-")
+            if len(parts) > 1 and parts[1].isdigit():
+                issue_num = int(parts[1])
+
+        pr_title = title or (f"Deliver issue #{issue_num}" if issue_num else f"Deliver {branch}")
+        pr_body_text = body or (f"Closes #{issue_num}\n\nAutomated delivery." if issue_num else f"Automated delivery for branch `{branch}`.")
+
+        with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+            tf.write(pr_body_text)
+            body_file = tf.name
+
+        try:
+            create_res, create_code = pr_create(repo, branch, "main", pr_title, body_file=body_file, draft=draft, gh=gh, gh_text=gh_text)
+        finally:
+            try:
+                os.unlink(body_file)
+            except OSError:
+                pass
+        if create_code != 0:
+            return create_res, create_code
+        pr_url = create_res.get("url")
+        pr_number = create_res.get("number")
+
+    board_res = None
+    if owner and project is not None and (issue or issue_num):
+        num = issue_num
+        if not num and issue:
+            try:
+                _, num = parse_issue(issue, repo)
+            except Exception:
+                pass
+        if num and repo:
+            board_res, _ = board_set_status(repo, num, owner, project, "In review", gh=gh)
+    return {
+        "success": True,
+        "action": action,
+        "pr": pr_url,
+        "pr_number": pr_number,
+        "head": head,
+        "branch": branch,
+        "board": "In review" if board_res else None,
         "worktree": str(target),
     }, 0
 
@@ -4032,6 +4156,16 @@ def main(argv=None):
     build_finish_cmd.add_argument("--message", "-m", help="commit message (default: auto-derived from branch)")
     build_finish_cmd.add_argument("--path", help="worktree path (default: current directory)")
     build_finish_cmd.add_argument("--no-gate", action="store_true", help="bypass local gate check")
+    build_finish_cmd.add_argument("--no-clean-drift", action="store_false", dest="clean_drift", default=True, help="do not revert gate-induced diffs in pre-existing files")
+    build_publish_cmd = build_commands.add_parser("publish", help="Push branch, create or reuse PR, and set board In review.")
+    build_publish_cmd.add_argument("issue", nargs="?", help="issue URL or number")
+    build_publish_cmd.add_argument("--repo", help="OWNER/NAME when not inside a git checkout with GitHub origin")
+    build_publish_cmd.add_argument("--path", help="worktree path (default: current directory)")
+    build_publish_cmd.add_argument("--draft", action="store_true", help="create PR as draft")
+    build_publish_cmd.add_argument("--title", help="custom PR title")
+    build_publish_cmd.add_argument("--body", help="custom PR body")
+    build_publish_cmd.add_argument("--owner", help="board owner")
+    build_publish_cmd.add_argument("--project", type=int, help="board project number")
 
     body = pr_commands.add_parser("body", help="Write a PR description: your summary, review, and decisions files around commits, checks, and the closing line.")
     body.add_argument("pr", help="PR URL, or PR number with --repo")
@@ -4261,8 +4395,12 @@ def main(argv=None):
             result, status = review_verdict(repo, number, args.verdict, body=args.body, body_file=args.body_file, identity=resolve_identity_or_none())
         else:
             result, status = review_cleanup(number, path=args.path)
-    elif args.command == "build" and args.build_command == "finish":
-        result, status = build_finish(message=args.message, cwd=args.path, no_gate=args.no_gate)
+    elif args.command == "build":
+        if args.build_command == "finish":
+            result, status = build_finish(message=args.message, cwd=args.path, no_gate=args.no_gate, clean_drift=args.clean_drift)
+        elif args.build_command == "publish":
+            result, status = build_publish(issue=args.issue, cwd=args.path, repo=args.repo, draft=args.draft,
+                                           title=args.title, body=args.body, owner=args.owner, project=args.project)
     elif args.command == "discussion":
         repo = args.repo or checkout_repo()
         if not repo:

@@ -1098,11 +1098,30 @@ def main(argv=None):
             return
         summary, source = narrative.summarize_session(step, issue_url, success, info,
                                                       log_path or "", options)
-        pr = state.get("pr") or {}
-        posted = notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"))
-        if posted is not None:
-            print(f"[{time.strftime('%X')}] Notebook step note posted ({source} summary)", flush=True)
+        telemetry_str = None
+        if log_path:
+            try:
+                from cli.session import parse_session_log, format_tokens
+                p = parse_session_log(log_path)
+                if p.get("total_turns"):
+                    telemetry_str = (
+                        f"{p['total_turns']} turns, "
+                        f"{format_tokens(p['current_context_tokens'])} context, "
+                        f"{format_tokens(p['total_output_tokens'])} out, "
+                        f"{format_tokens(p['total_reasoning_tokens'])} reasoning "
+                        f"(peak {format_tokens(p['peak_reasoning_tokens'])})"
+                    )
+            except Exception:
+                pass
 
+        pr = state.get("pr") or {}
+        posted = notebook.step(step, issue_url, summary, pr_url=pr.get("url"), head=pr.get("head"),
+                               telemetry=telemetry_str)
+        if posted is not None:
+            source_desc = f"{source} summary"
+            if telemetry_str:
+                source_desc += f"; {telemetry_str}"
+            print(f"[{time.strftime('%X')}] Notebook step note posted ({source_desc})", flush=True)
     def record_park(issue_url, pr_url, text):
         """Park an issue and keep a failed park visible in the run result."""
         out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir, cli_fn=run_cli)
