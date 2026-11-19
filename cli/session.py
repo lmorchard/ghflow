@@ -48,6 +48,7 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
     session_id = None
     turns: List[Dict[str, Any]] = []
     current_turn: Optional[Dict[str, Any]] = None
+    abort_reason: Optional[str] = None
 
     with open(path, "r", encoding="utf-8", errors="replace") as f:
         for line in f:
@@ -63,6 +64,9 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
             sid = ev.get("sessionID")
             if sid and not session_id:
                 session_id = sid
+            if tp == "runner_abort":
+                abort_reason = ev.get("reason") or (ev.get("part") or {}).get("reason")
+                continue
 
             part = ev.get("part", {})
             part_type = part.get("type")
@@ -109,7 +113,7 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
                         "output": toks.get("output", 0),
                         "reasoning": toks.get("reasoning", 0),
                     }
-                    current_turn["stop"] = part.get("stop")
+                    current_turn["stop"] = part.get("stop") or part.get("reason")
 
     if current_turn:
         turns.append(current_turn)
@@ -129,13 +133,17 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
     age_seconds = time.time() - path.stat().st_mtime
     is_alive = False
     try:
-        proc = subprocess.run(["pgrep", "-f", "opencode"], capture_output=True, text=True)
+        # The long-lived `opencode serve` process is not a session. Match only a
+        # real `opencode run` worker.
+        proc = subprocess.run(["pgrep", "-f", "opencode run"], capture_output=True, text=True)
         is_alive = proc.returncode == 0
     except Exception:
         pass
 
     if last_stop in ("stop", "end_turn"):
         status = "completed"
+    elif abort_reason:
+        status = f"aborted ({abort_reason})"
     elif peak_reasoning >= 30000 and last_stop != "stop":
         status = "stalled (reasoning loop)"
     elif (age_seconds < 900 or is_alive) and last_stop is None:
@@ -293,6 +301,14 @@ def session_debrief(dir_path: Optional[Path | str] = None) -> Tuple[Dict[str, An
             f"| `{r['file']}` | `{r['session_id'][:12]}...` | {r['status']} | {r['turns']} | "
             f"{format_tokens(r['context'])} | {format_tokens(r['output_tokens'])} | "
             f"{format_tokens(r['reasoning_tokens'])} | {format_tokens(r['peak_reasoning'])} |"
+        )
+    if rows:
+        table_lines.append(
+            f"| **Total ({len(rows)})** | | | {sum(r['turns'] for r in rows)} | "
+            f"max {format_tokens(max(r['context'] for r in rows))} | "
+            f"{format_tokens(sum(r['output_tokens'] for r in rows))} | "
+            f"{format_tokens(sum(r['reasoning_tokens'] for r in rows))} | "
+            f"max {format_tokens(max(r['peak_reasoning'] for r in rows))} |"
         )
 
     rendered = "\n".join(table_lines)

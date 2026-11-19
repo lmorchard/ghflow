@@ -1380,13 +1380,16 @@ def parse_facts_worktree(text):
     """Return (declaration, errors) for a project facts file's optional worktree setup.
 
     The declaration is a frontmatter mapping. ``copy`` names files to copy from the
-    primary checkout; ``setup`` names commands to run in the new worktree::
+    primary checkout; ``setup`` names commands to run in the new worktree; ``generated``
+    names paths that gates may rewrite and that an automatic commit must leave out::
 
         worktree:
           copy:
             - .env
           setup:
             - uv sync
+          generated:
+            - openapi.json
 
     ``declaration`` is None when the file has no ``worktree:`` key. Errors name each
     malformed line so that ``facts`` and ``worktree create`` can report them instead
@@ -1405,8 +1408,8 @@ def parse_facts_worktree(text):
         return None, ["worktree: is declared more than once."]
     index = starts[0]
     if lines[index].split(":", 1)[1].strip():
-        return None, ["worktree: must be a mapping of copy and setup lists."]
-    declaration = {"copy": [], "setup": []}
+        return None, ["worktree: must be a mapping of copy, setup, and generated lists."]
+    declaration = {"copy": [], "setup": [], "generated": []}
     errors, seen, current = [], set(), None
     for line in lines[index + 1:]:
         if not line.strip():
@@ -1416,7 +1419,7 @@ def parse_facts_worktree(text):
         if line.startswith("  ") and not line.startswith("   "):
             name, _, value = line[2:].strip().partition(":")
             if name not in declaration:
-                errors.append(f"worktree: unknown key {name!r}; use copy or setup.")
+                errors.append(f"worktree: unknown key {name!r}; use copy, setup, or generated.")
                 current = None
             elif name in seen:
                 errors.append(f"worktree: {name} is declared more than once.")
@@ -1430,7 +1433,7 @@ def parse_facts_worktree(text):
         elif line.startswith("    ") and not line.startswith("     "):
             item = line[4:].strip()
             if current is None:
-                errors.append(f"worktree: {item!r} is outside copy or setup.")
+                errors.append(f"worktree: {item!r} is outside copy, setup, or generated.")
             elif not item.startswith("- "):
                 errors.append(f"worktree: {current} must be a list of items such as '- .env'.")
             elif not item[2:].strip():
@@ -1765,7 +1768,7 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
 
         def read_issue():
             data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json",
-                       "url,title,state,labels,projectItems,closedByPullRequestsReferences,body"])
+                       "url,title,state,labels,projectItems,closedByPullRequestsReferences,body,blockedBy,blocking"])
             response_type(data, dict, "The issue response")
             items = []
             for item in response_type(data.get("projectItems") or [], list, "The issue project items"):
@@ -1779,9 +1782,18 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
                 for p in closed_by:
                     if isinstance(p, dict) and p.get("number") is not None:
                         linked_pr_numbers.add(p["number"])
+
+            def issue_refs(key):
+                refs = data.get(key) or []
+                if isinstance(refs, dict):
+                    refs = refs.get("nodes") or []
+                return [{"number": r.get("number"), "state": r.get("state"), "url": r.get("url")}
+                        for r in refs if isinstance(r, dict) and r.get("number") is not None]
+
             return {"url": response_string(data["url"], "The issue url"), "title": data.get("title"), "state": data.get("state"),
                     "body": data.get("body"),
                     "labels": [label.get("name") for label in data.get("labels") or [] if isinstance(label, dict)],
+                    "blocked_by": issue_refs("blockedBy"), "blocking": issue_refs("blocking"),
                     "board_items": items}
 
         issue_facts = part("issue", read_issue) or {}
@@ -1870,6 +1882,7 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
         result.update(action="exists", reason="The branch or path already exists; resume from it instead of creating another.")
         return result, 3
     setup_source = "arguments" if (copy or setup) else "none"
+    generated = []
     if not copy and not setup:
         facts_path = root / PROJECT_FACTS_PATH
         if facts_path.is_file():
@@ -1885,8 +1898,10 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
                 return result, 2
             if declaration is not None:
                 copy, setup = declaration["copy"], declaration["setup"]
+                generated = declaration["generated"]
                 setup_source = "project_facts"
-    result["worktree_setup"] = {"source": setup_source, "copy": list(copy), "setup": list(setup)}
+    result["worktree_setup"] = {"source": setup_source, "copy": list(copy), "setup": list(setup),
+                                "generated": list(generated)}
     try:
         git(["fetch", "--quiet", "origin", base_name], root)
         git(["worktree", "add", "--quiet", "-b", branch, str(target), f"origin/{base_name}"], root)
@@ -2091,6 +2106,8 @@ def pr_body(repo, number, out, issue_number=None, summary=None, review=None, dec
     commits = [f"- `{c.get('oid', '')[:7]}` {c.get('messageHeadline', '')}" for c in data.get("commits") or [] if isinstance(c, dict)]
     pr_result, _ = state(repo, number)
     checks = pr_result.get("checks") if isinstance(pr_result.get("checks"), list) else None
+    verdicts = pr_result.get("review_verdicts") if isinstance(pr_result.get("review_verdicts"), list) else []
+    head_verdict = next((v for v in reversed(verdicts) if v.get("head") == head), None)
     lines = []
     if summary:
         lines += [read(summary), ""]
@@ -2099,11 +2116,31 @@ def pr_body(repo, number, out, issue_number=None, summary=None, review=None, dec
     if checks:
         lines += ["| Check | Required | State |", "| --- | :---: | --- |",
                   *[f"| {c.get('name')} | {'yes' if c.get('required') else 'no'} | {c.get('state')} |" for c in checks]]
-    lines += ["", "## Review", "", read(review) or "Review not yet recorded.", ""]
+    review_lines = []
+    if review:
+        review_lines += [read(review), ""]
+    if head_verdict:
+        verdict = head_verdict.get("verdict") or "unknown"
+        url = head_verdict.get("url") or ""
+        review_lines.append(f"Verdict: **{verdict}** at `{head[:7]}`" + (f" — {url}" if url else ""))
+    if not review_lines:
+        review_lines = ["No review verdict recorded."]
+    lines += ["", "## Review", "", *review_lines, ""]
     if decisions:
         lines += ["## Decisions taken unattended", "", read(decisions), ""]
     if issue_number:
-        lines += [f"Closes #{issue_number}"]
+        default = None
+        try:
+            repo_data = response_type(gh(["repo", "view", repo, "--json", "defaultBranchRef"]), dict,
+                                      "The repository response")
+            default = ((repo_data.get("defaultBranchRef") or {}).get("name"))
+        except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError):
+            default = None
+        base = pr_result.get("base")
+        if base and default and base != default:
+            lines += [f"Part of a stack; closes #{issue_number} when `{base}` lands."]
+        else:
+            lines += [f"Closes #{issue_number}"]
     text = "\n".join(lines).rstrip() + "\n"
     Path(out).write_text(text, encoding="utf-8")
     return {"pr": f"{repo}#{number}", "head": head, "out": str(out), "chars": len(text),
@@ -3631,6 +3668,36 @@ def queue_select(owner, project, status="Ready", gh=run_gh):
     return result, (2 if result["errors"] else 0)
 
 
+def queue_items(owner, project, gh=run_gh):
+    """Return every board Issue with Status, Priority, Size, and labels.
+
+    The parent runner uses this to order children by board priority and size and to
+    filter on labels the board already carries, without one project query per issue.
+    """
+    result = {"project": f"{owner}/{project}", "complete": False, "errors": [], "items": []}
+    try:
+        _, items, pages = board_items(owner, project, gh)
+    except (GhError, json.JSONDecodeError, TypeError, KeyError, ValueError) as error:
+        result["errors"].append({"part": "board", "error": str(error)})
+        return result, 1
+    for item in items:
+        content = item.get("content") if isinstance(item.get("content"), dict) else {}
+        if content.get("__typename") != "Issue":
+            continue
+        repo = (content.get("repository") or {}).get("nameWithOwner")
+        number = content.get("number")
+        if not repo or not isinstance(number, int):
+            continue
+        result["items"].append({
+            "issue": f"{repo}#{number}", "url": content.get("url"), "repo": repo, "number": number,
+            "title": content.get("title"), "state": content.get("state"),
+            "status": field_name(item, "status"), "priority": field_name(item, "priority"),
+            "size": field_name(item, "size"), "labels": triage_labels(content),
+        })
+    result.update(complete=True, pages=pages, item_count=len(items))
+    return result, 0
+
+
 def triage_labels(content):
     """Return the label names on a board item's Issue content."""
     nodes = ((content or {}).get("labels") or {}).get("nodes") or []
@@ -4254,6 +4321,9 @@ def main(argv=None):
     q_select.add_argument("--owner", required=True, help="project owner login")
     q_select.add_argument("--project", required=True, type=int, help="project number")
     q_select.add_argument("--status", default="Ready", help="Status column to select (default Ready)")
+    q_items = queue_commands.add_parser("items", help="List every board Issue with Status, Priority, Size, and labels.")
+    q_items.add_argument("--owner", required=True, help="project owner login")
+    q_items.add_argument("--project", required=True, type=int, help="project number")
     q_summary = queue_commands.add_parser("summary", help="Read each delivered issue's PR, head, draft state, board Status, parked label, current-head checks, and review state, as a table.")
     q_summary.add_argument("issues", nargs="+", help="issue URLs, or numbers from the subject checkout or with --repo")
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
@@ -4414,6 +4484,8 @@ def main(argv=None):
         issue_repo, issue_number = parse_issue(args.issue, None)
         pr_repo, pr_number = parse_pr(args.pr, None) if args.pr else (None, None)
         result, status = park_delivery(issue_repo, issue_number, pr_repo, pr_number, args.kind, args.text)
+    elif args.command == "queue" and args.queue_command == "items":
+        result, status = queue_items(args.owner, args.project)
     elif args.command == "queue" and args.queue_command == "select":
         result, status = queue_select(args.owner, args.project, args.status)
     elif args.command == "queue":

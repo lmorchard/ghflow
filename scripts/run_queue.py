@@ -11,14 +11,22 @@ import sys
 import time
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
 import narrative
 
 DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
-DEFAULT_MAX_TURNS = 100
+DEFAULT_MAX_TURNS = 150
 DEFAULT_SESSION_TIMEOUT = 5400
 DEFAULT_STEP_IDLE_TIMEOUT = 300
 MAX_DEGENERATE_REASONING = 10000
+PRIORITY_ORDER = ("P0", "P1")
+SIZE_ORDER = ("XS", "S", "M", "L", "XL")
+TURN_LIMITS = {"XS": 75, "S": 150, "M": 200, "L": 300, "XL": 400}
+_RUN_LOCK = None
 
 
 def find_cli():
@@ -52,6 +60,92 @@ def run_cli(*args, cwd=None, cli_path=None):
             if "error" not in out:
                 out["error"] = err
     return out, proc.returncode
+
+
+def load_board_index(owner, project, cli_fn=run_cli):
+    """Return issue number -> board fields for every Issue on the board."""
+    if not owner or not project:
+        return {}
+    data, code = cli_fn("queue", "items", "--owner", str(owner), "--project", str(project))
+    if code != 0:
+        print(f"[{time.strftime('%X')}] Board item read failed (exit {code}); using sub-issue order", flush=True)
+        return {}
+    return {item["number"]: item for item in data.get("items") or []
+            if isinstance(item, dict) and isinstance(item.get("number"), int)}
+
+
+def board_rank(number, board_index=None):
+    """Rank a child by board priority, then size, then issue number."""
+    item = (board_index or {}).get(number) or {}
+    priority = item.get("priority")
+    p_rank = PRIORITY_ORDER.index(priority) if priority in PRIORITY_ORDER else (
+        len(PRIORITY_ORDER) if priority else len(PRIORITY_ORDER) + 1)
+    size = (item.get("size") or "").upper()
+    s_rank = SIZE_ORDER.index(size) if size in SIZE_ORDER else len(SIZE_ORDER)
+    return (p_rank, s_rank, number)
+
+
+def issue_size(body):
+    """Read the issue's declared Size (XS, S, M, L, XL), or None."""
+    match = re.search(r"^\s*(?:\*\*)?Size\s*:\s*(?:\*\*)?\s*(XS|S|M|L|XL)\b", body or "", re.IGNORECASE | re.MULTILINE)
+    return match.group(1).upper() if match else None
+
+
+def issue_turn_limit(body, explicit=None):
+    """Return the session turn cap: explicit override, else the issue Size, else the default."""
+    if explicit:
+        return explicit
+    return TURN_LIMITS.get(issue_size(body), DEFAULT_MAX_TURNS)
+
+
+def acquire_run_lock(notes_dir, target=None, lock_path=None):
+    """Hold one advisory lock for the run; refuse when another runner holds it.
+
+    The lock file also records the holder for a human. The file lock is released by
+    the operating system when the process exits, so a crash does not require a stale
+    PID cleanup.
+    """
+    global _RUN_LOCK
+    if _RUN_LOCK is not None:
+        # A CLI process runs one queue. A second call in the same process (tests)
+        # reuses the held descriptor instead of fighting its own lock.
+        fp = _RUN_LOCK
+        fp.seek(0)
+        fp.truncate()
+        fp.write(json.dumps({
+            "pid": os.getpid(),
+            "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "target": target,
+            "notes_dir": str(notes_dir),
+        }) + "\n")
+        fp.flush()
+        return fp
+    path = Path(lock_path) if lock_path else Path.home() / ".local/state/ghflow/runner.lock"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    fp = open(path, "a+", encoding="utf-8")
+    try:
+        import fcntl
+    except ImportError:
+        fcntl = None
+    if fcntl is not None:
+        try:
+            fcntl.flock(fp.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        except BlockingIOError:
+            fp.seek(0)
+            holder = fp.read().strip()
+            fp.close()
+            raise RuntimeError(f"Another queue runner holds {path}: {holder or 'unknown holder'}")
+    fp.seek(0)
+    fp.truncate()
+    fp.write(json.dumps({
+        "pid": os.getpid(),
+        "started": time.strftime("%Y-%m-%d %H:%M:%S"),
+        "target": target,
+        "notes_dir": str(notes_dir),
+    }) + "\n")
+    fp.flush()
+    _RUN_LOCK = fp
+    return fp
 
 
 def project_owner(project):
@@ -122,7 +216,7 @@ def is_runner_or_session_process_alive(current_pid=None):
             if pid == current_pid:
                 continue
             cmd = parts[1]
-            if ("run_queue.py" in cmd or "opencode run" in cmd) and "def is_runner_or_session_process_alive" not in cmd:
+            if "opencode run" in cmd and "def is_runner_or_session_process_alive" not in cmd:
                 return True
         return False
     except Exception:
@@ -219,9 +313,9 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
 
     # PR is ready (not a draft)
     ci = (state.get("ci") or "").lower()
-    if ci in ("pending", ""):
+    if ci in ("pending", "", "incomplete"):
         return "wait-ci"
-    if ci in ("failing", "failed", "error") or state.get("unresolved_threads"):
+    if ci in ("failing", "failed", "error", "missing") or state.get("unresolved_threads"):
         return "address-pr-review"
     if has_blocking_feedback:
         return "park-blocker" if earlier_blocking >= correction_limit else "address-pr-review"
@@ -229,7 +323,11 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
         return "WAITING"
     if ci in ("green", "passed"):
         return "DONE"
-    return "DONE"
+    if ci == "none":
+        # No hosted checks are configured. A clean review on the current head is the
+        # evidence; without it, request a review instead of declaring success.
+        return "DONE" if verdict_clean else "review-changes"
+    return "WAITING"
 
 
 def next_item(board, attempted=None):
@@ -280,6 +378,8 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
         "body": issue.get("body") or "",
         "repo": (facts.get("repository") or {}).get("remote"),
         "labels": issue.get("labels") or [],
+        "blocked_by": issue.get("blocked_by") or [],
+        "blocking": issue.get("blocking") or [],
         "pr": pr,
         "ci": None,
         "review_verdicts": [],
@@ -357,10 +457,14 @@ def observe_parent(parent_ref, gh_cmd="gh", cwd=None):
     }
 
 
-def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exclude=None):
-    """Select the next child item from a parent issue's sub-issues."""
+def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exclude=None,
+                         require_labels=None, exclude_labels=None, board_index=None):
+    """Select the next child, honoring board order, labels, and native blocked-by links."""
     attempted = attempted or set()
     exclude = exclude or set()
+    require_labels = [label for label in (require_labels or []) if label]
+    exclude_labels = [label for label in (exclude_labels or []) if label]
+    candidates = []
     for child in children:
         if child.get("state") == "CLOSED" or child.get("number") in exclude:
             continue
@@ -368,30 +472,36 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exc
         if ref in attempted or child.get("number") in attempted:
             continue
         st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
-        if "triage:needs-input" in (st.get("labels") or []):
+        labels = st.get("labels") or []
+        if "triage:needs-input" in labels or "triage:blocked" in labels:
             continue
-        step = next_step(st)
-        if step not in ("DONE", "PARKED", "WAITING") and st.get("pr"):
-            return child
-
-    for child in children:
-        if child.get("state") == "CLOSED" or child.get("number") in exclude:
+        if require_labels and not all(label in labels for label in require_labels):
             continue
-        ref = child.get("url") or child.get("number")
-        if ref in attempted or child.get("number") in attempted:
+        if exclude_labels and any(label in labels for label in exclude_labels):
             continue
-        st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
-        if "triage:needs-input" in (st.get("labels") or []):
+        if any(blocker.get("state") == "OPEN" for blocker in st.get("blocked_by") or []):
             continue
         step = next_step(st)
         if step in ("DONE", "PARKED", "WAITING"):
             continue
-        return child
+        candidates.append({**child, "_state": st, "_step": step,
+                           "_rank": board_rank(child.get("number"), board_index)})
+    candidates.sort(key=lambda entry: entry["_rank"])
+    for entry in candidates:
+        if entry["_state"].get("pr"):
+            return {key: value for key, value in entry.items() if not key.startswith("_")}
+    for entry in candidates:
+        return {key: value for key, value in entry.items() if not key.startswith("_")}
     return None
 
 
-def find_preceding_pr(child_ref, children, cli_fn=run_cli, cwd=None):
-    """Find the immediate preceding child with an open unmerged PR for branch stacking."""
+def find_preceding_pr(child_ref, children, cli_fn=run_cli, cwd=None, child_state=None, force=False):
+    """Find the preceding child whose open PR this child depends on, for stacking.
+
+    A stack is created only for a native blocked-by link, so independent children
+    branch from the default branch. ``force`` keeps the old "nearest open PR"
+    behavior for a user who explicitly asks for a stack.
+    """
     if not children:
         return None
     target_num = child_ref if isinstance(child_ref, int) else None
@@ -409,7 +519,13 @@ def find_preceding_pr(child_ref, children, cli_fn=run_cli, cwd=None):
     if idx is None or idx == 0:
         return None
 
+    blocked = {blocker.get("number") for blocker in (child_state or {}).get("blocked_by") or []
+               if blocker.get("number") is not None}
     for c in reversed(children[:idx]):
+        if c.get("state") == "CLOSED":
+            continue
+        if not force and c.get("number") not in blocked:
+            continue
         ref = c.get("url") or c.get("number")
         st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
         pr = st.get("pr") or {}
@@ -535,7 +651,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
                             stderr=subprocess.STDOUT, text=True, cwd=options.get("cwd"), env=env, bufsize=1)
     session_id = None
     step_num = 0
-    max_turns = options.get("max_turns", DEFAULT_MAX_TURNS)
+    max_turns = options.get("max_turns") or DEFAULT_MAX_TURNS
     timeout_sec = options.get("session_timeout", DEFAULT_SESSION_TIMEOUT)
     step_idle_timeout = options.get("step_idle_timeout", DEFAULT_STEP_IDLE_TIMEOUT)
     start_ts = time.time()
@@ -631,6 +747,13 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
         else:
             proc.wait(timeout=10 if has_fd else timeout_sec)
     finally:
+        if abort_reason:
+            try:
+                log_fp.write(json.dumps({"type": "runner_abort", "reason": abort_reason,
+                                         "timestamp": int(time.time() * 1000)}) + "\n")
+                log_fp.flush()
+            except Exception:
+                pass
         log_fp.close()
 
     if log_hook:
@@ -721,6 +844,11 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         if status:
             print(f"[{time.strftime('%X')}] Committing uncommitted worktree changes for {branch}", flush=True)
             cli_fn("exec", "--", "git", "-C", path, "add", "-A", cwd=options.get("cwd"))
+            generated = (worktree.get("setup") or {}).get("generated") or []
+            for pattern in generated:
+                cli_fn("exec", "--", "git", "-C", path, "reset", "--", pattern, cwd=options.get("cwd"))
+            if generated:
+                print(f"[{time.strftime('%X')}] Excluded generated paths from the commit: {', '.join(generated)}", flush=True)
             number = str(issue_url).rstrip("/").split("/")[-1].split("#")[-1]
             commit_msg = f"refactor: {title or branch} (Closes #{number})"
             cli_fn("exec", "--", "git", "-C", path, "commit", "-m", commit_msg, cwd=options.get("cwd"))
@@ -836,6 +964,50 @@ EXCLUDE_SYMBOL_KEYWORDS = {
     "head", "diff", "spec", "plan", "notes", "type", "types", "data",
 }
 
+CODE_SUFFIXES = (
+    ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".go", ".rs", ".java", ".c", ".h", ".cpp", ".hpp", ".sh", ".rb",
+)
+GENERATED_OR_DOC_PATHS = ("docs/", ".ghflow/", "node_modules/", "tui/node_modules/")
+_SYMBOL_SOURCE_WARNED = False
+
+
+def refresh_tags(cwd=None):
+    """Refresh the ctags index for the subject checkout when it is missing or stale."""
+    if not cwd or not Path(cwd).is_dir():
+        return None
+    try:
+        from cli import tags as tags_mod
+    except ImportError:
+        print(f"[{time.strftime('%X')}] Symbol index: ctags module unavailable; using git grep", flush=True)
+        return None
+    tags_file = tags_mod.locate_tags_file(repo_root=cwd)
+    head = git_output(["rev-parse", "HEAD"], cwd=cwd)
+    stale = tags_file is None or not tags_file.is_file()
+    if not stale:
+        try:
+            head_time = int(git_output(["log", "-1", "--format=%ct", head], cwd=cwd) or 0)
+            stale = tags_file.stat().st_mtime < head_time or (time.time() - tags_file.stat().st_mtime > 3600)
+        except (OSError, TypeError, ValueError):
+            stale = True
+    if not stale:
+        return {"tags_file": str(tags_file), "refreshed": False}
+    result, code = tags_mod.generate_tags(repo_root=cwd)
+    if code == 0:
+        print(f"[{time.strftime('%X')}] Symbol index: refreshed {result.get('symbols_indexed')} symbols "
+              f"from {result.get('files_indexed')} files with {result.get('generator')}", flush=True)
+        return result
+    print(f"[{time.strftime('%X')}] Symbol index: ctags refresh failed; using git grep: {result}", flush=True)
+    return result
+
+
+def _is_code_path(path):
+    """Return whether a repository path is a source file rather than docs or generated data."""
+    if path.startswith(GENERATED_OR_DOC_PATHS) or path.endswith((".md", ".json", ".yaml", ".yml", ".lock")):
+        return False
+    return path.endswith(CODE_SUFFIXES)
+
+
 
 def extract_candidate_symbols(title, body=""):
     """Extract backticked identifiers and distinct symbol names from issue text."""
@@ -866,10 +1038,11 @@ def extract_candidate_symbols(title, body=""):
 
 
 def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
-    """Find definition and reference locations for symbols using tags or git grep."""
+    """Find definition locations for symbols using ctags, with a code-only git grep fallback."""
     if not symbols or not cwd or not Path(cwd).is_dir():
         return []
 
+    global _SYMBOL_SOURCE_WARNED
     tags_mod = None
     try:
         from cli import tags as tags_mod
@@ -878,11 +1051,15 @@ def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
             import tags as tags_mod
         except ImportError:
             pass
+    if tags_mod is None and not _SYMBOL_SOURCE_WARNED:
+        print(f"[{time.strftime('%X')}] Symbol index: ctags module unavailable; using git grep", flush=True)
+        _SYMBOL_SOURCE_WARNED = True
 
     results = []
     for sym in symbols:
         clean_sym = sym.lstrip("#")
         matches = []
+        source = "ctags"
         # 1. Try tags lookup first (exact definitions)
         if tags_mod:
             try:
@@ -894,12 +1071,15 @@ def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
                         kind = f"[{m['kind']}] " if m.get("kind") else ""
                         scope = f"[{m['scope']}] " if m.get("scope") else ""
                         snip = m.get("pattern") or f"{kind}{scope}{m.get('name')}"
+                        if snip.startswith("/^") and snip.endswith("$/"):
+                            snip = snip[2:-2]
                         matches.append((loc, snip))
             except Exception:
                 pass
 
         # 2. Fall back to git grep if no tag matches were found
         if not matches:
+            source = "grep"
             try:
                 proc = subprocess.run(
                     ["git", "grep", "-n", "-I", "-m", str(limit_per_symbol), "--", clean_sym],
@@ -907,9 +1087,8 @@ def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
                 )
                 if proc.returncode == 0 and proc.stdout.strip():
                     lines = proc.stdout.strip().splitlines()
-                    code_lines = [ln for ln in lines if not ln.startswith("docs/dev-sessions/")]
-                    filtered = code_lines if code_lines else lines
-                    for match_line in filtered[:limit_per_symbol]:
+                    code_lines = [ln for ln in lines if _is_code_path(ln.split(":", 1)[0])]
+                    for match_line in code_lines[:limit_per_symbol]:
                         parts = match_line.split(":", 2)
                         if len(parts) >= 2:
                             loc = f"{parts[0]}:{parts[1]}"
@@ -919,7 +1098,7 @@ def find_subsystem_symbols(symbols, cwd=None, limit_per_symbol=3):
                 pass
 
         if matches:
-            results.append({"symbol": sym, "matches": matches})
+            results.append({"symbol": sym, "matches": matches, "source": source})
 
     return results
 
@@ -929,6 +1108,8 @@ def format_symbol_index(symbol_results):
     if not symbol_results:
         return ""
     lines = ["Target symbol locations in repository:"]
+    if any(res.get("source") == "grep" for res in symbol_results):
+        lines.append("(ctags unavailable or no definition found; matches are from git grep)")
     for res in symbol_results:
         sym = res["symbol"]
         for loc, snip in res["matches"]:
@@ -1014,12 +1195,69 @@ def execute_submit_pr(state, owner, project, notes_dir, options, cli_fn=run_cli)
     return code == 0, out
 
 
+def worktree_status(issue_ref, cwd=None):
+    """Find the issue's worktree and count its uncommitted paths."""
+    number = str(issue_ref).rstrip("/").split("/")[-1].split("#")[-1]
+    listing = git_output(["worktree", "list", "--porcelain"], cwd=cwd)
+    if not listing:
+        return {"path": None, "dirty": None}
+    for block in listing.split("\n\n"):
+        lines = block.splitlines()
+        branch = next((line.removeprefix("branch refs/heads/") for line in lines
+                       if line.startswith("branch refs/heads/")), "")
+        if f"issue-{number}-" in branch or branch == f"issue-{number}":
+            path = next((line.removeprefix("worktree ") for line in lines
+                         if line.startswith("worktree ")), None)
+            status = git_output(["status", "--porcelain"], cwd=path) if path else None
+            return {"path": path, "dirty": len(status.splitlines()) if status is not None else None}
+    return {"path": None, "dirty": None}
+
+
+def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None):
+    """Render the run's deliveries, parked items, worktree state, and token totals."""
+    lines = ["", "## Run summary", ""]
+    if records:
+        lines += ["| Issue | PR | Endpoint | Worktree dirty |", "| --- | --- | --- | --- |"]
+        for record in records:
+            status = worktree_status(record.get("issue"), cwd)
+            dirty = "n/a" if status.get("dirty") is None else str(status["dirty"])
+            lines.append(f"| {record.get('issue')} | {record.get('pr') or 'none'} | "
+                         f"{record.get('endpoint')} | {dirty} |")
+    else:
+        lines.append("No items reached an endpoint.")
+    if park_failures:
+        lines += ["", "Park failures:"]
+        for entry in park_failures:
+            lines.append(f"- {entry.get('issue')}: {entry.get('reason')}")
+    try:
+        from cli.session import format_tokens, parse_session_log
+        logs = sorted(Path(notes_dir).glob("session-*.log"))
+        totals = [parse_session_log(log) for log in logs]
+        turns = sum(p.get("total_turns", 0) for p in totals)
+        output = sum(p.get("total_output_tokens", 0) for p in totals)
+        reasoning = sum(p.get("total_reasoning_tokens", 0) for p in totals)
+        if logs:
+            lines += ["", f"Sessions: {len(logs)}, turns: {turns}, output: {format_tokens(output)}, "
+                          f"reasoning: {format_tokens(reasoning)}"]
+    except Exception:
+        pass
+    lines += ["", f"Duration: {(time.time() - start_time) / 3600:.1f}h"]
+    return "\n".join(lines)
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Deterministic runner for unattended delivery from the project board.")
     parser.add_argument("--owner", help="project board owner login")
     parser.add_argument("--project", help="project board number or OWNER/NUMBER")
-    parser.add_argument("--parent", help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown its sub-issues")
+    parser.add_argument("--parent", action="append", dest="parents",
+                        help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown; repeat for several parents")
     parser.add_argument("--exclude", help="comma-separated issue numbers to skip when selecting from --parent (e.g. 1294,1295)")
+    parser.add_argument("--require-label", action="append", default=[],
+                        help="only select children carrying this label; repeat for several labels")
+    parser.add_argument("--exclude-label", action="append", default=[],
+                        help="skip children carrying this label; repeat for several labels")
+    parser.add_argument("--stack", action="store_true",
+                        help="stack on the nearest preceding open PR even without a native blocked-by link")
     parser.add_argument("--model", help="model override for worker sessions, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
     parser.add_argument("--provider", help="provider prefix if not included in --model (e.g. lmstudio, ollama, google-vertex)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
@@ -1028,7 +1266,8 @@ def main(argv=None):
     parser.add_argument("--allow-concurrent", action="store_true", help="bypass active session check")
     parser.add_argument("--skill-dir", default=str(Path(__file__).resolve().parent.parent), help="path to ghflow skill root")
     parser.add_argument("--notes-dir", help="custom task notes directory")
-    parser.add_argument("--max-turns", type=int, default=DEFAULT_MAX_TURNS, help="maximum turns per session (default 100)")
+    parser.add_argument("--max-turns", type=int, default=None,
+                        help="maximum turns per session; default by issue Size (XS 75, S 150, M 200, L 300, XL 400; fallback 150)")
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
     parser.add_argument("--step-idle-timeout", type=int, default=DEFAULT_STEP_IDLE_TIMEOUT,
                         help=f"maximum idle seconds without stream events before session abort (default {DEFAULT_STEP_IDLE_TIMEOUT})")
@@ -1048,9 +1287,9 @@ def main(argv=None):
             exclude = {int(n.strip().lstrip("#")) for n in args.exclude.split(",") if n.strip()}
         except ValueError:
             parser.error("--exclude takes comma-separated issue numbers")
-
-    if not args.allow_concurrent:
-        check_active_runs()
+    parents = args.parents or []
+    require_labels = [label for label in args.require_label if label]
+    exclude_labels = [label for label in args.exclude_label if label]
 
     owner = args.owner
     project = None
@@ -1060,11 +1299,11 @@ def main(argv=None):
         else:
             project = int(args.project)
 
-    if not args.parent and not project:
+    if not parents and not project:
         owner, project = discover_project()
         if args.owner:
             owner = args.owner
-    elif args.parent and not project:
+    elif parents and not project:
         try:
             disc_owner, disc_project = discover_project(cwd=os.getcwd())
             owner = owner or disc_owner
@@ -1093,9 +1332,15 @@ def main(argv=None):
         "deterministic_pr": not args.no_deterministic_pr,
     }
     attempted, delivered, park_failures = set(), [], []
+    delivery_records = []
 
-    target = (f"parent {args.parent}" if args.parent
+    target = (", ".join(f"parent {parent}" for parent in parents) if parents
               else f"project {owner}/{project}" if owner and project else None)
+    if not args.allow_concurrent:
+        acquire_run_lock(notes_dir, target)
+        check_active_runs()
+    if not args.no_symbol_indexing:
+        refresh_tags(options["cwd"])
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
                                      enabled=not args.no_notebook)
@@ -1141,14 +1386,33 @@ def main(argv=None):
     previous_states = {}
 
     parent_children = None
+    parent_index = 0
+    current_parent = None
+    board_index = {}
     while True:
         if time.time() >= deadline_time:
             break
-        if args.parent:
-            print(f"[{time.strftime('%X')}] Reading parent issue {args.parent}...")
-            parent_data = observe_parent(args.parent, cwd=options.get("cwd"))
-            parent_children = parent_data.get("children") or []
-            item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"), exclude=exclude)
+        if parents:
+            if parent_index >= len(parents):
+                print(f"[{time.strftime('%X')}] No more parent issues.")
+                break
+            parent_ref = parents[parent_index]
+            if parent_children is None or current_parent != parent_ref:
+                print(f"[{time.strftime('%X')}] Reading parent issue {parent_ref}...")
+                parent_data = observe_parent(parent_ref, cwd=options.get("cwd"))
+                parent_children = parent_data.get("children") or []
+                current_parent = parent_ref
+                board_index = load_board_index(owner, project, cli_fn=run_cli)
+            item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"),
+                                        exclude=exclude, require_labels=require_labels,
+                                        exclude_labels=exclude_labels, board_index=board_index)
+            if item is None:
+                print(f"[{time.strftime('%X')}] Parent {parent_ref} has no more actionable items.")
+                parent_index += 1
+                parent_children = None
+                current_parent = None
+                board_index = {}
+                continue
         else:
             print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
             board = observe_board(owner, project)
@@ -1172,6 +1436,8 @@ def main(argv=None):
             if step in ("DONE", "PARKED", "WAITING"):
                 print(f"[{time.strftime('%X')}] {issue_ref} reached endpoint state: {step}")
                 delivered.append(issue_ref)
+                delivery_records.append({"issue": state.get("issue") or issue_ref,
+                                         "pr": (state.get("pr") or {}).get("url"), "endpoint": step})
                 if step == "DONE":
                     set_board_status(issue_ref, "In review", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
                 break
@@ -1179,6 +1445,7 @@ def main(argv=None):
                 pr_url = (state.get("pr") or {}).get("url") or ""
                 record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
+                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                 break
             if step == "wait-ci":
                 time.sleep(15)
@@ -1190,6 +1457,7 @@ def main(argv=None):
                 pr_url = (state.get("pr") or {}).get("url") or ""
                 record_park(state["issue"], pr_url, "No progress made in session.")
                 delivered.append(issue_ref)
+                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                 break
             previous_states[issue_ref] = curr
 
@@ -1198,8 +1466,11 @@ def main(argv=None):
                 set_board_status(issue_ref, "In progress", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
 
             worktree = None
-            preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
+            preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli,
+                                             cwd=options.get("cwd"), child_state=state,
+                                             force=args.stack) if parent_children else None
             step_options = dict(options)
+            step_options["max_turns"] = issue_turn_limit(state.get("body"), args.max_turns)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if is_verdict_blocking(v))
             if step == "submit-pr" and options.get("deterministic_pr", True):
@@ -1215,6 +1486,7 @@ def main(argv=None):
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
                     delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                     break
                 continue
             elif step == "submit-pr":
@@ -1241,16 +1513,22 @@ def main(argv=None):
                                 checkpoint += f" Run narrative: {notebook.discussion['url']}"
                             narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
 
+                gate_instruction = (
+                    "The runner already ran `make check` at this head; do not repeat the full check. "
+                    "Run `make test` and the issue's focused verification tests."
+                    if gate_note else
+                    "Run the project gates (`make check`, `make test`)."
+                )
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note} {gate_instruction}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
-                        f"Inspect the commit diff (`git diff {base_ref}...HEAD`), run existing project test gates (`make check`, `make test`), "
-                        f"and post the verdict comment directly with `pr comment`. "
+                        f"Inspect the commit diff (`git diff {base_ref}...HEAD`). {gate_instruction} "
+                        f"Post the verdict comment directly with `pr comment`. "
                         f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}{gate_note}"
                     )
             elif step == "implement-issue":
@@ -1321,7 +1599,9 @@ def main(argv=None):
             def publish_step_work():
                 """Publish committed implementation work that the session left unpublished."""
                 if step == "implement-issue":
-                    live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli, cwd=options.get("cwd")) if parent_children else None
+                    live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli,
+                                                       cwd=options.get("cwd"), child_state=state,
+                                                       force=args.stack) if parent_children else None
                     publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
                                       notes_dir, step_options,
                                       base_branch=live_preceding["branch"] if live_preceding else None,
@@ -1344,6 +1624,7 @@ def main(argv=None):
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                     break
         if args.once:
             break
@@ -1359,9 +1640,15 @@ def main(argv=None):
     except Exception as e:
         print(f"[{time.strftime('%X')}] Toil audit skipped: {e}", flush=True)
 
+    print(format_run_summary(delivery_records, park_failures, notes_dir, start_time, options.get("cwd")), flush=True)
     notebook.finish(delivered, park_failures, toil_report=toil_report)
     if delivered and owner and project:
-        run_cli("queue", "summary", *[str(d) for d in delivered], "--owner", owner, "--project", str(project))
+        summary_out, summary_code = run_cli("queue", "summary", *[str(d) for d in delivered],
+                                            "--owner", owner, "--project", str(project))
+        if summary_out.get("table"):
+            print(summary_out["table"], flush=True)
+        if summary_code != 0:
+            print(f"[{time.strftime('%X')}] Queue summary exited {summary_code}: {summary_out.get('errors')}", flush=True)
     elif delivered:
         print(f"[{time.strftime('%X')}] Burndown complete. Delivered items: {', '.join(str(d) for d in delivered)}")
     if park_failures:

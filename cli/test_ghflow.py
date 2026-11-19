@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -2887,7 +2887,10 @@ class ProjectFactsTests(unittest.TestCase):
         def default_gh(args):
             if args[:2] == ["issue", "view"]:
                 return {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "state": "OPEN",
-                        "labels": [{"name": "bug"}], "projectItems": [{"title": "Board", "status": {"name": "Ready"}}]}
+                        "labels": [{"name": "bug"}], "projectItems": [{"title": "Board", "status": {"name": "Ready"}}],
+                        "blockedBy": {"nodes": [{"number": 4, "state": "CLOSED",
+                                                 "url": "https://github.com/o/r/issues/4"}]},
+                        "blocking": {"nodes": []}}
             if args[:2] == ["pr", "list"]:
                 return [{"number": 9, "url": "https://github.com/o/r/pull/9", "state": "OPEN", "isDraft": True,
                          "headRefName": "issue-5-fix", "headRefOid": HEAD, "title": "Fix #5"}]
@@ -3222,9 +3225,10 @@ class ProjectFactsTests(unittest.TestCase):
 
     def test_parse_facts_worktree_reads_copy_and_setup(self):
         text = ("---\nwritten: 2026-11-16\nworktree:\n  copy:\n    - .env\n    - config/local.json\n"
-                "  setup:\n    - uv sync\nsources:\n  - AGENTS.md 1\n---\nbody")
+                "  setup:\n    - uv sync\n  generated:\n    - openapi.json\nsources:\n  - AGENTS.md 1\n---\nbody")
         self.assertEqual(parse_facts_worktree(text),
-                         ({"copy": [".env", "config/local.json"], "setup": ["uv sync"]}, []))
+                         ({"copy": [".env", "config/local.json"], "setup": ["uv sync"],
+                           "generated": ["openapi.json"]}, []))
         self.assertEqual(parse_facts_worktree("---\nwritten: 2026-11-16\n---\n"), (None, []))
         self.assertEqual(parse_facts_worktree("no frontmatter"), (None, []))
 
@@ -3243,12 +3247,21 @@ class ProjectFactsTests(unittest.TestCase):
                 declaration, errors = parse_facts_worktree(f"---\n{body}\n---\n")
                 self.assertTrue(errors, label)
 
+    def test_facts_reports_blocked_by(self):
+        result, status = self.facts(issue=("o/r", 5))
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["issue"]["blocked_by"],
+                         [{"number": 4, "state": "CLOSED", "url": "https://github.com/o/r/issues/4"}])
+        self.assertEqual(result["issue"]["blocking"], [])
+
     def test_facts_file_reports_the_worktree_declaration(self):
         self.write(".ghflow/project.md", "---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
-                                         "worktree:\n  copy:\n    - .env\n  setup:\n    - uv sync\n---\n# Facts\n")
+                                         "worktree:\n  copy:\n    - .env\n  setup:\n    - uv sync\n"
+                                         "  generated:\n    - openapi.json\n---\n# Facts\n")
         result, status = self.facts()
         self.assertEqual(status, 0, result["errors"])
-        self.assertEqual(result["project_facts"]["worktree"], {"copy": [".env"], "setup": ["uv sync"]})
+        self.assertEqual(result["project_facts"]["worktree"],
+                         {"copy": [".env"], "setup": ["uv sync"], "generated": ["openapi.json"]})
         self.assertEqual(result["project_facts"]["worktree_errors"], [])
 
     def test_facts_file_reports_a_malformed_worktree_declaration(self):
@@ -3382,14 +3395,16 @@ class WorktreeCreateTests(unittest.TestCase):
 
     def test_facts_declaration_prepares_the_worktree(self):
         self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
-                         "worktree:\n  copy:\n    - .env\n  setup:\n    - touch declared.txt\n---\n# Facts\n")
+                         "worktree:\n  copy:\n    - .env\n  setup:\n    - touch declared.txt\n"
+                         "  generated:\n    - openapi.json\n---\n# Facts\n")
         result, status = self.create()
         self.assertEqual(status, 0, result["errors"])
         path = Path(result["path"])
         self.assertEqual((path / ".env").read_text(), "PORT=1\n")
         self.assertTrue((path / "declared.txt").exists())
         self.assertEqual(result["worktree_setup"],
-                         {"source": "project_facts", "copy": [".env"], "setup": ["touch declared.txt"]})
+                         {"source": "project_facts", "copy": [".env"], "setup": ["touch declared.txt"],
+                          "generated": ["openapi.json"]})
 
     def test_explicit_setup_replaces_the_declaration(self):
         self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n"
@@ -3415,7 +3430,7 @@ class WorktreeCreateTests(unittest.TestCase):
         self.write_facts("---\nghflow_project_facts: 1\nwritten: 2026-11-16\n---\n# Facts\n")
         result, status = self.create()
         self.assertEqual(status, 0, result["errors"])
-        self.assertEqual(result["worktree_setup"], {"source": "none", "copy": [], "setup": []})
+        self.assertEqual(result["worktree_setup"], {"source": "none", "copy": [], "setup": [], "generated": []})
         self.assertFalse((Path(result["path"]) / ".env").exists())
 
 
@@ -3469,6 +3484,44 @@ class PrBodyTests(unittest.TestCase):
         self.assertIn("## Decisions taken unattended", text)
         self.assertTrue(text.rstrip().endswith("Closes #5"))
         self.assertEqual((result["commits"], result["checks"]), (1, 1))
+
+    def test_body_includes_review_verdict(self):
+        tmp = Path(tempfile.mkdtemp())
+
+        def gh(args):
+            if args[:2] == ["repo", "view"]:
+                return {"defaultBranchRef": {"name": "main"}}
+            return {"headRefOid": "a" * 40, "commits": [{"oid": "b" * 40, "messageHeadline": "test: guard"}]}
+
+        def state(repo, number):
+            return {"ci": "none", "checks": [],
+                    "review_verdicts": [{"head": "a" * 40, "verdict": "clean",
+                                         "url": "https://github.com/o/r/pull/7#issuecomment-1"}]}, 0
+
+        result, status = pr_body("o/r", 7, tmp / "body.md", 5, gh=gh, state=state)
+        self.assertEqual(status, 0)
+        text = (tmp / "body.md").read_text()
+        self.assertIn("Verdict: **clean** at `aaaaaaa`", text)
+        self.assertIn("issuecomment-1", text)
+        self.assertNotIn("Review not yet recorded", text)
+        self.assertTrue(text.rstrip().endswith("Closes #5"))
+
+    def test_body_uses_non_closing_text_for_a_stacked_pr(self):
+        tmp = Path(tempfile.mkdtemp())
+
+        def gh(args):
+            if args[:2] == ["repo", "view"]:
+                return {"defaultBranchRef": {"name": "main"}}
+            return {"headRefOid": "a" * 40, "commits": [{"oid": "b" * 40, "messageHeadline": "test: guard"}]}
+
+        def state(repo, number):
+            return {"ci": "none", "checks": [], "base": "issue-100-base"}, 0
+
+        result, status = pr_body("o/r", 7, tmp / "body.md", 5, gh=gh, state=state)
+        self.assertEqual(status, 0)
+        text = (tmp / "body.md").read_text()
+        self.assertIn("Part of a stack; closes #5 when `issue-100-base` lands.", text)
+        self.assertNotIn("Closes #5", text)
 
 
 class HandoffTests(unittest.TestCase):
@@ -4241,6 +4294,20 @@ class QueueSelectTests(unittest.TestCase):
         self.assertEqual(len(result["unresolved"]), 1)
 
 
+class QueueItemsTests(unittest.TestCase):
+    def test_lists_issue_status_priority_size_and_labels(self):
+        item = board_item(1293, "Ready", "P0", "S")
+        item["content"]["labels"] = {"nodes": [{"name": "triage:ready"}, {"name": "impl:local"}]}
+        board = FakeQueueBoard([{"nodes": [item]}])
+        result, status = queue_items("o", 6, gh=board)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["items"], [{
+            "issue": "o/r#1293", "url": "https://github.com/o/r/issues/1293", "repo": "o/r",
+            "number": 1293, "title": "Issue 1293", "state": "OPEN", "status": "Ready",
+            "priority": "P0", "size": "S", "labels": ["triage:ready", "impl:local"],
+        }])
+
+
 def triage_item(number, priority=None, labels=(), sub_issues=0, status="Backlog", size=None, state="OPEN", kind="Issue"):
     content = {"__typename": kind, "url": f"https://github.com/o/r/issues/{number}",
                "repository": {"nameWithOwner": "o/r"}}
@@ -4898,6 +4965,29 @@ class SessionCommandTests(unittest.TestCase):
         self.assertEqual(res["turns"][0]["tools"][0]["tool"], "read")
         self.assertEqual(res["turns"][1]["tools"][0]["tool"], "shell")
 
+    def test_parse_session_log_reads_reason_as_stop(self):
+        import session as session_mod
+        log_path = self.tmp / "session-reason.log"
+        log_path.write_text("\n".join([
+            json.dumps({"type": "step_start", "sessionID": "ses_reason", "part": {"type": "step-start"}}),
+            json.dumps({"type": "step_finish", "sessionID": "ses_reason",
+                        "part": {"type": "step-finish", "reason": "stop",
+                                 "tokens": {"input": 10, "output": 2, "reasoning": 1}}}),
+        ]) + "\n")
+        res = session_mod.parse_session_log(log_path)
+        self.assertEqual(res["status"], "completed")
+
+    def test_parse_session_log_reads_runner_abort(self):
+        import session as session_mod
+        log_path = self.tmp / "session-abort.log"
+        log_path.write_text("\n".join([
+            json.dumps({"type": "step_start", "sessionID": "ses_abort", "part": {"type": "step-start"}}),
+            json.dumps({"type": "runner_abort", "reason": "Session exceeded turn limit (100)"}),
+        ]) + "\n")
+        res = session_mod.parse_session_log(log_path)
+        self.assertIn("aborted", res["status"])
+        self.assertIn("turn limit", res["status"])
+
     def test_session_tail_and_summary(self):
         import session as session_mod
         log_path = self.tmp / "session-test.log"
@@ -4923,6 +5013,7 @@ class SessionCommandTests(unittest.TestCase):
         self.assertEqual(debrief_res["count"], 2)
         self.assertIn("| `session-1.log` |", debrief_res["table"])
         self.assertIn("| `session-2.log` |", debrief_res["table"])
+        self.assertIn("**Total (2)**", debrief_res["table"])
 
     def test_session_cli_dispatch(self):
         log_path = self.tmp / "session-test.log"
