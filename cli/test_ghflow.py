@@ -4767,3 +4767,84 @@ class ReviewVerdictTests(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertEqual(len(calls), 1)
         self.assertIn("verdict=clean", calls[0][2])
+
+
+class SessionCommandTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def _sample_log_lines(self):
+        return [
+            json.dumps({"type": "step_start", "sessionID": "ses_test123", "part": {"type": "step-start"}}),
+            json.dumps({"type": "text", "sessionID": "ses_test123", "part": {"type": "text", "text": "Starting task"}}),
+            json.dumps({"type": "tool_use", "sessionID": "ses_test123", "part": {"type": "tool", "tool": "read", "state": {"input": {"path": "src/foo.py"}}}}),
+            json.dumps({"type": "step_finish", "sessionID": "ses_test123", "part": {"type": "step-finish", "tokens": {"input": 1000, "output": 50, "reasoning": 20}, "stop": "tool_use"}}),
+            json.dumps({"type": "step_start", "sessionID": "ses_test123", "part": {"type": "step-start"}}),
+            json.dumps({"type": "tool_use", "sessionID": "ses_test123", "part": {"type": "tool", "tool": "shell", "state": {"input": {"command": "make check"}}}}),
+            json.dumps({"type": "step_finish", "sessionID": "ses_test123", "part": {"type": "step-finish", "tokens": {"input": 2000, "output": 80, "reasoning": 100}, "stop": "stop"}}),
+        ]
+
+    def test_parse_session_log_valid(self):
+        import session as session_mod
+        log_path = self.tmp / "session-test.log"
+        log_path.write_text("\n".join(self._sample_log_lines()) + "\n")
+
+        res = session_mod.parse_session_log(log_path)
+        self.assertEqual(res["session_id"], "ses_test123")
+        self.assertEqual(res["total_turns"], 2)
+        self.assertEqual(res["current_context_tokens"], 2000)
+        self.assertEqual(res["total_output_tokens"], 130)
+        self.assertEqual(res["total_reasoning_tokens"], 120)
+        self.assertEqual(res["peak_reasoning_tokens"], 100)
+        self.assertEqual(res["status"], "completed")
+        self.assertEqual(res["turns"][0]["tools"][0]["tool"], "read")
+        self.assertEqual(res["turns"][1]["tools"][0]["tool"], "shell")
+
+    def test_session_tail_and_summary(self):
+        import session as session_mod
+        log_path = self.tmp / "session-test.log"
+        log_path.write_text("\n".join(self._sample_log_lines()) + "\n")
+
+        tail_res, tail_code = session_mod.session_tail(log_path, count=1)
+        self.assertEqual(tail_code, 0)
+        self.assertEqual(len(tail_res["turns"]), 1)
+        self.assertIn("make check", tail_res["rendered"])
+
+        summary_res, summary_code = session_mod.session_summary(log_path)
+        self.assertEqual(summary_code, 0)
+        self.assertEqual(summary_res["session_id"], "ses_test123")
+        self.assertIn("completed", summary_res["rendered"])
+
+    def test_session_debrief(self):
+        import session as session_mod
+        (self.tmp / "session-1.log").write_text("\n".join(self._sample_log_lines()) + "\n")
+        (self.tmp / "session-2.log").write_text("\n".join(self._sample_log_lines()) + "\n")
+
+        debrief_res, code = session_mod.session_debrief(self.tmp)
+        self.assertEqual(code, 0)
+        self.assertEqual(debrief_res["count"], 2)
+        self.assertIn("| `session-1.log` |", debrief_res["table"])
+        self.assertIn("| `session-2.log` |", debrief_res["table"])
+
+    def test_session_cli_dispatch(self):
+        log_path = self.tmp / "session-test.log"
+        log_path.write_text("\n".join(self._sample_log_lines()) + "\n")
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            code = main(["session", "summary", str(log_path)])
+            self.assertEqual(code, 0)
+            self.assertIn("ses_test123", mock_stdout.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            code = main(["session", "tail", str(log_path), "-n", "1"])
+            self.assertEqual(code, 0)
+            self.assertIn("Turn 2", mock_stdout.getvalue())
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            code = main(["session", "debrief", str(self.tmp)])
+            self.assertEqual(code, 0)
+            self.assertIn("| `session-test.log` |", mock_stdout.getvalue())
