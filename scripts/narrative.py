@@ -215,9 +215,11 @@ class RunNotebook:
             lines.append(f"- Local notes: `{notes_dir}`")
         return self._post("\n".join(lines) + "\n")
 
-    def step(self, step, issue, summary, pr_url=None, head=None):
+    def step(self, step, issue, summary, pr_url=None, head=None, telemetry=None):
         lines = [f"### {time.strftime('%H:%M')} — `{step}` — {issue}", "",
                  summary.strip(), ""]
+        if telemetry:
+            lines.append(f"Telemetry: {telemetry}\n")
         if pr_url:
             lines.append(f"PR: {pr_url}" + (f" at `{head}`" if head else "") + "\n")
         return self._post("\n".join(lines) + "\n")

@@ -46,7 +46,11 @@ Follow project test-first conventions:
 3. **Behavioral assertions**: Write tests that fail when the covered behavior is disabled, not only when the entire change is absent.
 4. **Targeted feedback**: Run targeted unit tests during iterations for fast feedback.
 5. **Gate verification**: Run the full project gate (`make check`) before committing. Ensure zero regressions, clean formatting, and passing type checks.
-
+6. **Bounded test gate output**: For full gate or test suite runs, use `ghflow gate` with `--summary` to protect your context window from multi-thousand-line test dumps:
+   ```sh
+   python3 "$GHFLOW_CLI" gate --cmd "make check" --summary
+   python3 "$GHFLOW_CLI" gate --cmd "make test" --summary
+   ```
 ## 4. Addressing review feedback
 
 When tasked with addressing review findings (`address-pr-review`):
@@ -63,6 +67,7 @@ python3 "$GHFLOW_CLI" build finish --message "type(scope): concise description"
 ```
 - It automatically executes project test gates (`make check`).
 - If gates pass, it stages (`git add -A`) and commits all worktree changes under the configured machine identity.
+- It automatically protects against pre-existing generated drift (reverting gate-induced changes to files untouched by your issue).
 - Returns the committed head commit SHA and gate verification status.
 - Do not push to remote or open pull requests: the queue runner automatically handles remote pushes and draft PR publishing upon session completion.
 ## 6. Completion report

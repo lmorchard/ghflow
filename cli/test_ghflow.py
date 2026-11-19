@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -4724,6 +4724,95 @@ class BuildFinishTests(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["action"], "committed")
         self.assertEqual(res["message"], "feat: add foo")
+
+    def test_reverts_gate_induced_drift_in_tracked_files(self):
+        tracked = self.wt / "openapi.json"
+        tracked.write_text('{"version": 1}')
+        subprocess.run(["git", "add", "openapi.json"], cwd=self.wt, check=True)
+        subprocess.run(["git", "commit", "-m", "init openapi"], cwd=self.wt, check=True)
+
+        (self.wt / "foo.txt").write_text("my test")
+
+        def dirtying_gate(command, cwd, timeout):
+            (Path(cwd) / "openapi.json").write_text('{"version": 2}')
+            return ({"success": True, "summary": "make check passed (exit 0)"}, 0)
+
+        with patch("ghflow.resolve_identity", return_value={"name": "MokaGnome", "email": "moka@example.com"}), \
+             patch("ghflow.identity_env", return_value={}):
+            res, code = build_finish(message="test: add foo", cwd=self.wt, gate_fn=dirtying_gate)
+
+        self.assertEqual(code, 0)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["drift_reverted"], ["openapi.json"])
+        self.assertEqual(tracked.read_text(), '{"version": 1}')
+        diff = subprocess.run(["git", "show", "HEAD", "--name-only"], cwd=self.wt, capture_output=True, text=True).stdout
+        self.assertIn("foo.txt", diff)
+        self.assertNotIn("openapi.json", diff)
+
+
+class BuildPublishTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.mkdtemp()
+        self.repo = Path(self.tmp) / "repo"
+        self.repo.mkdir()
+        subprocess.run(["git", "init", "-b", "main", str(self.repo)], check=True, capture_output=True)
+        (self.repo / "README.md").write_text("# Test Repo")
+        subprocess.run(["git", "add", "README.md"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.repo, check=True)
+
+        self.origin = Path(self.tmp) / "origin.git"
+        subprocess.run(["git", "init", "--bare", "-b", "main", str(self.origin)], check=True, capture_output=True)
+        subprocess.run(["git", "remote", "add", "origin", str(self.origin)], cwd=self.repo, check=True)
+        subprocess.run(["git", "push", "-u", "origin", "main"], cwd=self.repo, check=True, capture_output=True)
+
+        self.wt = Path(self.tmp) / "wt"
+        subprocess.run(["git", "worktree", "add", "-b", "issue-42-test", str(self.wt)], cwd=self.repo, check=True)
+        (self.wt / "code.txt").write_text("hello")
+        subprocess.run(["git", "add", "code.txt"], cwd=self.wt, check=True)
+        subprocess.run(["git", "commit", "-m", "fix: code"], cwd=self.wt, check=True)
+
+    def tearDown(self):
+        import shutil
+        shutil.rmtree(self.tmp, ignore_errors=True)
+
+    def test_refuses_primary_checkout(self):
+        res, code = build_publish(cwd=self.repo)
+        self.assertEqual(code, 1)
+        self.assertFalse(res["success"])
+        self.assertIn("Refusing to build publish in primary", res["error"])
+
+    def test_publishes_new_pr_and_sets_board(self):
+        def fake_gh(args, cwd=None):
+            if args[0:2] == ["pr", "list"]:
+                return []
+            if args[0:2] == ["pr", "view"]:
+                return {
+                    "url": "https://github.com/o/r/pull/1",
+                    "state": "OPEN",
+                    "isDraft": False,
+                    "headRefName": "issue-42-test",
+                    "baseRefName": "main",
+                    "headRefOid": "abcd123",
+                    "title": "Deliver issue #42",
+                    "body": "Closes #42\n\nAutomated delivery.",
+                }
+            if args[0:2] == ["project", "item-list"]:
+                return {"items": [{"id": "item1", "content": {"number": 42}}]}
+            if args[0:2] == ["project", "field-list"]:
+                return {"fields": [{"name": "Status", "options": [{"id": "opt1", "name": "In review"}]}]}
+            if args[0:2] == ["project", "item-edit"]:
+                return {"id": "item1"}
+            return {}
+
+        def fake_gh_text(args, cwd=None):
+            return "https://github.com/o/r/pull/1\n"
+
+        res, code = build_publish(issue="42", cwd=self.wt, repo="o/r", owner="o", project=6,
+                                  gh=fake_gh, gh_text=fake_gh_text)
+        self.assertEqual(code, 0)
+        self.assertTrue(res["success"])
+        self.assertEqual(res["action"], "created")
+        self.assertEqual(res["pr"], "https://github.com/o/r/pull/1")
 
 
 class ReviewVerdictTests(unittest.TestCase):
