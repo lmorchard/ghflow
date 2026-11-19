@@ -357,11 +357,12 @@ def observe_parent(parent_ref, gh_cmd="gh", cwd=None):
     }
 
 
-def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None):
+def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exclude=None):
     """Select the next child item from a parent issue's sub-issues."""
     attempted = attempted or set()
+    exclude = exclude or set()
     for child in children:
-        if child.get("state") == "CLOSED":
+        if child.get("state") == "CLOSED" or child.get("number") in exclude:
             continue
         ref = child.get("url") or child.get("number")
         if ref in attempted or child.get("number") in attempted:
@@ -374,7 +375,7 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None):
             return child
 
     for child in children:
-        if child.get("state") == "CLOSED":
+        if child.get("state") == "CLOSED" or child.get("number") in exclude:
             continue
         ref = child.get("url") or child.get("number")
         if ref in attempted or child.get("number") in attempted:
@@ -1018,6 +1019,7 @@ def main(argv=None):
     parser.add_argument("--owner", help="project board owner login")
     parser.add_argument("--project", help="project board number or OWNER/NUMBER")
     parser.add_argument("--parent", help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown its sub-issues")
+    parser.add_argument("--exclude", help="comma-separated issue numbers to skip when selecting from --parent (e.g. 1294,1295)")
     parser.add_argument("--model", help="model override for worker sessions, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
     parser.add_argument("--provider", help="provider prefix if not included in --model (e.g. lmstudio, ollama, google-vertex)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
@@ -1039,6 +1041,13 @@ def main(argv=None):
     parser.add_argument("--no-deterministic-pr", action="store_true",
                         help="dispatch an LLM worker session for submit-pr instead of submitting deterministically")
     args = parser.parse_args(argv)
+
+    exclude = set()
+    if args.exclude:
+        try:
+            exclude = {int(n.strip().lstrip("#")) for n in args.exclude.split(",") if n.strip()}
+        except ValueError:
+            parser.error("--exclude takes comma-separated issue numbers")
 
     if not args.allow_concurrent:
         check_active_runs()
@@ -1139,7 +1148,7 @@ def main(argv=None):
             print(f"[{time.strftime('%X')}] Reading parent issue {args.parent}...")
             parent_data = observe_parent(args.parent, cwd=options.get("cwd"))
             parent_children = parent_data.get("children") or []
-            item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"))
+            item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"), exclude=exclude)
         else:
             print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
             board = observe_board(owner, project)

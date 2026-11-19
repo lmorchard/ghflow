@@ -815,6 +815,23 @@ class ParentSubIssueTests(unittest.TestCase):
             chosen = run_queue.next_item_for_parent(children)
         self.assertEqual(chosen["number"], 103)
 
+    def test_next_item_for_parent_excludes_numbers(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+            {"number": 103, "state": "OPEN", "url": "https://github.com/o/r/issues/103"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            if "101" in str(ref):
+                return {"issue": str(ref), "number": 101, "labels": [], "pr": {"url": "p1", "is_draft": True, "head": "h1"}, "review_verdicts": []}
+            return {"issue": str(ref), "number": int(str(ref).rstrip("/").split("/")[-1]), "labels": [], "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            self.assertEqual(run_queue.next_item_for_parent(children, exclude={101})["number"], 102)
+            self.assertEqual(run_queue.next_item_for_parent(children, exclude={101, 102})["number"], 103)
+            self.assertIsNone(run_queue.next_item_for_parent(children, exclude={101, 102, 103}))
+
     def test_find_preceding_pr_stacked_branch(self):
         children = [
             {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
