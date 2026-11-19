@@ -3034,6 +3034,161 @@ def review_cleanup(number, cwd=None, path=None, git=run_git):
     return result, 0
 
 
+def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, gate_fn=None):
+    """Prepare a review worktree, extract the commit diff, and pre-compute gates in one call."""
+    gate_fn = gate_fn or run_gate
+    prep_res, prep_code = review_prepare(repo, number, cwd=cwd, path=path, git=git, gh=gh)
+    if prep_code != 0:
+        return prep_res, prep_code
+
+    wt_path = Path(prep_res["path"])
+    base = prep_res.get("base") or "origin/main"
+    head = prep_res.get("head")
+
+    diff_output = git(["diff", f"{base}..{head}"], wt_path) or ""
+    files_changed = [f for f in (git(["diff", "--name-only", f"{base}..{head}"], wt_path) or "").splitlines() if f.strip()]
+
+    gate_result, _ = gate_fn(command="make check", cwd=wt_path, timeout=300)
+
+    return {
+        "ready": True,
+        "pr": f"{repo}#{number}",
+        "head": head,
+        "base": base,
+        "worktree": str(wt_path),
+        "files_changed": files_changed,
+        "diff_stat": prep_res.get("stat") or "",
+        "diff": diff_output[:12000],
+        "gate": gate_result.get("summary") if gate_result else "none",
+        "gate_success": gate_result.get("success") if gate_result else None,
+    }, 0
+
+
+def review_verdict(repo, number, verdict, body=None, body_file=None, identity=None):
+    """Format and publish a structured review verdict comment with automated head verification."""
+    pr_info, code = pr_state(repo, number)
+    if code != 0 or not pr_info.get("head"):
+        return {"error": f"Failed to retrieve PR head for {repo}#{number}"}, 1
+
+    head = pr_info["head"]
+    content = ""
+    if body_file:
+        try:
+            content = Path(body_file).read_text(encoding="utf-8").strip()
+        except OSError as e:
+            return {"error": f"Could not read body file {body_file}: {e}"}, 1
+    elif body:
+        content = body.strip()
+    else:
+        content = f"## Verdict: {verdict}\n\nReview completed."
+
+    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+\s*-->", "", content).strip()
+
+    if verdict == "findings":
+        m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", clean_content, re.IGNORECASE)
+        if m:
+            val = m.group(1).strip().lower().rstrip(".")
+            if val in ("none", "no blocking findings", "no blockers", "none —", "none -"):
+                verdict = "clean"
+        elif "## Blocking findings" not in clean_content:
+            verdict = "clean"
+
+    final_body = f"<!-- ghflow-review head={head} verdict={verdict} -->\n\n{clean_content}\n"
+
+    with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
+        tf.write(final_body)
+        temp_path = tf.name
+
+    try:
+        comment_res, comment_status = pr_comment(repo, number, temp_path, identity=identity)
+    finally:
+        try:
+            os.unlink(temp_path)
+        except OSError:
+            pass
+
+    if comment_status != 0:
+        return comment_res, comment_status
+
+    return {
+        "success": True,
+        "pr": f"{repo}#{number}",
+        "head": head,
+        "verdict": verdict,
+        "comment_id": comment_res.get("comment_id"),
+        "comment_url": comment_res.get("comment_url"),
+    }, 0
+
+
+def build_finish(message=None, cwd=None, no_gate=False, gate_command="make check", timeout=300,
+                 git=run_git, gate_fn=None):
+    """Run verification gates and commit all changes in the task worktree under machine identity."""
+    gate_fn = gate_fn or run_gate
+    target = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        root = primary_checkout(target, git)
+    except (GhError, OSError, ValueError) as error:
+        return {"success": False, "errors": [{"part": "checkout", "error": str(error)}]}, 1
+
+    if target.resolve() == root.resolve():
+        return {
+            "success": False,
+            "error": "Refusing to build finish in primary repository checkout. Perform all work inside a task worktree."
+        }, 1
+
+    gate_result = None
+    if not no_gate:
+        gate_result, code = gate_fn(command=gate_command, cwd=target, timeout=timeout)
+        if not gate_result.get("success"):
+            return {
+                "success": False,
+                "error": f"Local gate check failed: {gate_result.get('summary')}. Resolve test/lint failures before finishing.",
+                "gate": gate_result,
+                "worktree": str(target),
+            }, 2
+
+    status_output = git(["status", "--porcelain"], target).strip()
+    if not status_output:
+        head = git(["rev-parse", "HEAD"], target).strip()
+        return {
+            "success": True,
+            "action": "no_changes",
+            "head": head,
+            "gate": gate_result.get("summary") if gate_result else "bypassed",
+            "worktree": str(target),
+        }, 0
+
+    if not message:
+        branch = git(["rev-parse", "--abbrev-ref", "HEAD"], target).strip()
+        slug = branch.removeprefix("issue-")
+        message = f"fix: implement changes for {slug}"
+
+    try:
+        identity = resolve_identity()
+        env = identity_env(identity)
+    except GhError as error:
+        return {"success": False, "errors": [{"part": "identity", "error": str(error)}]}, 1
+
+    git(["add", "-A"], target)
+    commit_proc = subprocess.run(["git", "commit", "-m", message], cwd=target, env=env, capture_output=True, text=True)
+    if commit_proc.returncode != 0:
+        return {
+            "success": False,
+            "error": f"git commit failed: {commit_proc.stderr.strip()}",
+            "worktree": str(target),
+        }, 1
+
+    head = git(["rev-parse", "HEAD"], target).strip()
+    return {
+        "success": True,
+        "action": "committed",
+        "head": head,
+        "message": message,
+        "gate": gate_result.get("summary") if gate_result else "bypassed",
+        "worktree": str(target),
+    }, 0
+
+
 def run_gate(command="make check", cwd=None, timeout=300, shell=None):
     """Run local project test gates with compact, bounded output.
 
@@ -3864,6 +4019,13 @@ def main(argv=None):
     wt_prepare.add_argument("--path", help="worktree path (default: .claude/worktrees/BRANCH in primary checkout)")
     wt_prepare.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
     wt_prepare.add_argument("--project", type=int, help="board number")
+    build_parser = commands.add_parser("build", help="Task builder operations.")
+    build_commands = build_parser.add_subparsers(dest="build_command", required=True)
+    build_finish_cmd = build_commands.add_parser("finish", help="Verify local gates (make check) and commit changes under machine identity.")
+    build_finish_cmd.add_argument("--message", "-m", help="commit message (default: auto-derived from branch)")
+    build_finish_cmd.add_argument("--path", help="worktree path (default: current directory)")
+    build_finish_cmd.add_argument("--no-gate", action="store_true", help="bypass local gate check")
+
     body = pr_commands.add_parser("body", help="Write a PR description: your summary, review, and decisions files around commits, checks, and the closing line.")
     body.add_argument("pr", help="PR URL, or PR number with --repo")
     body.add_argument("--repo", help="OWNER/NAME when giving a PR number")
@@ -3928,6 +4090,17 @@ def main(argv=None):
     rv_cleanup.add_argument("pr", help="PR URL, or PR number with --repo")
     rv_cleanup.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     rv_cleanup.add_argument("--path", help="worktree path (default .claude/worktrees/review-NUMBER)")
+    rv_inspect = review_commands.add_parser("inspect", help="Prepare review worktree, extract commit diff, and pre-compute gates in one call.")
+    rv_inspect.add_argument("pr", help="PR URL, or PR number with --repo")
+    rv_inspect.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    rv_inspect.add_argument("--path", help="custom worktree path")
+
+    rv_verdict = review_commands.add_parser("verdict", help="Format and publish an affirmative review verdict comment with automated readback.")
+    rv_verdict.add_argument("pr", help="PR URL, or PR number with --repo")
+    rv_verdict.add_argument("--repo", help="OWNER/NAME when giving a PR number")
+    rv_verdict.add_argument("--verdict", required=True, choices=("clean", "findings", "blocked"), help="verdict state")
+    rv_verdict.add_argument("--body-file", metavar="FILE", help="UTF-8 file with the review body")
+    rv_verdict.add_argument("--body", help="review body string")
     park = commands.add_parser("park", help="Park an unattended delivery: label, issue comment, and a Parked section on the PR, each read back.")
     park.add_argument("issue", help="issue URL, or issue number from the subject checkout")
     park.add_argument("--pr", help="PR URL; omit to park the issue alone")
@@ -4041,12 +4214,17 @@ def main(argv=None):
             result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
                                              notes=args.notes, board=board)
     elif args.command == "review":
-        repo, number = parse_pr(args.pr, args.repo)
         if args.review_command == "prepare":
             result, status = review_prepare(repo, number, path=args.path, copy=args.copy, setup=args.setup,
                                             no_setup=args.no_setup)
+        elif args.review_command == "inspect":
+            result, status = review_inspect(repo, number, path=args.path)
+        elif args.review_command == "verdict":
+            result, status = review_verdict(repo, number, args.verdict, body=args.body, body_file=args.body_file, identity=resolve_identity_or_none())
         else:
             result, status = review_cleanup(number, path=args.path)
+    elif args.command == "build" and args.build_command == "finish":
+        result, status = build_finish(message=args.message, cwd=args.path, no_gate=args.no_gate)
     elif args.command == "discussion":
         repo = args.repo or checkout_repo()
         if not repo:

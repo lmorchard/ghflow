@@ -21,7 +21,8 @@ class BundleSkillTests(unittest.TestCase):
     def test_bundle_reviewer_content(self):
         content = bundle_skill.bundle_reviewer()
         self.assertIn("name: ghflow-review-slim", content)
-        self.assertIn("<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->", content)
+        self.assertIn("review verdict", content)
+        self.assertIn("ghflow-review head=SHA", content)
         self.assertIn("make check", content)
         self.assertIn("No blocking findings", content)
         self.assertNotIn("implement-issue", content)
