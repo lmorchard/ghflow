@@ -49,6 +49,13 @@ except ImportError:
     except ImportError:
         sys.path.insert(0, str(Path(__file__).resolve().parent))
         import tags
+try:
+    import session as session_mod
+except ImportError:
+    try:
+        from cli import session as session_mod
+    except ImportError:
+        session_mod = None
 
 try:
     from audit_toil import audit_toil, format_markdown_report
@@ -4175,6 +4182,18 @@ def main(argv=None):
     audit_toil_cmd.add_argument("--min-strikes", type=int, default=3, help="minimum distinct sessions required (default: 3)")
     audit_toil_cmd.add_argument("--min-length", type=int, default=2, help="minimum sequence length (default: 2)")
     audit_toil_cmd.add_argument("--json", action="store_true", help="output structured JSON instead of Markdown")
+    session_parser = commands.add_parser("session", help="OpenCode worker session inspection, tailing, summary, and debriefing.")
+    session_commands = session_parser.add_subparsers(dest="session_command", required=True)
+    sess_tail = session_commands.add_parser("tail", help="Tail the latest turns of a session log.")
+    sess_tail.add_argument("log", nargs="?", help="session log path (default: most recent session log)")
+    sess_tail.add_argument("-n", "--turns", type=int, default=5, help="number of turns to display (default: 5)")
+    sess_tail.add_argument("--json", action="store_true", help="output structured JSON")
+    sess_summary = session_commands.add_parser("summary", help="Show compact telemetry summary of a session log.")
+    sess_summary.add_argument("log", nargs="?", help="session log path (default: most recent session log)")
+    sess_summary.add_argument("--json", action="store_true", help="output structured JSON")
+    sess_debrief = session_commands.add_parser("debrief", help="Scan session logs in a directory and render debrief metrics.")
+    sess_debrief.add_argument("dir", nargs="?", help="directory containing session logs (default: ~/.local/state/ghflow/notes)")
+    sess_debrief.add_argument("--json", action="store_true", help="output structured JSON")
     args = parser.parse_args(argv)
 
     if args.command == "audit" and args.audit_command == "toil":
@@ -4183,6 +4202,24 @@ def main(argv=None):
             report = format_markdown_report(result.get("patterns") or [], result.get("scanned", 0))
             sys.stdout.write(report + "\n")
             return status
+    elif args.command == "session":
+        if session_mod is None:
+            parser.error("cli/session.py module not found.")
+        if args.session_command == "tail":
+            result, status = session_mod.session_tail(args.log, count=args.turns)
+            if not getattr(args, "json", False) and result.get("rendered"):
+                sys.stdout.write(result["rendered"] + "\n")
+                return status
+        elif args.session_command == "summary":
+            result, status = session_mod.session_summary(args.log)
+            if not getattr(args, "json", False) and result.get("rendered"):
+                sys.stdout.write(result["rendered"] + "\n")
+                return status
+        elif args.session_command == "debrief":
+            result, status = session_mod.session_debrief(args.dir)
+            if not getattr(args, "json", False) and result.get("table"):
+                sys.stdout.write(result["table"] + "\n")
+                return status
     elif args.command == "gate":
         result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
         if args.summary:
