@@ -4728,9 +4728,10 @@ class BuildFinishTests(unittest.TestCase):
     def test_reverts_gate_induced_drift_in_tracked_files(self):
         tracked = self.wt / "openapi.json"
         tracked.write_text('{"version": 1}')
+        git_env = dict(os.environ, GIT_AUTHOR_NAME="Test", GIT_AUTHOR_EMAIL="test@example.com",
+                       GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com")
         subprocess.run(["git", "add", "openapi.json"], cwd=self.wt, check=True)
-        subprocess.run(["git", "commit", "-m", "init openapi"], cwd=self.wt, check=True)
-
+        subprocess.run(["git", "commit", "-m", "init openapi"], cwd=self.wt, env=git_env, check=True)
         (self.wt / "foo.txt").write_text("my test")
 
         def dirtying_gate(command, cwd, timeout):
@@ -4755,10 +4756,12 @@ class BuildPublishTests(unittest.TestCase):
         self.tmp = tempfile.mkdtemp()
         self.repo = Path(self.tmp) / "repo"
         self.repo.mkdir()
+        git_env = dict(os.environ, GIT_AUTHOR_NAME="Test", GIT_AUTHOR_EMAIL="test@example.com",
+                       GIT_COMMITTER_NAME="Test", GIT_COMMITTER_EMAIL="test@example.com")
         subprocess.run(["git", "init", "-b", "main", str(self.repo)], check=True, capture_output=True)
         (self.repo / "README.md").write_text("# Test Repo")
         subprocess.run(["git", "add", "README.md"], cwd=self.repo, check=True)
-        subprocess.run(["git", "commit", "-m", "init"], cwd=self.repo, check=True)
+        subprocess.run(["git", "commit", "-m", "init"], cwd=self.repo, env=git_env, check=True)
 
         self.origin = Path(self.tmp) / "origin.git"
         subprocess.run(["git", "init", "--bare", "-b", "main", str(self.origin)], check=True, capture_output=True)
@@ -4769,8 +4772,7 @@ class BuildPublishTests(unittest.TestCase):
         subprocess.run(["git", "worktree", "add", "-b", "issue-42-test", str(self.wt)], cwd=self.repo, check=True)
         (self.wt / "code.txt").write_text("hello")
         subprocess.run(["git", "add", "code.txt"], cwd=self.wt, check=True)
-        subprocess.run(["git", "commit", "-m", "fix: code"], cwd=self.wt, check=True)
-
+        subprocess.run(["git", "commit", "-m", "fix: code"], cwd=self.wt, env=git_env, check=True)
     def tearDown(self):
         import shutil
         shutil.rmtree(self.tmp, ignore_errors=True)
