@@ -60,3 +60,4 @@ When all selected issues have reached the agreed endpoint:
 1. Present a delivery summary table with `python3 "$GHFLOW_CLI" queue summary ISSUE_URL... --owner OWNER --project NUMBER`.
 2. Report the result, sources, check evidence, and remaining decisions to the user.
 3. Audit worker session logs for recurring operational toil with `python3 "$GHFLOW_CLI" audit toil`. Report any patterns that hit the Three Strikes threshold as candidates for deterministic automation.
+4. File out-of-scope findings as follow-ups, following [Follow-ups](../shared/followups.md). Write them to `followups.md` in the run notes directory so the run summary includes them.

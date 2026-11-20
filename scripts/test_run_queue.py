@@ -1,5 +1,7 @@
 """Unit tests for the deterministic queue runner scripts/run_queue.py."""
 import argparse
+import contextlib
+import io
 import json
 import os
 import tempfile
@@ -79,8 +81,9 @@ class NextStepTableTests(unittest.TestCase):
             ],
         }
         self.assertEqual(run_queue.next_step(state, correction_limit=2), "park-blocker")
-    def test_default_step_idle_timeout_is_300(self):
-        self.assertEqual(run_queue.DEFAULT_STEP_IDLE_TIMEOUT, 300)
+    def test_default_step_idle_timeout_is_900(self):
+        self.assertEqual(run_queue.DEFAULT_STEP_IDLE_TIMEOUT, 900)
+        self.assertEqual(run_queue.SLOW_STEP_WARN_SECONDS, 120)
 
 
     def test_human_changes_requested_on_draft_triggers_address_review(self):
@@ -237,6 +240,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
     def test_provider_and_model_combine(self):
         with patch("run_queue.discover_project", return_value=("o", 12)), \
              patch("run_queue.check_active_runs"), \
+             patch("run_queue.run_cli", return_value=({}, 0)), \
              patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}):
             # When both --provider and --model given without slash
             with patch("run_queue.run_session") as mock_session:
@@ -931,6 +935,22 @@ class ParentSubIssueTests(unittest.TestCase):
         with patch("run_queue.observe_issue", side_effect=fake_observe):
             self.assertIsNone(run_queue.next_item_for_parent(children))
 
+    def test_next_item_for_parent_skips_triage_needs_definition(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            number = int(str(ref).rstrip("/").split("/")[-1])
+            labels = (["triage:needs-definition"] if number == 101
+                      else ["triage:ready", "impl:local"])
+            return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 102)
+
     def test_next_item_for_parent_excludes_labels(self):
         children = [
             {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
@@ -1086,6 +1106,384 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("/tmp/wt/issue-102", extra)
         self.assertEqual(child2_session[2].get("branch"), "issue-102")
         self.assertIn("created now", extra)
+        self.assertIn("project checkout", extra)
+        self.assertIn("do not re-export", extra)
+        self.assertIn("do not run `worktree prepare`", extra)
+
+    def test_published_pr_state_builds_a_draft_view(self):
+        seeded = run_queue.published_pr_state({
+            "number": 52, "url": "https://github.com/o/r/pull/52",
+            "head": "c2", "head_branch": "issue-102-feat",
+        })
+        self.assertEqual(seeded["number"], 52)
+        self.assertEqual(seeded["head"], "c2")
+        self.assertTrue(seeded["is_draft"])
+        self.assertEqual(seeded["state"], "OPEN")
+        self.assertIsNone(run_queue.published_pr_state(None))
+        self.assertIsNone(run_queue.published_pr_state({"number": 1}))
+
+    def test_primary_checkout_change_reports_only_a_difference(self):
+        self.assertIsNone(run_queue.primary_checkout_change(None, " M x"))
+        self.assertIsNone(run_queue.primary_checkout_change("", ""))
+        self.assertIsNone(run_queue.primary_checkout_change(" M x", " M x"))
+        change = run_queue.primary_checkout_change("", " M src/agent.py")
+        self.assertEqual(change["before"], "")
+        self.assertEqual(change["after"], " M src/agent.py")
+
+    def test_parked_pr_url_reads_the_linked_pr(self):
+        self.assertEqual(run_queue.parked_pr_url({"pr": {"url": "https://github.com/o/r/pull/52"}}),
+                         "https://github.com/o/r/pull/52")
+        with patch("run_queue.observe_issue",
+                   return_value={"pr": {"url": "https://github.com/o/r/pull/51"}}):
+            self.assertEqual(run_queue.parked_pr_url({"issue": "https://github.com/o/r/issues/101"}),
+                             "https://github.com/o/r/pull/51")
+        self.assertEqual(run_queue.parked_pr_url({}), "")
+
+    def test_retry_directive_names_the_prior_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "session.log"
+            log.write_text("\n".join([
+                json.dumps({"type": "tool_use", "part": {"type": "tool", "tool": "read",
+                                                        "state": {"input": {"path": "/w/a.py"}}}}),
+                json.dumps({"type": "tool_use", "part": {"type": "tool", "tool": "shell",
+                                                        "state": {"input": {"command": "grep -n x /w/a.py"}}}}),
+                "42", "null", '"text"',
+            ]) + "\n", encoding="utf-8")
+            actions = run_queue.recent_session_actions(log)
+        self.assertEqual(len(actions), 2)
+        self.assertIn("grep -n x", actions[-1])
+        text = run_queue.retry_directive("Base.", actions, step="implement-issue")
+        self.assertTrue(text.startswith("Base."))
+        self.assertIn("grep -n x /w/a.py", text)
+        self.assertIn("first edit", text)
+        review_text = run_queue.retry_directive("Base.", actions, step="review-changes")
+        self.assertIn("grep -n x /w/a.py", review_text)
+        self.assertNotIn("first edit", review_text)
+        self.assertIn("Continue the assigned task", review_text)
+        self.assertEqual(run_queue.retry_directive("Base.", []), "Base.")
+
+    def test_slow_step_warning_helper(self):
+        self.assertIsNone(run_queue.slow_step_warning(1120, 1000, 900, False))
+        self.assertEqual(run_queue.slow_step_warning(1121, 1000, 900, False),
+                         "No session events for 121s; waiting up to 900s")
+        self.assertIsNone(run_queue.slow_step_warning(2000, 1000, 900, True))
+
+    def test_stale_facts_warning_names_the_sources(self):
+        facts = {"project_facts": {"origin": {"stale_sources": [
+            {"path": "Makefile"}, {"path": "pyproject.toml"}]}}}
+        warning = run_queue.stale_facts_warning(facts)
+        self.assertIn("Makefile", warning)
+        self.assertIn("pyproject.toml", warning)
+        self.assertIsNone(run_queue.stale_facts_warning(
+            {"project_facts": {"origin": {"stale_sources": []}}}))
+        self.assertIsNone(run_queue.stale_facts_warning({}))
+
+    def test_run_summary_lists_followups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "followups.md").write_text("- #1600 filed for agent.py:185.\n", encoding="utf-8")
+            summary = run_queue.format_run_summary([], [], Path(tmp), 0)
+        self.assertIn("## Follow-ups", summary)
+        self.assertIn("#1600 filed for agent.py:185", summary)
+
+    def test_publish_with_a_lagging_issue_link_does_not_park(self):
+        """A publish whose PR is not yet linked must advance to review, not park."""
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN",
+                       "url": "https://github.com/o/r/issues/100"},
+            "children": [{"number": 102, "title": "Child 2", "state": "OPEN",
+                          "url": "https://github.com/o/r/issues/102"}],
+        }
+        base = {"issue": "https://github.com/o/r/issues/102", "number": 102,
+                "title": "Child 2", "body": "", "labels": ["triage:ready"], "repo": "o/r"}
+        calls = {"n": 0}
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                return {**base, "pr": None}
+            if calls["n"] == 4:
+                return {**base,
+                        "pr": {"number": 52, "url": "https://github.com/o/r/pull/52",
+                               "head": "c2", "head_branch": "issue-102-feat",
+                               "state": "OPEN", "is_draft": True},
+                        "ci": "pending",
+                        "review_verdicts": [{"head": "c2", "verdict": "clean"}],
+                        "pending_review_requests": []}
+            return {**base,
+                    "pr": {"number": 52, "url": "https://github.com/o/r/pull/52",
+                           "head": "c2", "head_branch": "issue-102-feat",
+                           "state": "OPEN", "is_draft": False},
+                    "ci": "green", "pending_review_requests": []}
+
+        sessions, cli_calls = [], []
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            sessions.append(step)
+            return True, "ses_id"
+
+        def fake_publish(*args, **kwargs):
+            return {"number": 52, "url": "https://github.com/o/r/pull/52",
+                    "head": "c2", "head_branch": "issue-102-feat"}
+
+        def fake_cli(*args, cwd=None):
+            cli_calls.append(args)
+            if args and args[0] == "worktree" and args[1] == "create":
+                branch = args[args.index("--branch") + 1]
+                return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", return_value=parent_data), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_issue", side_effect=fake_observe), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.publish_committed", side_effect=fake_publish), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+                                  "--no-symbol-indexing", "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertIn("implement-issue", sessions)
+        self.assertIn("review-changes", sessions)
+        self.assertFalse([args for args in cli_calls if args and args[0] == "park"],
+                         "a successful publish must not be parked")
+
+    def test_retry_directive_uses_the_prior_attempt(self):
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN",
+                       "url": "https://github.com/o/r/issues/100"},
+            "children": [{"number": 102, "title": "Child 2", "state": "OPEN",
+                          "url": "https://github.com/o/r/issues/102"}],
+        }
+        base = {"issue": "https://github.com/o/r/issues/102", "number": 102,
+                "title": "Child 2", "body": "", "labels": ["triage:ready"], "repo": "o/r"}
+        observes = {"n": 0}
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            observes["n"] += 1
+            if observes["n"] <= 2:
+                return {**base, "pr": None}
+            return {**base,
+                    "pr": {"number": 52, "url": "https://github.com/o/r/pull/52",
+                           "head": "c2", "head_branch": "issue-102-feat",
+                           "state": "OPEN", "is_draft": False},
+                    "ci": "green", "pending_review_requests": []}
+
+        sessions = []
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            sessions.append((step, dict(options)))
+            if len(sessions) == 1:
+                log = Path(notes_dir) / "session-fail.log"
+                log.write_text(json.dumps({
+                    "type": "tool_use",
+                    "part": {"type": "tool", "tool": "shell",
+                             "state": {"input": {"command": "grep -n x /w/a.py"}}}}) + "\n",
+                    encoding="utf-8")
+                if log_hook:
+                    log_hook(str(log))
+                return False, "boom"
+            return True, "ses_id"
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "worktree" and args[1] == "create":
+                branch = args[args.index("--branch") + 1]
+                return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", return_value=parent_data), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_issue", side_effect=fake_observe), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+                                  "--no-symbol-indexing", "--step-idle-timeout", "1200",
+                                  "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertEqual([step for step, _ in sessions], ["implement-issue", "implement-issue"])
+        self.assertEqual(sessions[0][1]["step_idle_timeout"], 1200)
+        self.assertIn("grep -n x /w/a.py", sessions[1][1]["extra_text"])
+        self.assertIn("first edit", sessions[1][1]["extra_text"])
+
+    def test_park_record_uses_published_pr(self):
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN",
+                       "url": "https://github.com/o/r/issues/100"},
+            "children": [{"number": 102, "title": "Child 2", "state": "OPEN",
+                          "url": "https://github.com/o/r/issues/102"}],
+        }
+        base = {"issue": "https://github.com/o/r/issues/102", "number": 102,
+                "title": "Child 2", "body": "", "labels": ["triage:ready"], "repo": "o/r"}
+        cli_calls = []
+
+        def fake_cli(*args, cwd=None):
+            cli_calls.append(args)
+            if args and args[0] == "worktree" and args[1] == "create":
+                branch = args[args.index("--branch") + 1]
+                return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
+            return {}, 0
+
+        def fake_publish(*args, **kwargs):
+            return {"number": 52, "url": "https://github.com/o/r/pull/52",
+                    "head": "c2", "head_branch": "issue-102-feat"}
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", return_value=parent_data), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_issue", return_value={**base, "pr": None}), \
+             patch("run_queue.run_session", return_value=(False, "boom")), \
+             patch("run_queue.publish_committed", side_effect=fake_publish), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+                                  "--no-symbol-indexing", "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        parks = [args for args in cli_calls if args and args[0] == "park"]
+        self.assertTrue(parks, cli_calls)
+        self.assertIn("https://github.com/o/r/pull/52", parks[0])
+
+    def test_primary_checkout_warning_in_run_session(self):
+        class FakeStdout:
+            def __init__(self, lines):
+                self.lines = iter(lines)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self.lines)
+
+        class FakeProc:
+            def __init__(self, lines):
+                self.stdout = FakeStdout(lines)
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = Path(tmp)
+            skill = notes / "skill"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            primary = notes / "primary"
+            primary.mkdir()
+            worktree = notes / "worktree"
+            worktree.mkdir()
+            options = {"cwd": str(primary), "session_cwd": str(worktree),
+                       "skill_dir": str(skill), "model": None, "standalone": False}
+            lines = [json.dumps({"type": "text", "sessionID": "s1",
+                                 "part": {"type": "text", "text": "hi"}}) + "\n"]
+
+            def fake_cli(*args, cwd=None):
+                return {"dispatch_prompt": "do it"}, 0
+
+            with patch("run_queue.git_output", side_effect=["", " M changed"]), \
+                 patch("run_queue.subprocess.Popen", return_value=FakeProc(lines)), \
+                 patch("run_queue.subprocess.run"):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    ok, _ = run_queue.run_session(
+                        "implement-issue", "https://github.com/o/r/issues/1", notes,
+                        options, cli_fn=fake_cli)
+
+        self.assertTrue(ok)
+        self.assertIn("primary checkout changed", out.getvalue())
+
+    def test_slow_step_warning_in_run_session(self):
+        class FakeStdout:
+            def fileno(self):
+                return 0
+
+            def __iter__(self):
+                return iter(())
+
+            def readline(self):
+                return ""
+
+        class FakeProc:
+            def __init__(self):
+                self.stdout = FakeStdout()
+                self.returncode = 0
+                self.polls = 0
+
+            def poll(self):
+                self.polls += 1
+                return 0 if self.polls > 2 else None
+
+            def wait(self, timeout=None):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = Path(tmp)
+            skill = notes / "skill"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            primary = notes / "primary"
+            primary.mkdir()
+            worktree = notes / "worktree"
+            worktree.mkdir()
+            options = {"cwd": str(primary), "session_cwd": str(worktree),
+                       "skill_dir": str(skill), "model": None, "standalone": False}
+
+            def fake_cli(*args, cwd=None):
+                return {"dispatch_prompt": "do it"}, 0
+
+            with patch("run_queue.git_output", return_value=""), \
+                 patch("run_queue.subprocess.Popen", return_value=FakeProc()), \
+                 patch("run_queue.subprocess.run"), \
+                 patch("run_queue.select.select", return_value=([], [], [])), \
+                 patch("run_queue.time.time", side_effect=[0, 0, 1, 121, 122]):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    ok, _ = run_queue.run_session(
+                        "implement-issue", "https://github.com/o/r/issues/1", notes,
+                        options, cli_fn=fake_cli)
+
+        self.assertTrue(ok)
+        self.assertIn("No session events for 121s", out.getvalue())
+
+    def test_main_warns_on_stale_facts(self):
+        facts = {"project_facts": {"origin": {"stale_sources": [{"path": "Makefile"}]}}}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertIn("stale on origin", out.getvalue())
 
     def test_main_processes_multiple_parents_sequentially(self):
         parents = {

@@ -21,7 +21,8 @@ DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 150
 DEFAULT_SESSION_TIMEOUT = 5400
-DEFAULT_STEP_IDLE_TIMEOUT = 300
+DEFAULT_STEP_IDLE_TIMEOUT = 900
+SLOW_STEP_WARN_SECONDS = 120
 MAX_DEGENERATE_REASONING = 10000
 PRIORITY_ORDER = ("P0", "P1")
 SIZE_ORDER = ("XS", "S", "M", "L", "XL")
@@ -412,6 +413,18 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
     return state
 
 
+def parked_pr_url(state, published=None, cli_fn=run_cli, cwd=None):
+    """Return the linked PR URL, using the published result before a re-read."""
+    for candidate in (state.get("pr"), published):
+        if isinstance(candidate, dict) and candidate.get("url"):
+            return candidate["url"]
+    ref = state.get("issue") or state.get("url")
+    if not ref:
+        return ""
+    refreshed = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
+    return ((refreshed.get("pr") or {}).get("url")) or ""
+
+
 def observe_board(owner, project, cli_fn=run_cli, cwd=None, attempted=None):
     """Read the whole board and categorize in-flight, parked, and ready items."""
     attempted = attempted or set()
@@ -479,7 +492,8 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exc
             continue
         st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
         labels = st.get("labels") or []
-        if "triage:needs-input" in labels or "triage:blocked" in labels:
+        if ("triage:needs-input" in labels or "triage:blocked" in labels
+                or "triage:needs-definition" in labels):
             continue
         if require_labels and not all(label in labels for label in require_labels):
             continue
@@ -613,6 +627,65 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
     return f"{clean_body}\n\nBase directory for this skill: {skill_dir}\n\n{handoff_prompt}"
 
 
+def primary_checkout_change(before, after):
+    """Return the status change when a session changed the primary checkout.
+
+    OpenCode's shell can start in the project checkout instead of the task
+    worktree. Warn when a session leaves changes there, because those changes
+    belong to no task branch.
+    """
+    if before is None or after is None or before == after:
+        return None
+    return {"before": before, "after": after}
+
+
+def recent_session_actions(log_path, limit=5):
+    """Return short summaries of the last tool calls in a session log."""
+    if not log_path:
+        return []
+    actions = []
+    try:
+        with open(log_path, encoding="utf-8", errors="replace") as log_file:
+            for line in log_file:
+                try:
+                    event = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if not isinstance(event, dict):
+                    continue
+                part = event.get("part") or {}
+                if not (event.get("type") in ("tool", "tool_use") or part.get("type") == "tool"):
+                    continue
+                name = part.get("name") or part.get("tool") or "tool"
+                tool_input = (part.get("state") or {}).get("input") or {}
+                detail = tool_input.get("command") or tool_input.get("filePath") or tool_input.get("path") or ""
+                actions.append(f"{name}: {str(detail)[:120]}")
+    except OSError:
+        return []
+    return actions[-limit:]
+
+
+def retry_directive(extra_text, actions, step=None):
+    """Append the prior attempt's last actions to a retry directive."""
+    if not actions:
+        return extra_text
+    lines = ["", "", "The previous attempt ended without a change. Its last actions:"]
+    lines += [f"- {action}" for action in actions]
+    if step in ("implement-issue", "address-pr-review"):
+        lines.append("Start by making the first edit; do not repeat this investigation.")
+    else:
+        lines.append("Continue the assigned task from these actions; do not repeat the investigation.")
+    return (extra_text or "") + "\n".join(lines)
+
+
+def slow_step_warning(now, last_event_ts, step_idle_timeout, warned):
+    """Describe a step that has waited too long for its first event."""
+    if warned or now - last_event_ts <= SLOW_STEP_WARN_SECONDS:
+        return None
+    return (f"No session events for {int(now - last_event_ts)}s; "
+            f"waiting up to {step_idle_timeout}s")
+
+
 def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
     """Create a handoff and execute one OpenCode session.
 
@@ -653,6 +726,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     if options.get("skill_dir"):
         env["GHFLOW_CLI"] = str((Path(options["skill_dir"]) / "cli" / "ghflow.py").resolve())
     session_cwd = options.get("session_cwd") or options.get("cwd")
+    primary_cwd = options.get("cwd")
+    primary_before = None
+    if primary_cwd and session_cwd and Path(session_cwd).resolve() != Path(primary_cwd).resolve():
+        primary_before = git_output(["status", "--porcelain"], cwd=primary_cwd)
     session_log = notes_dir / f"session-{step}-{stamp}.log"
     print(f"[{time.strftime('%X')}] Logging session output to {session_log}")
     if options.get("session_cwd"):
@@ -668,10 +745,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     start_ts = time.time()
     last_event_ts = time.time()
     abort_reason = None
+    slow_step_warned = False
 
     def process_line(line_str):
-        nonlocal session_id, step_num, abort_reason, last_event_ts
+        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned
         last_event_ts = time.time()
+        slow_step_warned = False
         log_fp.write(line_str)
         log_fp.flush()
         stripped = line_str.strip()
@@ -722,6 +801,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
                 if now - last_event_ts > step_idle_timeout:
                     abort_reason = f"Session idle timeout ({step_idle_timeout}s without events)"
                     break
+                message = slow_step_warning(now, last_event_ts, step_idle_timeout, slow_step_warned)
+                if message:
+                    print(f"[{time.strftime('%X')}] {message}", flush=True)
+                    slow_step_warned = True
                 if abort_reason:
                     break
                 if proc.poll() is not None:
@@ -776,6 +859,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     if session_id:
         subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
+    if primary_before is not None:
+        change = primary_checkout_change(primary_before,
+                                         git_output(["status", "--porcelain"], cwd=primary_cwd))
+        if change:
+            print(f"[{time.strftime('%X')}] Warning: the primary checkout changed during the session. "
+                  f"Work only in the task worktree.", flush=True)
     if abort_reason:
         return False, abort_reason
     return proc.returncode == 0, session_id or ""
@@ -901,6 +990,8 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
                        "--expect-head", head, cwd=options.get("cwd"))
     url = (out or {}).get("url") if isinstance(out, dict) else None
     if code == 0:
+        if isinstance(out, dict):
+            out["head"] = head
         print(f"[{time.strftime('%X')}] Opened draft PR {url} at {head[:7]}", flush=True)
         return out
     if code == 3:
@@ -908,6 +999,38 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         return None
     print(f"[{time.strftime('%X')}] Draft PR creation failed (exit {code}): {out}", flush=True)
     return None
+
+
+def published_pr_state(published):
+    """Build a PR view from a publish result when the issue link lags.
+
+    ``facts --issue`` can trail ``pr create`` by a few seconds. Seeding this
+    view keeps the reconciliation loop on the review step instead of parking a
+    successful publish as no progress.
+    """
+    if not isinstance(published, dict) or not published.get("url"):
+        return None
+    return {
+        "number": published.get("number"),
+        "url": published.get("url"),
+        "head": published.get("head"),
+        "head_branch": published.get("head_branch"),
+        "is_draft": True,
+        "state": "OPEN",
+    }
+
+
+def stale_facts_warning(facts):
+    """Return a warning when origin's project facts name stale sources."""
+    project = (facts or {}).get("project_facts") or {}
+    origin = project.get("origin") or {}
+    stale = origin.get("stale_sources") or []
+    if not stale:
+        return None
+    paths = ", ".join(source.get("path", "?") for source in stale)
+    return (f"project facts are stale on origin for: {paths}. "
+            f"Workers branch from origin and may read an outdated file.")
+
 
 def run_precomputed_gate(wt_path, timeout=300):
     """Run local project test gates deterministically before a review-changes session."""
@@ -1240,6 +1363,14 @@ def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None):
         lines += ["", "Park failures:"]
         for entry in park_failures:
             lines.append(f"- {entry.get('issue')}: {entry.get('reason')}")
+    followups = Path(notes_dir) / "followups.md"
+    if followups.is_file():
+        try:
+            text = followups.read_text(encoding="utf-8").strip()
+        except OSError:
+            text = ""
+        if text:
+            lines += ["", "## Follow-ups", "", text]
     try:
         from cli.session import format_tokens, parse_session_log
         logs = sorted(Path(notes_dir).glob("session-*.log"))
@@ -1352,6 +1483,13 @@ def main(argv=None):
         check_active_runs()
     if not args.no_symbol_indexing:
         refresh_tags(options["cwd"])
+    try:
+        facts_out, _ = run_cli("facts", cwd=options.get("cwd"))
+        warning = stale_facts_warning(facts_out)
+        if warning:
+            print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
+    except Exception as error:
+        print(f"[{time.strftime('%X')}] Project facts check skipped: {error}", flush=True)
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
                                      enabled=not args.no_notebook)
@@ -1435,6 +1573,7 @@ def main(argv=None):
         issue_ref = item.get("url") or item.get("issue") or (str(item["number"]) if item.get("number") is not None else None)
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
+        published_pr = None
         # Issue reconciliation loop
         while True:
             remaining_minutes = (deadline_time - time.time()) / 60
@@ -1442,6 +1581,10 @@ def main(argv=None):
                 print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m). Stopping.")
                 break
             state = observe_issue(issue_ref)
+            if not state.get("pr"):
+                seeded = published_pr_state(published_pr)
+                if seeded:
+                    state["pr"] = seeded
             step = next_step(state)
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):
@@ -1453,7 +1596,7 @@ def main(argv=None):
                     set_board_status(issue_ref, "In review", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
                 break
             if step == "park-blocker":
-                pr_url = (state.get("pr") or {}).get("url") or ""
+                pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1465,7 +1608,7 @@ def main(argv=None):
             prev = previous_states.get(issue_ref)
             curr = (step, (state.get("pr") or {}).get("head"), (state.get("review_verdicts") or [{}])[-1].get("verdict"))
             if prev == curr:
-                pr_url = (state.get("pr") or {}).get("url") or ""
+                pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "No progress made in session.")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1500,7 +1643,7 @@ def main(argv=None):
                 narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
                 note_session(step, state["issue"], success, "deterministic", None, state)
                 if not success:
-                    pr_url = (state.get("pr") or {}).get("url") or ""
+                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1547,28 +1690,33 @@ def main(argv=None):
                     if gate_note else
                     "Run `review inspect` and the project gates (`make check`, `make test`)."
                 )
+                workspace_note = (
+                    " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
+                    + (f" Worktree: {step_options['session_cwd']}." if step_options.get("session_cwd") else "")
+                )
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{workspace_note}{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`). {gate_instruction} "
                         f"Post the verdict comment directly with `pr comment`. "
-                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}{gate_note}{verification_note}"
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{stacked_note}{verdict_rule}{gate_note}{verification_note}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
                 if worktree:
                     step_options["session_cwd"] = worktree["path"]
                 directive = (
-                    "Workspace: the runner already prepared the task worktree from the fetched default branch and starts this session inside it. "
+                    "Workspace: the runner prepared the task worktree. The OpenCode shell starts in the project checkout, "
+                    "so prefix each shell command with `cd <worktree>` or use absolute paths. "
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
                     "`git grep origin/...` instead of the worktree: those reads publish nothing. "
-                    "`GHFLOW_CLI` is set in the environment; use `python3 \"$GHFLOW_CLI\"`. "
-                    "For symbol lookups, use `tags find SYMBOL --refs` before `grep`/`rg`, and `tags outline FILE` before reading a whole file. "
+                    "`GHFLOW_CLI` is already set in the environment; use `python3 \"$GHFLOW_CLI\"` and do not re-export it. "
+                    "The task worktree is already prepared; do not run `worktree prepare`. "
                     "Focus solely on editing files in the worktree and passing test gates (`make check`). "
                     "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
                 )
@@ -1635,26 +1783,31 @@ def main(argv=None):
                     live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli,
                                                        cwd=options.get("cwd"), child_state=state,
                                                        force=args.stack) if parent_children else None
-                    publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
-                                      notes_dir, step_options,
-                                      base_branch=live_preceding["branch"] if live_preceding else None,
-                                      cli_fn=run_cli)
+                    return publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
+                                             notes_dir, step_options,
+                                             base_branch=live_preceding["branch"] if live_preceding else None,
+                                             cli_fn=run_cli)
+                return None
 
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options,
                                         log_hook=lambda path: captured.update(log=path))
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
             note_session(step, state["issue"], success, info, captured.get("log"), state)
-            publish_step_work()
+            published_pr = publish_step_work() or published_pr
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
+                prior_actions = recent_session_actions(captured.get("log"))
+                if prior_actions:
+                    step_options["extra_text"] = retry_directive(step_options.get("extra_text"),
+                                                                prior_actions, step=step)
                 captured = {}
                 success, info = run_session(step, state["issue"], notes_dir, step_options,
                                             log_hook=lambda path: captured.update(log=path))
                 note_session(step, state["issue"], success, info, captured.get("log"), state)
-                publish_step_work()
+                published_pr = publish_step_work() or published_pr
                 if not success:
-                    pr_url = (state.get("pr") or {}).get("url") or ""
+                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})

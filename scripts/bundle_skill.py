@@ -43,13 +43,13 @@ python3 "$GHFLOW_CLI" tags outline <file>
 ```
 
 ## 2. Workspace and worktree discipline
-Before editing files, run the idempotent worktree precondition command:
+If the handoff does not name a prepared worktree, run the idempotent precondition command:
 
 ```sh
 python3 "$GHFLOW_CLI" worktree prepare <issue>
 ```
 - **If already inside the worktree**, it returns `"ready": true` with `"action": "already_inside"`. Proceed directly.
-- The queue runner starts this session inside the prepared worktree. If `pwd` is already the worktree, do not run `worktree prepare` and do not prefix commands with `cd`; run commands directly.
+- When the handoff names a prepared worktree, do not run `worktree prepare` again. The shell can start in the project checkout, so `cd` to the worktree or use absolute paths for every command.
 - **If outside**, it prepares the worktree, seeds environment files (`.env`), runs dependency setup, and outputs `"cd_command"`. Run the `cd` command to enter it.
 - **Feed of needful details**: The response supplies the target worktree path, branch, base, test gates (`make check`), and symbol definition locations.
 - **Never edit files in the primary checkout.** Perform all reads, edits, tests, and commits inside your assigned worktree.
@@ -129,7 +129,7 @@ On Turn 1, run the one-turn inspection command:
 python3 "$GHFLOW_CLI" review inspect PR_URL
 ```
 - Prepares the review worktree with environment files and dependencies already seeded.
-- The queue runner starts this session in the implementation worktree at the same head; use it for tests and read the diff from the inspect payload. Do not `cd` to the inspect worktree unless you need a clean detached copy.
+- The queue runner prepares the implementation worktree at the same head; use it for tests and read the diff from the inspect payload. The shell can start in the project checkout, so `cd` to that worktree or use absolute paths. Do not `cd` to the inspect worktree unless you need a clean detached copy.
 - Returns in a single payload: the worktree path, changed files, the exact commit diff (`git diff base..head`), the pre-computed gate, hosted checks, reviews, review verdicts, and pending review requests.
 - If the prompt says the runner already ran `make check` at this head, use `review inspect PR_URL --no-gate` and do not repeat the full check.
 - Use the returned checks and review state; do not duplicate them with `gh api` or `gh pr view` unless a field is missing.

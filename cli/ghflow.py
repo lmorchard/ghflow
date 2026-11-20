@@ -410,7 +410,7 @@ def parse_review_verdicts(comments):
     """Extract review verdict markers from PR top-level comments."""
     if not isinstance(comments, list):
         return None
-    pattern = re.compile(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z_-]+)\s*-->")
+    pattern = re.compile(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z_-]+)(?:\s+model=([^\s]+))?\s*-->")
     verdicts = []
     for comment in comments:
         if not isinstance(comment, dict):
@@ -422,6 +422,7 @@ def parse_review_verdicts(comments):
             verdicts.append({
                 "head": head,
                 "verdict": verdict,
+                "model": match.group(3),
                 "author": comment.get("author"),
                 "created_at": comment.get("created_at"),
                 "comment_id": comment.get("id"),
@@ -2360,9 +2361,10 @@ def pr_comment(repo, number, body_file, gh=run_gh, gh_text=run_gh_text,
             result["comment_id"] = last.get("id")
         if last.get("url"):
             result["comment_url"] = last.get("url")
-        verdict_match = re.search(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z0-9_-]+)\s*-->", body)
+        verdict_match = re.search(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z0-9_-]+)(?:\s+model=([^\s]+))?\s*-->", body)
         if verdict_match:
-            result["verdict"] = {"head": verdict_match.group(1), "verdict": verdict_match.group(2)}
+            result["verdict"] = {"head": verdict_match.group(1), "verdict": verdict_match.group(2),
+                                 "model": verdict_match.group(3)}
     except READ_ERRORS as error:
         result["errors"].append({"part": "readback", "error": str(error)})
         return result, 2
@@ -3140,7 +3142,7 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
     else:
         content = f"## Verdict: {verdict}\n\nReview completed."
 
-    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+\s*-->", "", content).strip()
+    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=[^\s]+)?\s*-->", "", content).strip()
 
     if verdict == "findings":
         m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", clean_content, re.IGNORECASE)
@@ -3878,13 +3880,25 @@ def review_cell(review):
     return f"{state}: {', '.join(names)}" if names else state
 
 
+def verdict_cell(verdict):
+    """Name the current-head ghflow verdict and its model when recorded."""
+    if not verdict:
+        return None
+    head = (verdict.get("head") or "")[:7]
+    text = f"verdict: {verdict.get('verdict')} at {head}"
+    if verdict.get("model"):
+        text += f" ({verdict['model']})"
+    return text
+
+
 def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginated):
     """Read each delivered issue's linked PR with its head, draft state, board Status, parked label,
     current-head required checks, and review state.
 
     The check and review reads reuse pr-state, which reads every page of the reviews and review
-    requests or records the failed part. Review evidence and unattended decisions are not GitHub
-    facts; the coordinator adds them.
+    requests or records the failed part. A current-head ghflow verdict and its optional model
+    are read from PR comments. Unattended decisions are not GitHub facts; the coordinator adds
+    them.
     """
     rows, errors = [], []
     for repo, number in issues:
@@ -3922,6 +3936,9 @@ def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginat
                        required_checks=delivery.get("required_checks"),
                        review=review_summary(delivery.get("reviews"), delivery.get("latest_review_requests"),
                                              delivery.get("pending_review_requests") or []))
+            verdicts = delivery.get("review_verdicts") or []
+            row["verdict"] = next((entry for entry in reversed(verdicts)
+                                   if entry.get("head") == delivery.get("head")), None)
         elif pr:
             errors.append({"part": row["issue"], "error": "The linked PR has no readable number."})
             row["review"] = review_summary(None, None, [])
@@ -3935,10 +3952,14 @@ def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginat
         pr = row["pr"] or {}
         pr_state_text = ("draft" if pr.get("draft") else (pr.get("state") or "").lower()) if pr else "none"
         board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-input)" if row["parked"] else "")
+        review_text = review_cell(row["review"])
+        verdict_text = verdict_cell(row.get("verdict"))
+        if verdict_text:
+            review_text = verdict_text if review_text == "none" else f"{review_text}; {verdict_text}"
         lines.append(f"| {row['issue']} {row['title']} | {pr.get('url', 'none')} | {(pr.get('head') or '')[:7]} | "
-                     f"{pr_state_text} | {ci_cell(row)} | {review_cell(row['review'])} | {board_text} |")
+                     f"{pr_state_text} | {ci_cell(row)} | {review_text} | {board_text} |")
     result = {"rows": rows, "table": "\n".join(lines) + "\n", "errors": errors,
-              "not_included": "Review evidence and decisions taken unattended; add them from the workers' reports."}
+              "not_included": "Unattended decisions are not GitHub facts; add them from the workers' reports."}
     return result, (2 if errors else 0)
 
 
