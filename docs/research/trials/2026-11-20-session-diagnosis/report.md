@@ -1,6 +1,6 @@
 # Session diagnosis fixture trial, 2026-11-20
 
-Subject: issue #104. This is a manual execution trial for `diagnose-session` on a synthetic export tree. The implementing agent ran and graded it. No fresh model session was used.
+Subject: issue #104. Skills: `bbe00d4`. This is a manual execution trial for `diagnose-session` on a synthetic export tree. The implementing agent ran and graded it. No fresh model session was used.
 
 ## Actor prompt
 
