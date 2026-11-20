@@ -2361,9 +2361,10 @@ def pr_comment(repo, number, body_file, gh=run_gh, gh_text=run_gh_text,
             result["comment_id"] = last.get("id")
         if last.get("url"):
             result["comment_url"] = last.get("url")
-        verdict_match = re.search(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z0-9_-]+)\s*-->", body)
+        verdict_match = re.search(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z0-9_-]+)(?:\s+model=([^\s]+))?\s*-->", body)
         if verdict_match:
-            result["verdict"] = {"head": verdict_match.group(1), "verdict": verdict_match.group(2)}
+            result["verdict"] = {"head": verdict_match.group(1), "verdict": verdict_match.group(2),
+                                 "model": verdict_match.group(3)}
     except READ_ERRORS as error:
         result["errors"].append({"part": "readback", "error": str(error)})
         return result, 2
@@ -3141,7 +3142,7 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
     else:
         content = f"## Verdict: {verdict}\n\nReview completed."
 
-    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+\s*-->", "", content).strip()
+    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=[^\s]+)?\s*-->", "", content).strip()
 
     if verdict == "findings":
         m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", clean_content, re.IGNORECASE)
@@ -3895,8 +3896,9 @@ def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginat
     current-head required checks, and review state.
 
     The check and review reads reuse pr-state, which reads every page of the reviews and review
-    requests or records the failed part. Review evidence and unattended decisions are not GitHub
-    facts; the coordinator adds them.
+    requests or records the failed part. A current-head ghflow verdict and its optional model
+    are read from PR comments. Unattended decisions are not GitHub facts; the coordinator adds
+    them.
     """
     rows, errors = [], []
     for repo, number in issues:

@@ -413,11 +413,11 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
     return state
 
 
-def parked_pr_url(state, cli_fn=run_cli, cwd=None):
-    """Return the issue's linked PR URL, re-reading once when the state has none."""
-    pr = state.get("pr") or {}
-    if pr.get("url"):
-        return pr["url"]
+def parked_pr_url(state, published=None, cli_fn=run_cli, cwd=None):
+    """Return the linked PR URL, using the published result before a re-read."""
+    for candidate in (state.get("pr"), published):
+        if isinstance(candidate, dict) and candidate.get("url"):
+            return candidate["url"]
     ref = state.get("issue") or state.get("url")
     if not ref:
         return ""
@@ -651,6 +651,8 @@ def recent_session_actions(log_path, limit=5):
                     event = json.loads(line)
                 except json.JSONDecodeError:
                     continue
+                if not isinstance(event, dict):
+                    continue
                 part = event.get("part") or {}
                 if not (event.get("type") in ("tool", "tool_use") or part.get("type") == "tool"):
                     continue
@@ -663,14 +665,25 @@ def recent_session_actions(log_path, limit=5):
     return actions[-limit:]
 
 
-def retry_directive(extra_text, actions):
+def retry_directive(extra_text, actions, step=None):
     """Append the prior attempt's last actions to a retry directive."""
     if not actions:
         return extra_text
     lines = ["", "", "The previous attempt ended without a change. Its last actions:"]
     lines += [f"- {action}" for action in actions]
-    lines.append("Start by making the first edit; do not repeat this investigation.")
+    if step in ("implement-issue", "address-pr-review"):
+        lines.append("Start by making the first edit; do not repeat this investigation.")
+    else:
+        lines.append("Continue the assigned task from these actions; do not repeat the investigation.")
     return (extra_text or "") + "\n".join(lines)
+
+
+def slow_step_warning(now, last_event_ts, step_idle_timeout, warned):
+    """Describe a step that has waited too long for its first event."""
+    if warned or now - last_event_ts <= SLOW_STEP_WARN_SECONDS:
+        return None
+    return (f"No session events for {int(now - last_event_ts)}s; "
+            f"waiting up to {step_idle_timeout}s")
 
 
 def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
@@ -788,9 +801,9 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
                 if now - last_event_ts > step_idle_timeout:
                     abort_reason = f"Session idle timeout ({step_idle_timeout}s without events)"
                     break
-                if not slow_step_warned and now - last_event_ts > SLOW_STEP_WARN_SECONDS:
-                    print(f"[{time.strftime('%X')}] No session events for "
-                          f"{int(now - last_event_ts)}s; waiting up to {step_idle_timeout}s", flush=True)
+                message = slow_step_warning(now, last_event_ts, step_idle_timeout, slow_step_warned)
+                if message:
+                    print(f"[{time.strftime('%X')}] {message}", flush=True)
                     slow_step_warned = True
                 if abort_reason:
                     break
@@ -1583,7 +1596,7 @@ def main(argv=None):
                     set_board_status(issue_ref, "In review", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
                 break
             if step == "park-blocker":
-                pr_url = parked_pr_url(state, cli_fn=run_cli, cwd=options.get("cwd"))
+                pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1595,7 +1608,7 @@ def main(argv=None):
             prev = previous_states.get(issue_ref)
             curr = (step, (state.get("pr") or {}).get("head"), (state.get("review_verdicts") or [{}])[-1].get("verdict"))
             if prev == curr:
-                pr_url = parked_pr_url(state, cli_fn=run_cli, cwd=options.get("cwd"))
+                pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "No progress made in session.")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1630,7 +1643,7 @@ def main(argv=None):
                 narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
                 note_session(step, state["issue"], success, "deterministic", None, state)
                 if not success:
-                    pr_url = parked_pr_url(state, cli_fn=run_cli, cwd=options.get("cwd"))
+                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
@@ -1786,14 +1799,15 @@ def main(argv=None):
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
                 prior_actions = recent_session_actions(captured.get("log"))
                 if prior_actions:
-                    step_options["extra_text"] = retry_directive(step_options.get("extra_text"), prior_actions)
+                    step_options["extra_text"] = retry_directive(step_options.get("extra_text"),
+                                                                prior_actions, step=step)
                 captured = {}
                 success, info = run_session(step, state["issue"], notes_dir, step_options,
                                             log_hook=lambda path: captured.update(log=path))
                 note_session(step, state["issue"], success, info, captured.get("log"), state)
                 published_pr = publish_step_work() or published_pr
                 if not success:
-                    pr_url = parked_pr_url(state, cli_fn=run_cli, cwd=options.get("cwd"))
+                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})

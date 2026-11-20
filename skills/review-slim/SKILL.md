@@ -28,7 +28,7 @@ On Turn 1, run the one-turn inspection command:
 python3 "$GHFLOW_CLI" review inspect PR_URL
 ```
 - Prepares the review worktree with environment files and dependencies already seeded.
-- The queue runner starts this session in the implementation worktree at the same head; use it for tests and read the diff from the inspect payload. Do not `cd` to the inspect worktree unless you need a clean detached copy.
+- The queue runner prepares the implementation worktree at the same head; use it for tests and read the diff from the inspect payload. The shell can start in the project checkout, so `cd` to that worktree or use absolute paths. Do not `cd` to the inspect worktree unless you need a clean detached copy.
 - Returns in a single payload: the worktree path, changed files, the exact commit diff (`git diff base..head`), the pre-computed gate, hosted checks, reviews, review verdicts, and pending review requests.
 - If the prompt says the runner already ran `make check` at this head, use `review inspect PR_URL --no-gate` and do not repeat the full check.
 - Use the returned checks and review state; do not duplicate them with `gh api` or `gh pr view` unless a field is missing.

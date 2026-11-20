@@ -1911,7 +1911,15 @@ class PrWriteCommandTests(unittest.TestCase):
         fake = FakeReviewGitHub(comments=[("FakeBot", verdict_body)])
         result, status = self.pr_comment(fake)
         self.assertEqual(status, 0, result["errors"])
-        self.assertEqual(result["verdict"], {"head": "aaaaaaa", "verdict": "clean"})
+        self.assertEqual(result["verdict"], {"head": "aaaaaaa", "verdict": "clean", "model": None})
+
+    def test_comment_extracts_a_verdict_model(self):
+        verdict_body = "<!-- ghflow-review head=aaaaaaa verdict=clean model=m/x -->\n\nLooks good."
+        self.body.write_text(verdict_body, encoding="utf-8")
+        fake = FakeReviewGitHub(comments=[("FakeBot", verdict_body)])
+        result, status = self.pr_comment(fake)
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["verdict"]["model"], "m/x")
 
     def test_merge_squashes_the_expected_head_and_reads_back(self):
         fake = FakeReviewGitHub()
@@ -4964,6 +4972,22 @@ class ReviewVerdictTests(unittest.TestCase):
         self.assertTrue(res["success"])
         self.assertEqual(res["verdict"], "clean")
         self.assertIn("<!-- ghflow-review head=abcd123 verdict=clean -->", calls[0][2])
+
+    def test_strips_a_marker_with_model(self):
+        calls = []
+
+        def fake_comment(repo, number, path, identity=None):
+            calls.append(Path(path).read_text())
+            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+
+        body = ("<!-- ghflow-review head=abcd123 verdict=clean model=m/x -->\n\n"
+                "## Blocking findings\n\nNone.\n")
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            res, code = review_verdict("o/r", 5, "clean", body=body)
+        self.assertEqual(code, 0)
+        self.assertNotIn("model=m/x", calls[0])
+        self.assertEqual(calls[0].count("<!-- ghflow-review"), 1)
 
     def test_coerces_clean_when_no_blocking_findings(self):
         calls = []
