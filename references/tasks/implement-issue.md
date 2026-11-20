@@ -34,6 +34,8 @@ Run the relevant baseline before implementation. A long baseline can exceed the 
 
 Bound that investigation. If the suite passes in one configuration, such as a serial run or a smaller worker count, and fails or dies in another, record each configuration with its command and result, name the failing one as an environment limit, and continue; hosted CI settles it on the published commit. Do not repeat a failing configuration without a new reason. If no configuration passes, report the blocker with what you tried instead of continuing to probe.
 
+When a failure has more than one plausible cause, or a correction leaves the same failure without new evidence, use [Debugging](../shared/debugging.md).
+
 ## Mark implementation in progress
 
 When implementation starts, move the issue to In progress, following [Board status](../shared/board-status.md). `worktree create` with `--owner` and `--project` does this move. On resumption, keep a later state such as In review or Done. If the update fails, report it and continue implementation.

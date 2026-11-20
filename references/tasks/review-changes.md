@@ -26,6 +26,22 @@ Keep the implementation checkout unchanged. For a published PR, run `python3 "$G
 
 For a published PR, read its current head, reviews, and top-level comments with `pr-state`, described in [CLI results](../cli.md#reading-pr-state). Read the comment and review bodies. A `null` part is unread, not empty; read it again or report incomplete retrieval. Do not report that a PR has no comments or reviews unless a read returned an empty list.
 
+## Review a correction
+
+Use this section when an earlier review covers an earlier commit. The handoff supplies the previous findings, the commit that review covered, the correction head, and the original review scope and limits. If an input is missing, report the coverage gap and the next review step.
+
+Keep the original base when overall coverage needs it. Distinguish that base from the previously reviewed head.
+
+For each previous finding, give one outcome:
+
+- Addressed: cite the change and its evidence.
+- Still present: cite the current lines and the impact.
+- Unverified: name the missing evidence.
+
+Examine the changes since the previous review and the callers they affect. Report defects that the correction introduces. A defect outside the correction diff can still matter when the correction changes its input or assumption.
+
+A review of the correction diff is not a complete review of the new branch head. Do not claim that coverage without evidence. If the head changed during review, tie the report to the commit you examined.
+
 ## Examine the change
 
 Focus on these questions:
