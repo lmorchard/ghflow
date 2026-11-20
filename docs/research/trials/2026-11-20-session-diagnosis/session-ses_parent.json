@@ -1,0 +1,30 @@
+{
+  "info": {
+    "id": "ses_parent",
+    "title": "Diagnosis fixture parent",
+    "parentID": null,
+    "time": {"created": 1795200000000, "updated": 1795200600000}
+  },
+  "messages": [
+    {
+      "info": {"id": "msg_p1", "role": "assistant", "time": {"created": 1795200010000}},
+      "content": [
+        {"id": "part_p1", "type": "tool", "name": "subagent",
+         "state": {"input": {"description": "Implement A"},
+                   "metadata": {"sessionID": "ses_worker"}}},
+        {"id": "part_p2", "type": "tool", "name": "subagent",
+         "state": {"input": {"description": "Implement B"},
+                   "metadata": {"sessionID": "ses_worker"}}},
+        {"id": "part_p3", "type": "tool", "name": "subagent",
+         "state": {"input": {"description": "Review"},
+                   "metadata": {"sessionID": "ses_missing"}}}
+      ],
+      "tokens": {"input": 1200, "output": 80}
+    },
+    {
+      "info": {"id": "msg_p2", "role": "assistant", "time": {"created": 1795200600000}},
+      "content": [{"id": "part_p4", "type": "text", "text": "done"}],
+      "tokens": {"input": 1400, "output": 20}
+    }
+  ]
+}

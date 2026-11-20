@@ -1,0 +1,24 @@
+{
+  "info": {
+    "id": "ses_worker",
+    "title": "Implement A",
+    "parentID": "ses_parent",
+    "time": {"created": 1795200020000, "updated": 1795200500000}
+  },
+  "messages": [
+    {
+      "info": {"id": "msg_w1", "role": "assistant", "time": {"created": 1795200025000}},
+      "content": [
+        {"id": "part_w1", "type": "tool", "name": "read",
+         "state": {"input": {"path": "src/foo.py"}, "time": {"start": 1795200026000}}},
+        {"id": "part_w2", "type": "tool", "name": "read",
+         "state": {"input": {"path": "src/foo.py"}, "time": {"start": 1795200032000}}}
+      ],
+      "tokens": {"input": 5000, "output": 120}
+    },
+    {
+      "info": {"id": "msg_w2", "role": "assistant", "time": {"created": 1795200500000}},
+      "content": [{"id": "part_w3", "type": "text", "text": "worker done"}]
+    }
+  ]
+}
