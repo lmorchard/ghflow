@@ -931,6 +931,7 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         print(f"[{time.strftime('%X')}] Cannot publish: the issue's repository is unknown", flush=True)
         return None
     path, branch = worktree["path"], worktree["branch"]
+    generated = (worktree.get("setup") or {}).get("generated") or []
     base_ref = worktree.get("base") or "origin/main"
     count_ref = base_ref
     if base_branch:
@@ -944,7 +945,6 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         if status:
             print(f"[{time.strftime('%X')}] Committing uncommitted worktree changes for {branch}", flush=True)
             cli_fn("exec", "--", "git", "-C", path, "add", "-A", cwd=options.get("cwd"))
-            generated = (worktree.get("setup") or {}).get("generated") or []
             for pattern in generated:
                 cli_fn("exec", "--", "git", "-C", path, "reset", "--", pattern, cwd=options.get("cwd"))
             if generated:
@@ -955,6 +955,13 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
             count = committed_count(path, count_ref)
     if not count:
         return None
+    if generated:
+        for pattern in generated:
+            output, code = cli_fn("exec", "--", "git", "-C", path, "restore", "--", pattern,
+                                  cwd=options.get("cwd"))
+            if code != 0:
+                print(f"[{time.strftime('%X')}] Could not restore generated path {pattern}: {output}",
+                      flush=True)
     print(f"[{time.strftime('%X')}] Publishing {count} committed change(s) from {branch}", flush=True)
     pushed, code = cli_fn("exec", "--", "git", "-C", path, "push", "-u", "origin", branch,
                           cwd=options.get("cwd"))
@@ -1694,17 +1701,19 @@ def main(argv=None):
                     " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
                     + (f" Worktree: {step_options['session_cwd']}." if step_options.get("session_cwd") else "")
                 )
+                model_note = (f" Record the review model in the verdict marker: `model={options['model']}`."
+                              if options.get("model") else "")
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{workspace_note}{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`). {gate_instruction} "
                         f"Post the verdict comment directly with `pr comment`. "
-                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{stacked_note}{verdict_rule}{gate_note}{verification_note}"
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note}{verification_note}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
