@@ -1218,7 +1218,7 @@ class ParentSubIssueTests(unittest.TestCase):
         sessions, cli_calls = [], []
 
         def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
-            sessions.append(step)
+            sessions.append((step, dict(options)))
             return True, "ses_id"
 
         def fake_publish(*args, **kwargs):
@@ -1241,11 +1241,15 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.publish_committed", side_effect=fake_publish), \
              patch("run_queue.run_cli", side_effect=fake_cli):
             ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
-                                  "--no-symbol-indexing", "--notes-dir", tmp])
+                                  "--no-symbol-indexing", "--model", "lmstudio/test",
+                                  "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
-        self.assertIn("implement-issue", sessions)
-        self.assertIn("review-changes", sessions)
+        steps = [step for step, _ in sessions]
+        self.assertIn("implement-issue", steps)
+        self.assertIn("review-changes", steps)
+        review = next(options for step, options in sessions if step == "review-changes")
+        self.assertIn("model=lmstudio/test", review.get("extra_text", ""))
         self.assertFalse([args for args in cli_calls if args and args[0] == "park"],
                          "a successful publish must not be parked")
 
@@ -1689,6 +1693,33 @@ class PublishCommittedTests(unittest.TestCase):
         self.assertEqual(create[create.index("--expect-head") + 1], self.HEAD)
         self.assertIn("Part of #9", body)
         self.assertIn("`abc1234` Change", body)
+
+    def test_restores_declared_generated_paths_before_pushing(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        def fake_git(args, cwd=None):
+            return self.HEAD if args[0] == "rev-parse" else "- `abc1234` Change"
+
+        worktree = self.worktree()
+        worktree["setup"] = {"generated": ["openapi.json", "src/client/"]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=1), \
+             patch("run_queue.git_output", side_effect=fake_git):
+            result = run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", worktree,
+                                                 "o/r", Path(tmp), {}, cli_fn=fake_cli)
+        self.assertEqual(result["url"], "https://github.com/o/r/pull/9")
+        restores = [call for call in calls if "restore" in call]
+        self.assertEqual([call[-1] for call in restores], ["openapi.json", "src/client/"])
+        self.assertIn("--source=HEAD", restores[0])
+        self.assertIn("--staged", restores[0])
+        self.assertIn("--worktree", restores[0])
+        restore_index = next(i for i, call in enumerate(calls) if "restore" in call)
+        push_index = next(i for i, call in enumerate(calls) if "push" in call)
+        self.assertLess(restore_index, push_index)
 
     def test_stops_before_creating_a_pr_when_the_push_fails(self):
         calls = []

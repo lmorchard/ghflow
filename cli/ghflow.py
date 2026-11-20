@@ -3124,7 +3124,7 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
     }, 0
 
 
-def review_verdict(repo, number, verdict, body=None, body_file=None, identity=None):
+def review_verdict(repo, number, verdict, body=None, body_file=None, identity=None, model=None):
     """Format and publish a structured review verdict comment with automated head verification."""
     pr_info, code = pr_state(repo, number)
     if code != 0 or not pr_info.get("head"):
@@ -3142,6 +3142,8 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
     else:
         content = f"## Verdict: {verdict}\n\nReview completed."
 
+    marker = re.search(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=([^\s]+))?\s*-->", content)
+    selected_model = model or (marker.group(1) if marker else None)
     clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=[^\s]+)?\s*-->", "", content).strip()
 
     if verdict == "findings":
@@ -3153,7 +3155,11 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
         elif "## Blocking findings" not in clean_content:
             verdict = "clean"
 
-    final_body = f"<!-- ghflow-review head={head} verdict={verdict} -->\n\n{clean_content}\n"
+    final_marker = f"<!-- ghflow-review head={head} verdict={verdict}"
+    if selected_model:
+        final_marker += f" model={selected_model}"
+    final_marker += " -->"
+    final_body = f"{final_marker}\n\n{clean_content}\n"
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
         tf.write(final_body)
@@ -4346,6 +4352,7 @@ def main(argv=None):
     rv_verdict.add_argument("--verdict", required=True, choices=("clean", "findings", "blocked"), help="verdict state")
     rv_verdict.add_argument("--body-file", metavar="FILE", help="UTF-8 file with the review body")
     rv_verdict.add_argument("--body", help="review body string")
+    rv_verdict.add_argument("--model", help="model ID to record in the verdict marker")
     park = commands.add_parser("park", help="Park an unattended delivery: label, issue comment, and a Parked section on the PR, each read back.")
     park.add_argument("issue", help="issue URL, or issue number from the subject checkout")
     park.add_argument("--pr", help="PR URL; omit to park the issue alone")
@@ -4503,7 +4510,7 @@ def main(argv=None):
         elif args.review_command == "inspect":
             result, status = review_inspect(repo, number, path=args.path, no_gate=args.no_gate)
         elif args.review_command == "verdict":
-            result, status = review_verdict(repo, number, args.verdict, body=args.body, body_file=args.body_file, identity=resolve_identity_or_none())
+            result, status = review_verdict(repo, number, args.verdict, body=args.body, body_file=args.body_file, identity=resolve_identity_or_none(), model=args.model)
         else:
             result, status = review_cleanup(number, path=args.path)
     elif args.command == "build":
