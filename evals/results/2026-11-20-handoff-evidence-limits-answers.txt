@@ -1,0 +1,47 @@
+== change text ==
+Scenario: implementation-handoff-operation-scope
+Session ID: 41c0fd3f-c2b2-4abe-b2cb-370d7160860d
+
+**Next step:** I write the implementation handoff with `python3 "$GHFLOW_CLI" handoff implement-issue ISSUE_URL --out FILE`. I put the compatibility decision in a `--decisions FILE`. Then I dispatch one foreground implementation worker with the printed prompt. I haven't run or dispatched anything, as you asked.
+
+**Rule that decides it:** the "Implement and publish draft progress" section of `express-issue.md`, together with "Handoffs" in `shared/coordination.md`. Together they say:
+
+- **Review is already prepared.** The fresh reviewer path and model metadata are established. That satisfies "Prepare required review", which has to happen before substantial dependent implementation. I carry that review plan into the handoff and don't re-prepare it.
+- **The worktree is the worker's job.** The coordinator "does not do subject-repository work", so I don't create it. The `implement-issue` worker creates it.
+- **Resume check:** "Resume from evidence" says to look for existing branches, PRs and notes first. No worktree exists, and nothing in the situation suggests existing work. I'd confirm that from the handoff's `existing work` and `reused` output, not by browsing the repo myself.
+- **The handoff is a pointer, not a procedure.** It names the `implement-issue` task reference and gives the issue URL as the subject, not a PR URL. It also gives the facts the worker can't read itself:
+  - the source commit, target checkout, base commit, and CLI, skill and task paths;
+  - a pointer to the project instructions and to `facts --issue`;
+  - the reviewer path and model metadata;
+  - the authorization (through PR review follow-up, no merge).
+
+  It does not copy the issue body or the procedure, because the worker reads the issue's changes and tests itself.
+- **The compatibility decision goes in the decisions file.** The user's decision lives outside the issue text, so the worker can't recover it. I write out its actual text, not a label, and tell the worker to act on and record it.
+- **Draft publication is authorized in the same session.** The handoff lets the same worker continue into `submit-pr` after the first significant committed checkpoint. It publishes that checkpoint as a draft, resumes implementation on the same branch, and publishes the final commits to the same draft. It must not mark the PR ready or request review.
+- **The return list is fixed.** It covers the PR URL, published head, check results, evidence limits, remaining work, and the model ID the worker's runtime states.
+- **The dispatch is foreground.** I wait for the result and don't end my turn while the worker runs.
+
+**Afterward:** a draft checkpoint doesn't complete the endpoint. Review, corrections and ready submission each go to a new session from their own `handoff`. Because I'm a delegated coordinator, I stop after ready submission and hand the PR follow-up to the parent.
+
+== baseline text ==
+Scenario: implementation-handoff-operation-scope
+Session ID: e7a8d20d-159b-4d5f-945c-90c1d2550021
+
+**Next step:** I write the implementation handoff and dispatch one implementation worker in the foreground. I don't create the worktree, edit code, or do any subject-repository work myself.
+
+I'd do it in this order:
+
+1. **Confirm the mode and identity.** Delegated mode applies, because nothing says this is local-model or single-session work. Before the first write, `python3 "$GHFLOW_CLI" identity` must be ready, and `exec -- gh api user` must return the configured login.
+2. **Check for existing work.** I'd read the task notes and look for existing branches, PRs and review records for #997. The task says no worktree exists, but I'd still reuse any existing draft instead of starting a new branch or PR.
+3. **Write the handoff.** I'd generate it with `python3 "$GHFLOW_CLI" handoff implement-issue <issue URL> --out FILE`, in the run's shared handoff directory. I'd pass `--decisions FILE` with the user's compatibility decision written out in full, because it isn't in the issue text and the worker can't read it. The handoff also carries:
+   - the source commit, target checkout, base commit and project-instructions/facts pointers;
+   - the confirmed scope, the established fresh-reviewer path and its model metadata, and the authorization limits;
+   - the endpoint, which is through PR review follow-up, without merge.
+4. **Authorize draft publication.** The same worker continues into `submit-pr` in the same session. It publishes its first significant committed checkpoint as a draft, then resumes on the same branch. It publishes the final commits before returning. It must not mark the PR ready or request review.
+5. **Request the return list.** The worker returns the PR URL, published head, check results, remaining work, actual results and evidence limits. It also returns the model ID its own runtime reports.
+
+**Rules that decide this**
+- **Primary rule:** "Implement and publish draft progress" in `express-issue.md`. Review preparation is already established, so the next action is to dispatch `implement-issue`. The handoff gives the worker the source revision, confirmed scope and decisions, existing work, review path and authorization limits. It also authorizes `submit-pr` for draft publication only.
+- **Handoffs:** `coordination.md#handoffs` requires me to pass "confirmed decisions" that the worker can't read itself, which is why the compatibility option goes in the decisions file. It also says the handoff must not restate the procedure, so I don't read or copy the worker's task steps. The subject is the issue URL, not a PR URL.
+
+**Not done yet:** review, corrections and the ready submission. A draft checkpoint doesn't trigger the ready-submission handoff. The fresh reviewer comes after the worker returns the published head.
