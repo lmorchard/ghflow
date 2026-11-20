@@ -98,6 +98,12 @@ def issue_turn_limit(body, explicit=None):
     return TURN_LIMITS.get(issue_size(body), DEFAULT_MAX_TURNS)
 
 
+def verification_lines(body):
+    """Return the issue's Verify lines, if it declares them."""
+    return [line.strip() for line in (body or "").splitlines()
+            if re.match(r"^\s*\*\*Verify\.\*\*", line, re.IGNORECASE)]
+
+
 def acquire_run_lock(notes_dir, target=None, lock_path=None):
     """Hold one advisory lock for the run; refuse when another runner holds it.
 
@@ -583,10 +589,10 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             f"You are executing the `{step}` operation for an assigned issue in an isolated worktree.\n"
             "Execution mode: Local-model single session. Stay in this session; do not spawn subagents.\n\n"
             "Tools:\n"
-            f'export GHFLOW_CLI="{cli_py}"\n'
+            f'GHFLOW_CLI is set in the environment; if it is unset, export GHFLOW_CLI="{cli_py}".\n'
             'python3 "$GHFLOW_CLI" --help\n\n'
             "Code exploration:\n"
-            'Use `python3 "$GHFLOW_CLI" tags find <symbol>` and `tags outline <file>` for definition lookups.'
+            'Use `python3 "$GHFLOW_CLI" tags find <symbol> --refs` for definitions and references, and `tags outline <file>` for file structure.'
         )
         return (
             f"{body}\n\n"
@@ -644,11 +650,16 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
         cmd = ["caffeinate", "-i", *cmd]
 
     env = dict(os.environ, OPENCODE_DISABLE_AUTOUPDATE="1")
+    if options.get("skill_dir"):
+        env["GHFLOW_CLI"] = str((Path(options["skill_dir"]) / "cli" / "ghflow.py").resolve())
+    session_cwd = options.get("session_cwd") or options.get("cwd")
     session_log = notes_dir / f"session-{step}-{stamp}.log"
     print(f"[{time.strftime('%X')}] Logging session output to {session_log}")
+    if options.get("session_cwd"):
+        print(f"[{time.strftime('%X')}] Session cwd: {options['session_cwd']}", flush=True)
     log_fp = open(session_log, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
-                            stderr=subprocess.STDOUT, text=True, cwd=options.get("cwd"), env=env, bufsize=1)
+                            stderr=subprocess.STDOUT, text=True, cwd=session_cwd, env=env, bufsize=1)
     session_id = None
     step_num = 0
     max_turns = options.get("max_turns") or DEFAULT_MAX_TURNS
@@ -1473,6 +1484,12 @@ def main(argv=None):
             step_options["max_turns"] = issue_turn_limit(state.get("body"), args.max_turns)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if is_verdict_blocking(v))
+            verification = verification_lines(state.get("body"))
+            verification_note = (
+                " Issue verification: " + " ".join(verification) +
+                " Run these focused tests during iteration; run the full `make test` once before finishing."
+                if verification else ""
+            )
             if step == "submit-pr" and options.get("deterministic_pr", True):
                 print(f"[{time.strftime('%X')}] Submitting PR for {issue_ref} deterministically...", flush=True)
                 success, info = execute_submit_pr(state, owner, project, notes_dir, step_options, cli_fn=run_cli)
@@ -1489,7 +1506,14 @@ def main(argv=None):
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                     break
                 continue
+            elif step == "address-pr-review":
+                existing = worktree_status(state["issue"], cwd=options.get("cwd"))
+                if existing.get("path"):
+                    step_options["session_cwd"] = existing["path"]
             elif step == "submit-pr":
+                existing = worktree_status(state["issue"], cwd=options.get("cwd"))
+                if existing.get("path"):
+                    step_options["session_cwd"] = existing["path"]
                 target_base = f"Target base branch `{preceding_pr['branch']}`. " if preceding_pr else ""
                 step_options["extra_text"] = (
                     f"Direct submission: do not read shared reference files or re-verify code. {target_base}"
@@ -1497,6 +1521,9 @@ def main(argv=None):
                     "Be direct and concise."
                 )
             elif step == "review-changes":
+                existing = worktree_status(state["issue"], cwd=options.get("cwd"))
+                if existing.get("path"):
+                    step_options["session_cwd"] = existing["path"]
                 base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
                 stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo, so rely exclusively on local worktree gate checks." if preceding_pr else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
@@ -1505,6 +1532,7 @@ def main(argv=None):
                 if not options.get("no_precompute_gates", False):
                     review_wt = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
                     if review_wt and review_wt.get("path"):
+                        step_options["session_cwd"] = review_wt["path"]
                         gate_res = run_precomputed_gate(review_wt["path"])
                         if gate_res and gate_res.get("text"):
                             gate_note = f" {gate_res['text']}"
@@ -1514,29 +1542,33 @@ def main(argv=None):
                             narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
 
                 gate_instruction = (
-                    "The runner already ran `make check` at this head; do not repeat the full check. "
+                    "The runner already ran `make check` at this head; use `review inspect --no-gate` and do not repeat the full check. "
                     "Run `make test` and the issue's focused verification tests."
                     if gate_note else
-                    "Run the project gates (`make check`, `make test`)."
+                    "Run `review inspect` and the project gates (`make check`, `make test`)."
                 )
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note} {gate_instruction}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`). {gate_instruction} "
                         f"Post the verdict comment directly with `pr comment`. "
-                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}{gate_note}"
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{stacked_note}{verdict_rule}{gate_note}{verification_note}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
+                if worktree:
+                    step_options["session_cwd"] = worktree["path"]
                 directive = (
-                    "Workspace: the runner already prepared the task worktree from the fetched default branch. "
+                    "Workspace: the runner already prepared the task worktree from the fetched default branch and starts this session inside it. "
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
                     "`git grep origin/...` instead of the worktree: those reads publish nothing. "
+                    "`GHFLOW_CLI` is set in the environment; use `python3 \"$GHFLOW_CLI\"`. "
+                    "For symbol lookups, use `tags find SYMBOL --refs` before `grep`/`rg`, and `tags outline FILE` before reading a whole file. "
                     "Focus solely on editing files in the worktree and passing test gates (`make check`). "
                     "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
                 )
@@ -1593,6 +1625,7 @@ def main(argv=None):
                     checkpoint += f" Run narrative: {notebook.discussion['url']}"
                 narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint,
                                                 cwd=options.get("cwd"))
+                directive += verification_note
                 step_options["extra_text"] = directive
             captured = {}
 

@@ -3078,7 +3078,8 @@ def review_cleanup(number, cwd=None, path=None, git=run_git):
     return result, 0
 
 
-def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, gate_fn=None):
+def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, gate_fn=None,
+                   gh_paginated=run_gh_paginated, no_gate=False):
     """Prepare a review worktree, extract the commit diff, and pre-compute gates in one call."""
     gate_fn = gate_fn or run_gate
     prep_res, prep_code = review_prepare(repo, number, cwd=cwd, path=path, git=git, gh=gh)
@@ -3092,7 +3093,10 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
     diff_output = git(["diff", f"{base}..{head}"], wt_path) or ""
     files_changed = [f for f in (git(["diff", "--name-only", f"{base}..{head}"], wt_path) or "").splitlines() if f.strip()]
 
-    gate_result, _ = gate_fn(command="make check", cwd=wt_path, timeout=300)
+    gate_result = None
+    if not no_gate:
+        gate_result, _ = gate_fn(command="make check", cwd=wt_path, timeout=300)
+    pr_info, _ = pr_state(repo, number, gh=gh, gh_paginated=gh_paginated)
 
     return {
         "ready": True,
@@ -3103,8 +3107,18 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
         "files_changed": files_changed,
         "diff_stat": prep_res.get("stat") or "",
         "diff": diff_output[:12000],
-        "gate": gate_result.get("summary") if gate_result else "none",
-        "gate_success": gate_result.get("success") if gate_result else None,
+        "gate": "skipped" if no_gate else (gate_result.get("summary") if gate_result else "none"),
+        "gate_success": None if no_gate else (gate_result.get("success") if gate_result else None),
+        "ci": pr_info.get("ci"),
+        "checks": pr_info.get("checks"),
+        "reviews": pr_info.get("reviews"),
+        "review_summary": pr_info.get("review_summary"),
+        "review_verdicts": pr_info.get("review_verdicts"),
+        "pending_review_requests": pr_info.get("pending_review_requests"),
+        "pr_state": pr_info.get("state"),
+        "is_draft": pr_info.get("is_draft"),
+        "base_behind_by": pr_info.get("base_behind_by"),
+        "pr_errors": pr_info.get("errors") or [],
     }, 0
 
 
@@ -4302,6 +4316,8 @@ def main(argv=None):
     rv_inspect.add_argument("pr", help="PR URL, or PR number with --repo")
     rv_inspect.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     rv_inspect.add_argument("--path", help="custom worktree path")
+    rv_inspect.add_argument("--no-gate", action="store_true",
+                            help="skip make check when the runner already ran it at this head")
 
     rv_verdict = review_commands.add_parser("verdict", help="Format and publish an affirmative review verdict comment with automated readback.")
     rv_verdict.add_argument("pr", help="PR URL, or PR number with --repo")
@@ -4369,6 +4385,8 @@ def main(argv=None):
     tags_find.add_argument("--tags-file", help="tags file path (default .git/tags)")
     tags_find.add_argument("--kind", help="filter by symbol kind (function, class, method, variable, etc.)")
     tags_find.add_argument("--prefix", action="store_true", help="prefix match instead of exact match")
+    tags_find.add_argument("--refs", action="store_true", help="include bounded, code-only reference locations")
+    tags_find.add_argument("--ref-limit", type=int, default=5, help="maximum references to return (default 5)")
     tags_outline = tags_commands.add_parser("outline", help="List all symbol definitions in a file.")
     tags_outline.add_argument("file", help="path to source file")
     tags_outline.add_argument("--repo", help="repository root (default current directory)")
@@ -4423,6 +4441,8 @@ def main(argv=None):
             result, status = session_mod.session_debrief(args.dir)
             if not getattr(args, "json", False) and result.get("table"):
                 sys.stdout.write(result["table"] + "\n")
+                if result.get("tool_table"):
+                    sys.stdout.write(result["tool_table"] + "\n")
                 return status
     elif args.command == "gate":
         result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
@@ -4460,7 +4480,7 @@ def main(argv=None):
             result, status = review_prepare(repo, number, path=args.path, copy=args.copy, setup=args.setup,
                                             no_setup=args.no_setup)
         elif args.review_command == "inspect":
-            result, status = review_inspect(repo, number, path=args.path)
+            result, status = review_inspect(repo, number, path=args.path, no_gate=args.no_gate)
         elif args.review_command == "verdict":
             result, status = review_verdict(repo, number, args.verdict, body=args.body, body_file=args.body_file, identity=resolve_identity_or_none())
         else:
@@ -4508,6 +4528,8 @@ def main(argv=None):
     elif args.command == "tags" and args.tags_command == "find":
         result, status = tags.find_tags(args.symbol, repo_root=args.repo, tags_file=args.tags_file,
                                         exact=not args.prefix, kind=args.kind)
+        if status == 0 and args.refs:
+            result["references"] = tags.find_references(args.symbol, repo_root=args.repo, limit=args.ref_limit)
     elif args.command == "tags" and args.tags_command == "outline":
         result, status = tags.outline_file(args.file, repo_root=args.repo, tags_file=args.tags_file)
     elif args.command == "handoff":
