@@ -163,12 +163,26 @@ class NextStepTableTests(unittest.TestCase):
         self.assertEqual(run_queue.next_step({**base, "ci": "incomplete"}), "wait-ci")
         self.assertEqual(run_queue.next_step({**base, "ci": "unread"}), "WAITING")
 
-    def test_issue_turn_limits_follow_size(self):
-        self.assertEqual(run_queue.issue_turn_limit("**Size:** XS"), 75)
-        self.assertEqual(run_queue.issue_turn_limit("**Size:** S"), 150)
-        self.assertEqual(run_queue.issue_turn_limit("**Size:** XL"), 400)
-        self.assertEqual(run_queue.issue_turn_limit("no size"), run_queue.DEFAULT_MAX_TURNS)
-        self.assertEqual(run_queue.issue_turn_limit("**Size:** S", 42), 42)
+    def test_issue_turn_limit_is_flat(self):
+        self.assertEqual(run_queue.DEFAULT_MAX_TURNS, 150)
+        self.assertEqual(run_queue.issue_turn_limit(), 150)
+        self.assertEqual(run_queue.issue_turn_limit(42), 42)
+
+    def test_context_helpers(self):
+        self.assertIsNone(run_queue.context_warning(99999, 100000, False))
+        self.assertIn("100000", run_queue.context_warning(100000, 100000, False))
+        self.assertIsNone(run_queue.context_warning(100000, 100000, True))
+        self.assertIsNone(run_queue.context_cap_reason(100000, 0))
+        self.assertIsNone(run_queue.context_cap_reason(99999, 100000))
+        self.assertIn("cap 100000", run_queue.context_cap_reason(100000, 100000))
+        self.assertEqual(run_queue.step_context_tokens(
+            {"input": 500, "cache": {"read": 105000, "write": 7}}), 105507)
+        self.assertEqual(run_queue.step_context_tokens({"input": 10}), 10)
+        self.assertEqual(run_queue.step_context_tokens({}), 0)
+
+    def test_negative_context_limits_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            run_queue.main(["--context-warn-tokens", "-1", "--no-notebook"])
 
     def test_verification_lines_extracts_verify_clause(self):
         body = "**Size:** S\n\n**Verify.** `make test` — `tests/test_x.py`.\n\n**Tests.** Add a case."
@@ -1261,7 +1275,7 @@ class ParentSubIssueTests(unittest.TestCase):
                           "url": "https://github.com/o/r/issues/102"}],
         }
         base = {"issue": "https://github.com/o/r/issues/102", "number": 102,
-                "title": "Child 2", "body": "", "labels": ["triage:ready"], "repo": "o/r"}
+                "title": "Child 2", "body": "**Size:** XL", "labels": ["triage:ready"], "repo": "o/r"}
         observes = {"n": 0}
 
         def fake_observe(ref, cli_fn=None, cwd=None):
@@ -1305,11 +1319,16 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
                                   "--no-symbol-indexing", "--step-idle-timeout", "1200",
+                                  "--context-warn-tokens", "50000",
+                                  "--max-context-tokens", "90000",
                                   "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
         self.assertEqual([step for step, _ in sessions], ["implement-issue", "implement-issue"])
         self.assertEqual(sessions[0][1]["step_idle_timeout"], 1200)
+        self.assertEqual(sessions[0][1]["max_turns"], 150)
+        self.assertEqual(sessions[0][1]["context_warn_tokens"], 50000)
+        self.assertEqual(sessions[0][1]["max_context_tokens"], 90000)
         self.assertIn("grep -n x /w/a.py", sessions[1][1]["extra_text"])
         self.assertIn("first edit", sessions[1][1]["extra_text"])
 
@@ -1466,6 +1485,80 @@ class ParentSubIssueTests(unittest.TestCase):
 
         self.assertTrue(ok)
         self.assertIn("No session events for 121s", out.getvalue())
+
+    def test_context_warning_and_cap_in_run_session(self):
+        class FakeStdout:
+            def __init__(self, lines):
+                self.lines = iter(lines)
+
+            def __iter__(self):
+                return self
+
+            def __next__(self):
+                return next(self.lines)
+
+        class FakeProc:
+            def __init__(self, lines):
+                self.stdout = FakeStdout(lines)
+                self.returncode = 0
+
+            def poll(self):
+                return 0
+
+            def wait(self, timeout=None):
+                return 0
+
+            def terminate(self):
+                pass
+
+            def kill(self):
+                pass
+
+        line = json.dumps({
+            "type": "step_finish", "sessionID": "s1",
+            "part": {"type": "step-finish",
+                     "tokens": {"input": 500, "output": 10, "reasoning": 0,
+                                "cache": {"read": 105000, "write": 0}}}}) + "\n"
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = Path(tmp)
+            skill = notes / "skill"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            primary = notes / "primary"
+            primary.mkdir()
+            worktree = notes / "worktree"
+            worktree.mkdir()
+            options = {"cwd": str(primary), "session_cwd": str(worktree),
+                       "skill_dir": str(skill), "model": None, "standalone": False,
+                       "context_warn_tokens": 100000, "max_context_tokens": 0}
+
+            def fake_cli(*args, cwd=None):
+                return {"dispatch_prompt": "do it"}, 0
+
+            with patch("run_queue.git_output", return_value=""), \
+                 patch("run_queue.subprocess.Popen", return_value=FakeProc([line, line])), \
+                 patch("run_queue.subprocess.run"):
+                out = io.StringIO()
+                with contextlib.redirect_stdout(out):
+                    ok, _ = run_queue.run_session(
+                        "implement-issue", "https://github.com/o/r/issues/1", notes,
+                        options, cli_fn=fake_cli)
+            self.assertTrue(ok)
+            self.assertEqual(out.getvalue().count("Session context reached"), 1)
+            self.assertIn("Session context reached 105500", out.getvalue())
+            log_text = next(notes.glob("session-*.log")).read_text(encoding="utf-8")
+            self.assertEqual(log_text.count("runner_warning"), 1)
+            self.assertIn("105500", log_text)
+
+            options["max_context_tokens"] = 100000
+            with patch("run_queue.git_output", return_value=""), \
+                 patch("run_queue.subprocess.Popen", return_value=FakeProc([line])), \
+                 patch("run_queue.subprocess.run"):
+                ok, reason = run_queue.run_session(
+                    "implement-issue", "https://github.com/o/r/issues/1", notes,
+                    options, cli_fn=fake_cli)
+            self.assertFalse(ok)
+            self.assertIn("cap 100000", reason)
 
     def test_main_warns_on_stale_facts(self):
         facts = {"project_facts": {"origin": {"stale_sources": [{"path": "Makefile"}]}}}

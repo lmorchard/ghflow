@@ -22,11 +22,12 @@ CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 150
 DEFAULT_SESSION_TIMEOUT = 5400
 DEFAULT_STEP_IDLE_TIMEOUT = 900
+DEFAULT_CONTEXT_WARN_TOKENS = 100000
+DEFAULT_MAX_CONTEXT_TOKENS = 0
 SLOW_STEP_WARN_SECONDS = 120
 MAX_DEGENERATE_REASONING = 10000
 PRIORITY_ORDER = ("P0", "P1")
 SIZE_ORDER = ("XS", "S", "M", "L", "XL")
-TURN_LIMITS = {"XS": 75, "S": 150, "M": 200, "L": 300, "XL": 400}
 _RUN_LOCK = None
 
 
@@ -86,17 +87,9 @@ def board_rank(number, board_index=None):
     return (p_rank, s_rank, number)
 
 
-def issue_size(body):
-    """Read the issue's declared Size (XS, S, M, L, XL), or None."""
-    match = re.search(r"^\s*(?:\*\*)?Size\s*:\s*(?:\*\*)?\s*(XS|S|M|L|XL)\b", body or "", re.IGNORECASE | re.MULTILINE)
-    return match.group(1).upper() if match else None
-
-
-def issue_turn_limit(body, explicit=None):
-    """Return the session turn cap: explicit override, else the issue Size, else the default."""
-    if explicit:
-        return explicit
-    return TURN_LIMITS.get(issue_size(body), DEFAULT_MAX_TURNS)
+def issue_turn_limit(explicit=None):
+    """Return the session turn cap: explicit override, else the flat default."""
+    return explicit or DEFAULT_MAX_TURNS
 
 
 def verification_lines(body):
@@ -686,6 +679,29 @@ def slow_step_warning(now, last_event_ts, step_idle_timeout, warned):
             f"waiting up to {step_idle_timeout}s")
 
 
+def context_warning(context_tokens, warn_tokens, warned):
+    """Describe a session that reached the context warning threshold."""
+    if warned or not warn_tokens or context_tokens < warn_tokens:
+        return None
+    return f"Session context reached {context_tokens} tokens (warn {warn_tokens})."
+
+
+def context_cap_reason(context_tokens, max_tokens):
+    """Describe a session that reached the context cap, or None."""
+    if not max_tokens or context_tokens < max_tokens:
+        return None
+    return f"Session context reached {context_tokens} tokens (cap {max_tokens})"
+
+
+def step_context_tokens(tokens):
+    """Return a step's context size, including cached prompt tokens."""
+    tokens = tokens or {}
+    cache = tokens.get("cache") or {}
+    return (int(tokens.get("input") or 0)
+            + int(cache.get("read") or 0)
+            + int(cache.get("write") or 0))
+
+
 def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
     """Create a handoff and execute one OpenCode session.
 
@@ -746,9 +762,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     last_event_ts = time.time()
     abort_reason = None
     slow_step_warned = False
+    context_warn_tokens = options.get("context_warn_tokens", DEFAULT_CONTEXT_WARN_TOKENS)
+    max_context_tokens = options.get("max_context_tokens", DEFAULT_MAX_CONTEXT_TOKENS)
+    context_warned = False
 
     def process_line(line_str):
-        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned
+        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned, context_warned
         last_event_ts = time.time()
         slow_step_warned = False
         log_fp.write(line_str)
@@ -782,7 +801,19 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             out_tok = tokens.get("output", 0)
             reason_tok = tokens.get("reasoning", 0)
             reason = part.get("reason") or event.get("reason")
-            print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens)", flush=True)
+            context_tokens = step_context_tokens(tokens)
+            print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens, "
+                  f"context: {context_tokens})", flush=True)
+            warning = context_warning(context_tokens, context_warn_tokens, context_warned)
+            if warning:
+                print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
+                log_fp.write(json.dumps({"type": "runner_warning", "reason": warning,
+                                         "timestamp": int(time.time() * 1000)}) + "\n")
+                log_fp.flush()
+                context_warned = True
+            cap_reason = context_cap_reason(context_tokens, max_context_tokens)
+            if cap_reason:
+                abort_reason = cap_reason
             if out_tok == 0 and (reason_tok >= MAX_DEGENERATE_REASONING or reason == "length"):
                 abort_reason = f"Session stalled in reasoning loop ({reason_tok} reasoning tokens, 0 output)"
         elif ev_type == "error":
@@ -1417,10 +1448,14 @@ def main(argv=None):
     parser.add_argument("--skill-dir", default=str(Path(__file__).resolve().parent.parent), help="path to ghflow skill root")
     parser.add_argument("--notes-dir", help="custom task notes directory")
     parser.add_argument("--max-turns", type=int, default=None,
-                        help="maximum turns per session; default by issue Size (XS 75, S 150, M 200, L 300, XL 400; fallback 150)")
+                        help="maximum turns per session (default 150)")
     parser.add_argument("--session-timeout", type=int, default=DEFAULT_SESSION_TIMEOUT, help="maximum seconds per session (default 5400)")
     parser.add_argument("--step-idle-timeout", type=int, default=DEFAULT_STEP_IDLE_TIMEOUT,
                         help=f"maximum idle seconds without stream events before session abort (default {DEFAULT_STEP_IDLE_TIMEOUT})")
+    parser.add_argument("--context-warn-tokens", type=int, default=DEFAULT_CONTEXT_WARN_TOKENS,
+                        help=f"warn when a step reaches this input and cached-prompt token count (default {DEFAULT_CONTEXT_WARN_TOKENS})")
+    parser.add_argument("--max-context-tokens", type=int, default=DEFAULT_MAX_CONTEXT_TOKENS,
+                        help="stop a session at a step boundary at this input and cached-prompt token count (default 0, off)")
     parser.add_argument("--no-precompute-gates", action="store_true",
                         help="do not run pre-computed test gates before review-changes")
     parser.add_argument("--no-symbol-indexing", action="store_true",
@@ -1430,6 +1465,8 @@ def main(argv=None):
     parser.add_argument("--no-deterministic-pr", action="store_true",
                         help="dispatch an LLM worker session for submit-pr instead of submitting deterministically")
     args = parser.parse_args(argv)
+    if args.context_warn_tokens < 0 or args.max_context_tokens < 0:
+        parser.error("--context-warn-tokens and --max-context-tokens must be 0 or greater")
 
     exclude = set()
     if args.exclude:
@@ -1477,6 +1514,8 @@ def main(argv=None):
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
         "step_idle_timeout": args.step_idle_timeout,
+        "context_warn_tokens": args.context_warn_tokens,
+        "max_context_tokens": args.max_context_tokens,
         "no_precompute_gates": args.no_precompute_gates,
         "no_symbol_indexing": args.no_symbol_indexing,
         "deterministic_pr": not args.no_deterministic_pr,
@@ -1632,7 +1671,7 @@ def main(argv=None):
                                              cwd=options.get("cwd"), child_state=state,
                                              force=args.stack) if parent_children else None
             step_options = dict(options)
-            step_options["max_turns"] = issue_turn_limit(state.get("body"), args.max_turns)
+            step_options["max_turns"] = issue_turn_limit(args.max_turns)
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if is_verdict_blocking(v))
             verification = verification_lines(state.get("body"))
