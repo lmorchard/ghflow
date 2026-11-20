@@ -72,6 +72,12 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [curate-unattended-fit](scenarios/curate-unattended-fit.md) | 2026-10-14 | e4e7ef1 | claude | claude-sonnet-5-5 | Pass (2/2) | final text | [2026-10-14-unattended-fit.md](results/2026-10-14-unattended-fit.md) |
 | [deadline-declines-optional-notes](scenarios/deadline-declines-optional-notes.md) | 2026-10-14 | aaa4d7a | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-14-small-rules.md](results/2026-10-14-small-rules.md) |
 | [deadline-ready-step-finishes](scenarios/deadline-ready-step-finishes.md) | 2026-10-21 | f00d219 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-21-run7-candidates.md](results/2026-10-21-run7-candidates.md) |
+| [debug-missing-generated-file](scenarios/debug-missing-generated-file.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
+| [debug-missing-generated-file](scenarios/debug-missing-generated-file.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
+| [debug-repeated-correction-failure](scenarios/debug-repeated-correction-failure.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
+| [debug-repeated-correction-failure](scenarios/debug-repeated-correction-failure.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
+| [debug-serial-parallel-suite](scenarios/debug-serial-parallel-suite.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
+| [debug-serial-parallel-suite](scenarios/debug-serial-parallel-suite.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-debugging.md](results/2026-11-20-debugging.md): One sample; author-graded; baseline also passes. |
 | [definition-hits-dependency](scenarios/definition-hits-dependency.md) | 2026-10-08 | c96332a | Claude Code general-purpose subagent | unknown | Pass (2/2) | sample | [2026-10-08-blocked-parked-labels.md](results/2026-10-08-blocked-parked-labels.md): Actor model unreported; report only guesses inheritance from parent. |
 | [delivery-early-draft](scenarios/delivery-early-draft.md) | 2026-10-12 | abe744e | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-11-submit-pr-cleanup.md](results/2026-10-11-submit-pr-cleanup.md) |
 | [draft-only-limit](scenarios/draft-only-limit.md) | 2026-10-02 | 79737b3 | unknown | Claude Sonnet | Pass | sample | [2026-10-02-full.md](results/2026-10-02-full.md) |
@@ -151,6 +157,16 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 | [review-comments-unread](scenarios/review-comments-unread.md) | 2026-10-12 | de884ff | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-12-notes-and-review-notes.md](results/2026-10-12-notes-and-review-notes.md) |
 | [review-comments-unread](scenarios/review-comments-unread.md) | 2026-10-12 | 83b2237 | claude | claude-sonnet-5-5 | Pass (2/2) | sonnet-new-text | [2026-10-12-pr-state-comments.md](results/2026-10-12-pr-state-comments.md) |
 | [review-comments-unread](scenarios/review-comments-unread.md) | 2026-10-12 | 83b2237 | opencode | ggml-org/Qwen3.8-27B-GGUF:Q4_K_M | Pass | qwen-new-text | [2026-10-12-pr-state-comments.md](results/2026-10-12-pr-state-comments.md): Local Qwen through OpenCode, output limit 262144; OpenCode events do not report provider model identity. |
+| [review-correction-head-change](scenarios/review-correction-head-change.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-head-change](scenarios/review-correction-head-change.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-missing-evidence](scenarios/review-correction-missing-evidence.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-missing-evidence](scenarios/review-correction-missing-evidence.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-scope-claim](scenarios/review-correction-scope-claim.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-scope-claim](scenarios/review-correction-scope-claim.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-shared-helper](scenarios/review-correction-shared-helper.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-shared-helper](scenarios/review-correction-shared-helper.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-two-findings](scenarios/review-correction-two-findings.md) | 2026-11-20 | 05daf77e56df94a73ccd2df98c62701abd08050f | claude | sonnet | Pass | baseline text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
+| [review-correction-two-findings](scenarios/review-correction-two-findings.md) | 2026-11-20 | a5853027ec7a91aabd36d36d32912e70c937a62f | claude | sonnet | Pass | change text | [2026-11-20-correction-review.md](results/2026-11-20-correction-review.md): One sample; author-graded; baseline also passes. |
 | [review-exception-local-model](scenarios/review-exception-local-model.md) | 2026-10-13 | 274ff30 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-waiver-model-evidence.md](results/2026-10-13-waiver-model-evidence.md) |
 | [review-exception-not-approved](scenarios/review-exception-not-approved.md) | 2026-10-11 | 58efdc11e0bb8500455bf1fef4ddb42d7ba3d486 | Claude Code 2.1.296 | claude-sonnet-5-5 | Pass (2/2) | regression | [2026-10-11-coordinator-preparation-regression.md](results/2026-10-11-coordinator-preparation-regression.md): Selected and runtime-reported model match. |
 | [review-exception-outside-scope](scenarios/review-exception-outside-scope.md) | 2026-10-13 | 274ff30 | claude | claude-sonnet-5-5 | Pass | regression | [2026-10-13-waiver-model-evidence.md](results/2026-10-13-waiver-model-evidence.md) |
@@ -219,18 +235,10 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
-- [debug-missing-generated-file](scenarios/debug-missing-generated-file.md)
-- [debug-repeated-correction-failure](scenarios/debug-repeated-correction-failure.md)
-- [debug-serial-parallel-suite](scenarios/debug-serial-parallel-suite.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [express-single-session-endpoint](scenarios/express-single-session-endpoint.md)
 - [local-model-single-session](scenarios/local-model-single-session.md)
 - [mismatched-plain-gh-login](scenarios/mismatched-plain-gh-login.md)
-- [review-correction-head-change](scenarios/review-correction-head-change.md)
-- [review-correction-missing-evidence](scenarios/review-correction-missing-evidence.md)
-- [review-correction-scope-claim](scenarios/review-correction-scope-claim.md)
-- [review-correction-shared-helper](scenarios/review-correction-shared-helper.md)
-- [review-correction-two-findings](scenarios/review-correction-two-findings.md)
 - [single-session-review-corrections](scenarios/single-session-review-corrections.md)
 - [single-session-scope-boundary](scenarios/single-session-scope-boundary.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
