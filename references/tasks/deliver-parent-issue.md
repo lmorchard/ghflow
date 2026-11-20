@@ -48,7 +48,7 @@ After the parent receives the responsible worker's final result for the chosen c
 
 If a child is blocked, record its state and dependency, and continue an independent child when useful and authorized. When the blocker needs a user decision, return a focused question about it now; do not wait until other work runs out. Do not hide the blocker or skip work the parent needs. When no useful authorized progress remains, stop and return a focused question, or report the pending one.
 
-Treat new user feedback, smoke-test results, and regressions as active evidence. Fix defects that this effort caused before dependent tasks. Report unrelated pre-existing defects without adding them to the parent's scope.
+Treat new user feedback, smoke-test results, and regressions as active evidence. Fix defects that this effort caused before dependent tasks. Report unrelated pre-existing defects without adding them to the parent's scope, and record them as follow-ups following [Follow-ups](../shared/followups.md).
 
 ## Verify the parent result
 
