@@ -1,0 +1,233 @@
+===== debug-missing-generated-file (change) =====
+Scenario: debug-missing-generated-file
+Session ID: 36077f5b-923e-4dee-aa27-5ade9db189f9
+
+**Next step:** I'd follow the Debugging method. I wouldn't edit anything, and I wouldn't rerun `make check`.
+
+**Rule that decides it:** `implement-issue.md` says "When a failure has more than one plausible cause, or a correction leaves the same failure without new evidence, use Debugging." The missing `src/message_types.py` has two plausible causes. Either the generation step didn't run, or it wrote to a different path. That is the trigger. The method is in `shared/debugging.md`.
+
+**What I'd do under that method:**
+
+1. **State one hypothesis.** For example: "The generator ran but wrote somewhere other than `src/`." I'd list what supports it and what's still uncertain. So far I have only one import failure, and I haven't looked at the build target or the generator output.
+
+2. **Choose one experiment that separates the two causes.** The cheapest is a read-only look at the build target's recipe, or a search for `message_types.py` anywhere in the worktree. I'd say beforehand what each result means:
+   - The file exists at another path. The generator ran, so the output path or the import path is wrong.
+   - The file exists nowhere, and the target never invokes the generator. The step didn't run, or a prerequisite is missing.
+   - The generator is invoked but produces nothing. That is a third cause, a generator failure, and I'd note it as such.
+
+3. **Record the actual result before changing code**, in the task notes. If the hypothesis is disproved, I'd form a different one, or report a blocker if none survives. I wouldn't keep editing on the same assumption.
+
+**Why not just rerun `make check` or add the file by hand:** the Debugging rule says not to repeat a command without a new reason, and not to edit on an unsupported assumption. A rerun would give the same import error. Hand-writing the generated file would hide the real build problem. This also ties to the skill's instruction to prepare generated code before the baseline. A missing generated file is a setup problem, not evidence of the reported bug. Under that rule I must not treat the failing check as a baseline result until I know why the file is missing.
+
+===== debug-missing-generated-file (baseline) =====
+Scenario: debug-missing-generated-file
+Session ID: 7390f6a4-cb8c-45b3-9f37-09b361993f73
+
+**Next step:** I'd inspect the build target and the generator output before changing anything. Concretely, I'd read the Makefile rule or build step that is supposed to produce `src/message_types.py`. Then I'd look at where the generator actually writes, and whether it ran at all. Those are read-only checks, and they would show which of the two explanations is true.
+
+**Rule that decides it:** The deciding rule is in `references/shared/decisions.md`, under "Resolve facts and routine choices". It says: "Research discoverable facts in current code, tests, documentation, or other relevant sources… An unread source is an evidence gap, not a user decision." The build target and generator output are discoverable and I haven't read them yet. So I shouldn't ask the user or guess.
+
+`implement-issue.md` backs this up in two places:
+- **Baseline preparation:** "Prepare what the baseline checks need, such as generated code." A missing generated file is a setup problem for me to fix.
+- **Setup versus real failure:** "Make sure the failure comes from the reported behavior, not a broken setup," and "setup errors do not demonstrate the reported bug." The single `make check` import failure is a setup symptom. It says nothing about the issue's code, so I wouldn't count it as a baseline failure or a reproduction.
+
+**What happens after I look:**
+- **Generator didn't run:** I'd run the declared generation step as the project directs. Installing or generating inside the project is part of the task.
+- **Generator wrote to a different path:** I'd find out why. If the cause is a config or invocation mistake, I'd fix it. Then I'd rerun the baseline and record the result with its command.
+- **Neither explanation holds:** I'd follow the bounded-investigation rule. That means recording what I tried, not repeating a failing configuration without a new reason, and reporting the blocker.
+
+I'd record the findings in the task notes. I wouldn't call anything verified until a command has shown it.
+
+===== debug-repeated-correction-failure (change) =====
+Scenario: debug-repeated-correction-failure
+Session ID: 32073a49-d2b1-4927-8de9-f5cae8c730d5
+
+**Don't raise the timeout a second time. Switch to the Debugging method before making any other edit.**
+
+**The rule that decides it:** in `address-pr-review.md`, under "Address the findings", the skill says: "When a failed correction leaves the same error without new evidence, use [Debugging](../shared/debugging.md) before another edit." That matches this case. The first correction, raising the timeout, left the same test failing with the same timeout. I have no new evidence. Raising it again would be an edit based on an unsupported assumption.
+
+Two related rules point the same way:
+- **Under "Watch and repair CI":** "Do not retry an unchanged failure without new evidence or a specific reason that a retry can help."
+- **Under "Address the findings":** "Do not weaken a success condition to satisfy a suggestion." Repeatedly loosening a timeout risks doing exactly that.
+
+**What I do, following `debugging.md`:**
+1. **State one hypothesis.** The reviewer's "timeout too low" explanation is now weakened, because the test fails at the same timeout. I would name a single alternative, for example that the test hangs or deadlocks, or that it waits on something that never happens. I would list the supporting observations and the uncertainty that remains.
+2. **Choose one small experiment** whose result differs between the explanations. One example is reading the job log to see whether the failure is a real timeout or a different error. I would say beforehand what each outcome would show. I would not just rerun the suite.
+3. **Record the actual result** before changing any code or trying another cause. If the hypothesis is disproved, I move to a different explanation or report a blocker. I do not keep editing on the same assumption.
+4. **If no explanation survives**, I report the evidence, the attempts, and the remaining uncertainty. I keep the attempts in the task notes. I also reply on the review thread, explaining what I changed and why it didn't resolve the failure, and I leave that discussion open.
+
+===== debug-repeated-correction-failure (baseline) =====
+Scenario: debug-repeated-correction-failure
+Session ID: 336de0c6-87e7-4f0d-b4d6-ef72a4b8c8f3
+
+**Next step: don't raise the timeout again. Read the failing job's log and find the actual cause of the failure.**
+
+**The rule that decides it** is in "Watch and repair CI" in `address-pr-review.md`. It says: "Do not retry an unchanged failure without new evidence or a specific reason that a retry can help." Raising the timeout a second time would be exactly that kind of retry. The same test failed at the same timeout after the first raise, so the "timeout too low" theory is already weakened. I have no new evidence to justify another guess.
+
+The same section also says: "If a check fails, read its job log before you change anything. Distinguish a code defect from setup problems, permissions, service outages, and cancellation." That sets the order of work:
+
+1. **Read the failing job log for the current head.** I'd check whether the failure is really a timeout. It could be a hang or deadlock, a missing service or setup step, a permissions problem, an outage, or a cancellation. I'd also confirm that the log is from the head that includes my timeout change.
+2. **Fix the cause if it's a code or build-setup defect within the issue's scope.** I wouldn't weaken the check to do it. That matches "Do not weaken a success condition to satisfy a suggestion" in "Address the findings". I'd run the affected local checks, then commit and push through `ghflow exec`, and watch the new head.
+3. **Reply to the review finding with evidence if the log shows the timeout isn't the problem.** I'd explain that the raise didn't help and why. That is the "explain a disputed suggestion with evidence" option. I'd name the first correction's commit, and I'd leave the thread open if the concern isn't resolved.
+4. **Report a concrete blocker if the cause is outside my reach.** Examples are a persistent service failure, missing credentials, or a decision that needs the user. I'd keep the completed fixes and say the CI state is unresolved.
+
+A rerun or another change is justified only if the log gives a specific reason to expect it to help. Without that, a further timeout bump would be a blind retry.
+
+===== debug-serial-parallel-suite (change) =====
+Scenario: debug-serial-parallel-suite
+Session ID: c57cd51a-712c-489e-b9ad-532284b6bdc6
+
+**Next step: stop investigating the `-n auto` death and move on. I would not read the xdist source.**
+
+The rule that decides it is in "Prepare an isolated workspace", in the paragraph that begins "Bound that investigation." It says that if the suite passes in one configuration, such as serial or a smaller worker count, and fails or dies in another, I should:
+
+1. Record each configuration with its command and result.
+2. Name the failing one as an environment limit.
+3. Continue with the task.
+4. Leave the question to hosted CI on the published commit.
+
+**Why it applies here**
+- The suite passes serially and at four workers.
+- It dies only under `-n auto`. That includes twice on the unmodified base, so my change isn't the cause.
+- The same paragraph says not to repeat a failing configuration without a new reason. I've already run it four times and have no new reason to run it again.
+- Reading the plugin source is more probing of the same failure. It wouldn't change whether the change is verified, and ninety minutes is already enough.
+
+**What I'd do**
+- Write down in the task notes and the report:
+  - the serial run: command and pass
+  - the four-worker run: command and pass
+  - the `-n auto` runs: command, death at about 84 percent, four occurrences, two of them on the base
+- Label `-n auto` an environment limit and say CI will settle it. I would not claim it is verified.
+- Resume the implementation. Use the passing serial or four-worker configuration as the verification run. Keep to one full suite at a time, and use targeted tests while iterating.
+
+The "no configuration passes" clause would only apply if every configuration failed. It doesn't apply, because two pass.
+
+===== debug-serial-parallel-suite (baseline) =====
+Scenario: debug-serial-parallel-suite
+Session ID: 63db054c-1c43-4226-95c1-f3c5c3727d65
+
+**What I do next:** I stop investigating the `-n auto` death and don't read the xdist plugin source. I record the result and go back to the implementation.
+
+**Why:** The deciding rule is in "Prepare an isolated workspace", in the paragraph that starts "Bound that investigation." It applies when a suite passes in one configuration and fails or dies in another. Here it passes serially and at four workers, and `-n auto` dies at about 84 percent. The rule says to do four things:
+
+1. Record each configuration with its command and result. That means the serial pass, the four-worker pass, and the four `-n auto` deaths, including the two on the unmodified base.
+2. Name `-n auto` as an environment limit.
+3. Continue with the task.
+4. Leave final confirmation to hosted CI on the published commit.
+
+Two more points from the rule apply:
+
+- **No repeats:** "Do not repeat a failing configuration without a new reason." Reading plugin source is more probing of the same failure, and it isn't a new reason. Two of the deaths happened on the unmodified base. That points to the environment, not my change, and it supports calling this an environment limit.
+- **Not a blocker:** The "report the blocker" branch only applies when no configuration passes. Two configurations pass, so verification is meaningful.
+
+**Concretely:**
+- I write the configurations, commands, and results into the task notes. In the final report I list `-n auto` as an environment limit with the base-revision evidence.
+- I use the serial or four-worker passing run as the gate evidence.
+- I run one full suite at a time, with targeted tests during iteration, as the skill says.
+- I carry on with the plan, implementation, self-review, and commit.
+- In the report, I don't claim `-n auto` was verified.
+===== debug-missing-generated-file (second change) =====
+Scenario: debug-missing-generated-file
+Session ID: 13095ac5-7e0f-494d-a1e6-14988479dc1b
+
+**Next step:** I'd use the Debugging method and run one small experiment that tells the two explanations apart. I would not edit anything or re-run `make check` yet.
+
+**Rule that decides it:** `implement-issue.md` says "When a failure has more than one plausible cause, or a correction leaves the same failure without new evidence, use Debugging." `shared/debugging.md` then sets the steps below. Here the two plausible causes are that the generation step didn't run, or that it wrote to a different path. I haven't inspected the build target or the generator output, so I have no evidence favoring either.
+
+**Steps, following `debugging.md`:**
+1. **State one hypothesis.** For example: "The generation target isn't part of the build `make check` triggers, so it never ran." I'd list what supports it (the import failed and the file is absent) and what is still uncertain (the output path).
+2. **Choose one experiment whose result differs between the explanations.** I'd read the Makefile target and the generator's configured output path. I could also search for the generated file under other paths. I'd say in advance what each result means:
+   - If the target isn't wired into `check`'s dependencies, or never ran, the generation step didn't run.
+   - If the file exists elsewhere, or the generator's output path differs from `src/message_types.py`, it wrote to a different path.
+3. **Record the actual result** in the task notes before changing code, trying another cause, or reporting a blocker.
+4. **Act on the result.** If one explanation holds, I make the smallest fix, such as wiring the target in or correcting the path. This also falls under "Prepare what the baseline checks need, such as generated code." If the hypothesis is disproved, I form a different one instead of piling edits onto the same assumption. If no explanation survives, I report a blocker with the evidence and the attempts.
+
+I also would not re-run `make check` without a new reason. Debugging says "Do not repeat a suite or a command without a new reason," and the baseline guidance in `implement-issue.md` says the same about repeating a failing configuration.
+===== debug-repeated-correction-failure (second change) =====
+Scenario: debug-repeated-correction-failure
+Session ID: 0feefd81-ed9e-4af0-9a6e-ecb7260456d2
+
+**I don't raise the timeout a second time.** I switch to the debugging method before making another edit.
+
+**The rule that decides it:** in `address-pr-review.md`, under "Address the findings", the skill says: "When a failed correction leaves the same error without new evidence, use [Debugging](../shared/debugging.md) before another edit." The CI section adds a second rule: "Do not retry an unchanged failure without new evidence or a specific reason that a retry can help." The same test failing at the same timeout after my fix is exactly that situation. The first raise was a guess. The review finding suggested the timeout was too low, but the failure shows that wasn't the whole story.
+
+**What I do, following `shared/debugging.md`:**
+1. **State one hypothesis.** For example: the test hangs or blocks on something (a deadlock, an unmocked network call, a missing setup step), so no timeout would be long enough. I list what supports that, including the failure persisting after the raise, and what I still don't know.
+2. **Choose one small experiment** whose result would tell the explanations apart. For example, I read the failing job's log to see where the time goes, or whether the test makes progress or stalls. I state in advance what each outcome would mean. I don't re-run the suite without a new reason.
+3. **Record the actual result** before I change any code. If the hypothesis is disproved, I form a different one or report a blocker. I don't make more timeout edits on the same assumption.
+4. **If no explanation holds up,** I report a blocker. The report covers the evidence, the attempts, and the remaining uncertainty. I keep the attempts in the task notes.
+
+**Constraints that still apply:**
+- I don't weaken the check to make it pass. The skill says not to weaken a success condition to satisfy a suggestion.
+- If the evidence shows the original finding was wrong, I reply to it in the same place as a disputed suggestion, with that evidence.
+- I read the job log first to tell a code defect from a setup, service or cancellation problem.
+===== debug-serial-parallel-suite (second change) =====
+Scenario: debug-serial-parallel-suite
+Session ID: 38adeff8-2b5c-47f7-b893-5c11407c20e4
+
+**Next step: stop investigating and don't read the xdist plugin source.** I would record the `-n auto` result as an environment limit and go back to the issue work.
+
+**Rule that decides it:** the "Bound that investigation" paragraph in the baseline section of `implement-issue.md` (line 35). It covers this case directly:
+
+- The suite passes serially and at four workers, and it dies at `-n auto`. The rule says to "record each configuration with its command and result, name the failing one as an environment limit, and continue; hosted CI settles it on the published commit."
+- "Do not repeat a failing configuration without a new reason." Four deaths at about 84 percent, two of them on the unmodified base, are enough. The base failing too shows the death isn't caused by my change. I have no new reason to run `-n auto` again.
+- The "if no configuration passes, report the blocker" branch doesn't apply, because two configurations pass.
+
+**What I'd do concretely:**
+1. Write the notes entry for each configuration: serial passes, `-n 4` passes, and `-n auto` dies at about 84 percent (four runs, two on the base). Each entry gets its command and result.
+2. Label `-n auto` as an environment limit that exists on the base. Don't present it as a new failure from my change.
+3. Continue the implementation: plan, tests, change, and the broader check. I'd use the passing configuration, serial or `-n 4`, as the gate evidence, and run only one full suite at a time.
+4. In the final report, list the `-n auto` deaths under existing failures and evidence limits. I would say that hosted CI on the published commit is what settles it.
+
+Reading the plugin source is the open-ended probing the rule bounds. After ninety minutes it would probably not change what I do, because the passing configurations already give meaningful verification. The only exception is if new evidence appears, such as a failure that shows up in a passing configuration. In that case I'd use the shared Debugging reference instead of guessing.
+===== baseline-environment-bound (regression) =====
+Scenario: baseline-environment-bound
+Session ID: 1e35847b-98d1-4334-a527-1dc1c061b92b
+
+**Next step:** stop investigating. Don't read the xdist source or the system log. Record the `make test` failure as an environment limit, then finish the task. That means self-reviewing the diff, staging only the intended files, committing, and writing the report.
+
+**Rule that decides it:** the "Bound that investigation" paragraph in the "Prepare an isolated workspace" section of `implement-issue.md`:
+
+> If the suite passes in one configuration, such as a serial run or a smaller worker count, and fails or dies in another, record each configuration with its command and result, name the failing one as an environment limit, and continue; hosted CI settles it on the published commit. Do not repeat a failing configuration without a new reason.
+
+**Why it applies:**
+- The suite passes at 4 workers and at 18 workers, with 4,511 passed and 2 skipped each time. It dies only under `make test` (`-n auto`), at about 84 percent with Error 129.
+- The failure is not caused by my change. It happened twice on the unmodified base and twice after the change.
+- Reading plugin source and system logs would be more probing of a configuration that already failed four times. I have no new reason to run it again.
+- I've spent ninety minutes on this. The change itself is verified by the gates and the passing configurations.
+
+**What I'll do:**
+1. Record in the task notes and the report each configuration with its command and result:
+   - the 4-worker run: pass
+   - the 18-worker run: pass
+   - `make test` with `-n auto`: died four times, twice on base and twice after the change, with Error 129 and no crash report
+
+   I'll name `make test` as an environment limit that hosted CI will settle on the published commit.
+2. Do the self-review. I'll inspect the full diff from the merge base, including new files, looking for missed callers, error cases, and unrelated edits. I'll also confirm that each of the four new tests fails when its specific behavior is disabled.
+3. Stage only the intended files, inspect the staged diff, and commit with `python3 "$GHFLOW_CLI" exec -- git commit ...`.
+4. Return the report:
+   - issue URL, worktree, branch, base, committed head, and tested revision
+   - the board transition result
+   - my model ID, `claude-sonnet-5-5`
+   - the commands I ran, including the `make test` failures
+   - the status, which is ready for PR preparation, with the `-n auto` limit stated as an unresolved risk
+
+I won't push or open a PR, and I won't claim independent verification.
+===== one-full-suite-at-a-time (regression) =====
+Scenario: one-full-suite-at-a-time
+Session ID: 6afe126f-1b3b-494c-9d4b-da0b4dd739f9
+
+I don't start the second full-suite run. While the baseline is still going, I run only targeted tests for the code I changed. I start the full suite with my change once the baseline has finished.
+
+**Deciding rule** (Prepare an isolated workspace, in `implement-issue.md`): "Run one full test suite at a time. A second full suite on the same machine can starve or kill the first and produce failures that are not in the code; run targeted tests while a full suite runs, not another full suite."
+
+**Why:**
+- `-n auto` starts eighteen workers per run, so a second run would double the load on this machine. That could starve or kill the baseline. It could also make my own run fail for reasons unrelated to the code. Both runs would then be unreliable, and the baseline is the reference I need to separate existing failures from new ones.
+- The skill also says to run the broader suite once, after the implementation is in place and before self-review and commit. It says not to rerun it repeatedly on intermediate edits. My edits are finished, so one full run with my change is the right next step. It just has to wait for the baseline to finish.
+
+**What I do now:**
+1. Run targeted tests for the changed code and the new tests, and keep the output concise. This gives feedback without competing with the baseline.
+2. Check on the baseline, and don't start any installs while it runs. If it will outlast the command timeout, I handle that as described in the runtime limits section.
+3. When the baseline finishes, record its result and any existing failures separately. Then run the full suite once with my change.
+4. If that run fails or dies, I handle it under the skill's bounded-investigation rule. I record each configuration with its command and result, and I don't repeat a failing configuration without a new reason. A failure with a plausible environment cause, such as a different worker count, gets recorded as an environment limit.
+5. After that, do the self-review and commit.

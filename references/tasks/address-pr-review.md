@@ -58,6 +58,8 @@ Respond to each finding in one of these ways:
 
 A request to address review covers corrections and factual replies within the agreed scope. Return a new product decision or broader scope to the parent or user. Do not weaken a success condition to satisfy a suggestion.
 
+When a failed correction leaves the same error without new evidence, use [Debugging](../shared/debugging.md) before another edit.
+
 Make all accepted corrections, run the checks, and push them together with `python3 "$GHFLOW_CLI" exec -- git push ...`. Each push restarts CI and can trigger another automatic review.
 
 Before you edit, apply [Workspace isolation](../shared/workspace.md), then confirm that the worktree and branch match the PR head. Work in that worktree or a new isolated one, and preserve unrelated work. Add or update useful tests, and run the affected checks plus the required project checks. Commit and push to the same PR branch with `python3 "$GHFLOW_CLI" exec -- git commit ...` and `python3 "$GHFLOW_CLI" exec -- git push ...`. Inspect unexpected remote changes before you push, and do not force-push over another contributor's work.
@@ -65,6 +67,8 @@ Before you edit, apply [Workspace isolation](../shared/workspace.md), then confi
 Reply in the same place as the finding. Use `python3 "$GHFLOW_CLI" pr comment ...` for a top-level comment. No ghflow command posts an inline review-thread reply. Use `python3 "$GHFLOW_CLI" exec -- gh api -X POST repos/OWNER/REPO/pulls/PULL_NUMBER/comments/COMMENT_ID/replies -f body=TEXT`, or report that the environment cannot reply inline. Name the correction and its commit, or explain why you made no change. Resolve a discussion only when its concern is fixed and the project permits it. Leave disputed and undecided discussions open.
 
 After a push, read CI and review state for the new head. Update the PR description if the changes make its claims wrong.
+
+When a correction review follows, give the reviewer the previous findings, the commit that review covered, the correction head, and the original scope and limits. See [Review a correction](review-changes.md#review-a-correction).
 
 ## Request another review if needed
 
