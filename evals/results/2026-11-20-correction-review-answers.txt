@@ -214,3 +214,161 @@ Session ID: fa4c5bd8-d10c-44e4-bfb7-d0f64223b243
 3. My report gives the reviewed base A and head B, the model identities and their sources, the findings, and the checks I ran. It states the coverage limit explicitly: "covers A..B only; earlier changes were reviewed at A by a report with an unstated scope, so they are not independently confirmed here."
 4. The verdict marker, if one is requested, names head B. If the PR head has moved past B, I say my result covers the earlier commit.
 5. I don't mark the PR as fully reviewed. If the user or merge process needs coverage of the whole PR, I return that to the parent as an open gap: either review the full base..B range, or have someone confirm what the review at A covered. I don't edit code or post anything without authorization.
+===== review-correction-two-findings (second change) =====
+Scenario: review-correction-two-findings
+Session ID: d32f0d5f-dfd7-44ec-8657-97b177154bb2
+
+**Next step:** I review the correction against the handoff. I don't start a fresh full review, and I don't change any code. The rule that decides this is the **"Review a correction"** section of `review-changes.md`. It applies because an earlier review at commit A covers an earlier commit, and the handoff supplies the findings, A, B, and the original scope and limits.
+
+**What I do:**
+
+1. **Check the inputs.** The handoff has the original base, A, B, both findings, and the scope and limits. Nothing is missing, so there is no coverage gap to report. I would still verify that A and B exist and that B is the expected head. I also tie the report to B, and if the head moves during review, I say the result covers the earlier commit.
+
+2. **Keep base and A separate.** The rule says to keep the original base when overall coverage needs it, and to distinguish it from the previously reviewed head. The correction diff is A..B. Overall coverage still uses base..B.
+
+3. **Give each finding one outcome:**
+   - **Finding 1 (fallback order returns the wrong default):**
+     - *Addressed:* cite the change and the evidence, and state the remaining uncertainty. I would trace every caller of the fallback for success, empty, and malformed inputs.
+     - *Still present:* cite the current lines and the impact.
+     - *Unverified:* name the missing evidence.
+   - **Finding 2 (empty-input test missing):**
+     - I examine the new test rather than accept that it exists. I check whether the pre-change output or a neighboring path also satisfies the assertion. If the environment permits, I run it with the fix disabled in an isolated copy. A test that still passes does not cover the behavior, so the finding is not Addressed.
+
+4. **Examine A..B and the callers it affects.** I report any defects the correction introduces. A defect outside the diff can still be blocking if the correction changed its input or assumption. Being outside the diff does not make it nonblocking.
+
+5. **Check for expansion.** If the correction expands the change, or the inputs can't establish coverage, I require a broader review and name the range it must cover. I do not claim that reviewing A..B is a complete review of head B.
+
+6. **Report.** I return the reviewed base and head, the model identities and their sources, the findings, and the checks I ran. I list the callers and paths I traced and the behavior I did not test. Style points go under Notes, and out-of-scope defects become follow-ups. If a verdict comment is requested, it carries the `<!-- ghflow-review head=B verdict=… -->` marker. I don't post a review without authorization.
+
+**Why:** the rule is built for this case. The previous findings are claims to re-check, not facts to accept. A passing correction diff does not prove the new head is fully reviewed. The review reports only what I actually traced.
+===== review-correction-shared-helper (second change) =====
+Scenario: review-correction-shared-helper
+Session ID: fc7561e2-b63e-454e-83ee-d46dfee78c8f
+
+I read the skill, and the rule I'm applying is in "Review a correction". I didn't open the linked references, since this doesn't need them.
+
+**What I do next:** I report the failing caller as a finding of the correction review. It isn't a note or a follow-up. I don't edit code, and I don't treat it as out of scope.
+
+**Why:**
+- The rule says: "A defect outside the correction diff can still matter when the correction changes its input or assumption. Location outside the diff alone does not make a defect nonblocking."
+- The correction makes `parse_limit` stricter. A caller that wasn't in the diff passes a string that now raises, so the correction changed the input that caller depends on.
+- The "Examine the change" section backs this up. For a shared function I have to find every caller, not only the ones in the diff. For each one I compare behavior before and after for success, empty and malformed inputs.
+- The out-of-scope follow-up route in "Return findings" doesn't fit. That route is for defects the correction didn't cause, and this one is a regression the correction introduced.
+
+**Steps:**
+1. Give the previous finding, that `parse_limit` accepted a bad unit, an outcome. It is probably Addressed if the helper now rejects the unit. I'd cite the change and the evidence, and state any remaining uncertainty.
+2. Write up the new finding in the required form:
+   - the caller's file and lines;
+   - the triggering string;
+   - the new raise, compared with the old behavior;
+   - the practical impact;
+   - a suggested fix, such as correcting the caller's input or deliberately handling the error. I suggest it and don't implement it.
+3. Mark the finding blocking, with verdict `findings`, because a correction worker can resolve it.
+4. State coverage honestly:
+   - The previous review covered the helper and its callers at the earlier commit.
+   - This review covers the correction diff and the callers it affects.
+   - It is not a full review of the new branch head unless I have evidence for that.
+   - I name the commit I examined, and I list the callers and paths I traced and what I didn't test.
+5. If the correction also expanded the change beyond the helper, or the handoff inputs can't establish coverage, I require a broader review and name the range it must cover.
+===== review-correction-missing-evidence (second change) =====
+Scenario: review-correction-missing-evidence
+Session ID: 13645af1-3c9d-4255-9964-c4089a40d212
+
+**What I do next:** I don't mark any previous finding as addressed. I report a coverage gap and name the next review step. I don't run commands or ask anything.
+
+**Rule that decides it:** the "Review a correction" section of `review-changes.md`. It says the handoff must supply the previous findings, the commit that review covered, the correction head, and the original review scope and limits. It then says: "If an input is missing, report the coverage gap and the next review step."
+
+**Why this applies:**
+- Commit A is gone after the force-push, so I can't diff A against B. I can't tell what changed since the previous review.
+- The earlier report didn't record its scope or limits. I can't tell which files, callers, or paths it covered, or what it left untested.
+- The same section says "A review of the correction diff is not a complete review of the new branch head. Do not claim that coverage without evidence." It also says that when the inputs can't establish coverage, I must require a broader review and name its range.
+
+**What I report:**
+1. **Coverage gap:** the A-to-B delta can't be established, and the original scope and limits are unknown.
+2. **Per-finding outcomes:** none can be "Addressed" without cited change and evidence. A finding I can't confirm either way is **Unverified**, and I name the missing evidence. A finding I can see is still present in B's current code is **Still present**, citing the current lines and the impact.
+3. **Next review step:** a broader review of B against the original base, covering the full range from the original base to B. This follows the rule to keep the original base when overall coverage needs it. It would also check the changed code's callers and the previous findings directly against B's code.
+4. **Report details:** it is tied to the exact B commit I examined. It states that A was unavailable and which behavior I didn't test. It makes no claim that B is fully reviewed.
+
+If the user or coordinator can supply A's SHA and diff, or the earlier scope, I can then do a proper correction review.
+===== review-correction-head-change (second change) =====
+Scenario: review-correction-head-change
+Session ID: 53d3e1d5-d503-463b-8fcc-b507b43fe7c3
+
+**Next step:** I finish the review of B and keep every conclusion tied to B. I don't claim coverage of C. I report that the PR head moved to C during the review and that C is uninspected. The report says the result covers the earlier commit, B. It also names the follow-up needed: a review of the range from B to C, or a broader review if C expands the change.
+
+**Rule that decides it:** the "Review a correction" section of `review-changes.md` says: "A review of the correction diff is not a complete review of the new branch head. Do not claim that coverage without evidence. If the head changed during review, tie the report to the commit you examined." The "Return findings" section repeats it: "If the head changed during review, say that the result covers the earlier commit."
+
+**Why:**
+- I haven't inspected C, so I have no evidence about it. Any verdict or "clean" marker has to name the commit I examined (B), not the current head.
+- I wouldn't switch to C mid-review. I also wouldn't quietly report on C as if I had reviewed it.
+- The report keeps the A→B outcomes for each previous finding (Addressed, Still present or Unverified). It also records the original base separately from A, the previously reviewed head.
+- The report lists the callers and paths I traced and the behavior I didn't test.
+- I don't edit code and I don't post anything unless I'm authorized to publish.
+===== review-correction-scope-claim (second change) =====
+Scenario: review-correction-scope-claim
+Session ID: 9c16dc53-dba1-46a2-bc48-b5b075f7cf54
+
+**What I do next:** I don't accept "full review passed", and I don't report that the new head is fully covered. I report a coverage gap and ask for a broader review. That review would use the original base through B, not just A..B. I would first check the reviewed head against the earlier report and the handoff. I would not edit code or post anything to GitHub.
+
+**Rule that decides it:** the "Review a correction" section of `review-changes.md`. Three of its lines apply:
+- "If an input is missing, report the coverage gap and the next review step." The handoff should give the original review scope and limits. The earlier report didn't name them, so that input is missing.
+- "If the correction expands the change, or the inputs cannot establish coverage, require a broader review and name the range it must cover." Without the original scope, I can't show that A covered what the PR description claims. I must therefore name a range. It runs from the original base (not A) to B, so it includes the earlier changes and the corrections.
+- "A review of the correction diff is not a complete review of the new branch head. Do not claim that coverage without evidence." I only examined A..B, so the PR description's claim has no evidence behind it. The description's wording is also not evidence. The skill treats such claims as claims, not conclusions.
+
+**What I report:**
+1. **Scope:** I reviewed A..B only. I tie the result to the exact B commit I examined. If the head moves, the result covers the earlier commit.
+2. **Previous findings:** I give each one an outcome of Addressed, Still present, or Unverified. Any finding I can't see in the handoff is Unverified, and I name the missing evidence.
+3. **Correction defects:** I report defects the correction introduces. I also report defects outside the diff when the correction changes their input or assumption. A defect being outside the diff doesn't make it nonblocking.
+4. **Coverage gap:** The earlier review's scope and limits are unnamed. I require a broader review from the original base to B, and I don't assert that the full head has been reviewed.
+5. **PR description:** The "full review passed" wording is a note, not a finding, because PR description phrasing is a note under the skill. The real finding is the missing coverage evidence.
+6. **Verdict:** If a verdict comment is requested, I would use `findings` or `blocked`, not `clean`. I would choose between them depending on whether a correction worker can resolve it. Either way the marker names head=B.
+===== reviewer-recorded-models (regression) =====
+Scenario: reviewer-recorded-models
+Session ID: 4f8da5a7-8516-46e0-b5b1-b6b5a3930130
+
+**Next step:** I'd run the child #909 delivery as the express-issue flow. Its endpoint is PR review follow-up, with no merge and the PR left open. I'd confirm the review path in the same step, using the metadata already given. Then I'd dispatch one implementation worker with a handoff. I haven't dispatched anything in this session.
+
+**The rule that decides it:** `deliver-parent-issue.md`, "Deliver each child", says "Before substantial dependent implementation of a child, apply Prepare required review." It also says to carry the review path and model evidence into the child handoff. The detail is in `shared/review.md`, "Prepare required review".
+
+**Why this applies:**
+- **Mode:** The metadata shows dispatch is available, so this is delegated mode. Nothing says single-session, and the single-session self-review path doesn't apply.
+- **Review is required:** The endpoint includes independent review and follow-up, and no user-approved exception waives it.
+- **Different models:** The implementer is `model-a` and the reviewer is `model-b`, which was accepted. They differ, so the requirement is met. The metadata also shows `fresh_context: true` for the reviewer.
+- **Review path:** Dispatch, model selection and both model identities are present. Nothing is unmet, so there is no blocker and no reason to ask the user. Implementation can start now.
+- **Identity evidence:** The selections are recorded as configured models, not as confirmed worker identities. I'd ask each worker to report the model ID its own runtime states, and I'd record that separately.
+- **Review timing:** Preparation only establishes the path. The review itself runs later, on the exact published head.
+
+**The handoff:**
+- **Task and subject:** The worker reads `express-issue.md` and runs it for issue #909. It carries the parent #900 context, the agreed scope, the source revision, and the completed research and baseline results.
+- **Endpoint and authorization:** Through PR review follow-up, with no merge, and the PR stays open. The flow's authorization limits are stated.
+- **Review path:** `model-a` implements and `model-b` reviews in a fresh context. This is carried as the established review path.
+- **Implementer scope:** Under `implement-issue`, it implements and publishes draft progress to the same draft PR. It must not mark the PR ready or request review.
+- **Required report:** The PR URL, published head, checks, remaining work, and evidence limits.
+
+**After that:**
+1. A fresh `model-b` reviewer runs `review-changes` on the exact base and head.
+2. A new worker handles any corrections from `handoff address-pr-review`, followed by a re-review.
+3. A new worker marks the PR ready from `handoff submit-pr`.
+4. The delegated coordinator returns the ready-submission handoff to me, the conversation parent. I then run `address-pr-review` directly, under PR follow-up ownership in `coordination.md`.
+5. Through a subagent, I verify the result and update #900's progress and coverage map. Because the request names selected children, not completing the parent, I don't close #900.
+6. I stop at the parent boundary, and there is no merge.
+===== review-note-not-finding (regression) =====
+Scenario: review-note-not-finding
+Session ID: 71b8efd4-58cc-4f82-ab07-d9acc7da9339
+
+I'd write the report with one finding and two notes, and none of the three would go to the user. The rule that decides this is the "Return findings" section of `review-changes.md`.
+
+That rule says a finding is a demonstrated or reasoned defect, a scope deviation, or missing evidence. It needs a file and lines, a trigger, a result and an impact. A style preference, a naming or wording choice, a documentation or session-file convention, or the phrasing of the PR description is a note instead. Notes are listed separately, and the coordinator settles them as routine choices. They don't go to the user and shouldn't be called disputed.
+
+- **Closing reference inside backticks (note):** this is PR description phrasing. I'd suggest a plain `Closes #1053` line.
+- **Session directory holds only `notes.md` (note):** this is a session-file convention. I'd suggest adding `spec.md` and `plan.md` if the project wants them.
+- **`success: bool` annotation (finding):** this is a code contract problem, not wording.
+  - **Trigger:** the pinned tests pass `None`, and the function treats anything other than `False` as success.
+  - **Result:** the annotation says `bool`, but the behavior depends on `None` being accepted. A type checker would flag the tests, and callers can't tell what `None` means.
+  - **Impact:** the declared contract doesn't match the behavior the tests lock in.
+  - **Suggested correction:** annotate it `bool | None` and document that `None` counts as success, or change the tests and behavior, if the scope decisions allow it. I wouldn't implement either as the reviewer.
+  - **Verdict:** this is small and a correction worker can resolve it, so the marker would be `verdict=findings`.
+
+The report should also state what I traced: both callers and the new tests. It should record the revert-in-a-copy check, where the tests failed as expected, and the full project checks, which passed. It should say what I didn't test. A favorable review only covers what it traced, so I wouldn't claim more.
+
+The report should also include the base and head commits, and the model identities with their sources. I won't edit code, and I won't post anything unless publishing is authorized.
