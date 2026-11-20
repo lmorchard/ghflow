@@ -116,7 +116,7 @@ OpenCode can discover nested `SKILL.md` files inside the linked checkout, includ
 Repository checks ignore worktrees, but native discovery does not.
 The selected policy permits root checkout links for a clean source checkout.
 A working clone with worktrees can expose worktree copies, so use the separate OpenCode checkout above for that case.
-The current OpenCode installation uses a separate checkout at `~/.agents/skills/ghflow` because OpenCode selected a worktree copy through the root link.
+Check the installed source's worktrees with `git -C ~/.agents/skills/ghflow worktree list`. Expect one line for the separate checkout.
 Inspect the installed source's worktrees for nested skill files.
 Maintain worktrees through authorized cleanup, and preserve worktrees with uncommitted changes or an open PR.
 If additional skills are unwanted, use a separate source checkout without nested skill packages.
