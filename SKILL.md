@@ -49,7 +49,12 @@ Match the user's explicit request to the operation below:
 | Publish a reviewed issue draft | [file-issue](references/tasks/file-issue.md) | [ghflow-define](skills/define/SKILL.md) |
 | Reassess an existing issue | [reconsider-issue](references/tasks/reconsider-issue.md) | [ghflow-define](skills/define/SKILL.md) |
 | Merge an explicitly authorized PR | [merge-pr](references/tasks/merge-pr.md) | — |
-| Diagnose an exported OpenCode session | [diagnose-session](references/tasks/diagnose-session.md) | — |
+
+### Diagnosis operations
+
+| Request | Task reference |
+|---|---|
+| Diagnose an exported OpenCode session | [diagnose-session](references/tasks/diagnose-session.md) |
 
 ### Portfolio and queue orchestration
 

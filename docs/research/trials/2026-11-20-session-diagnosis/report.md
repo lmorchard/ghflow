@@ -8,11 +8,11 @@ Diagnose the exported session tree in this folder. Answer two questions: why is 
 
 ## Observed events
 
-- `ses_parent` has three subagent calls: `part_p1` "Implement A" and `part_p2` "Implement B" name `ses_worker`; `part_p3` "Review" names `ses_missing`. [session-ses_parent.json, messages[0].content[0..2]]
-- `ses_worker` exists with `parentID` `ses_parent`. It has two read parts, `part_w1` and `part_w2`, both for `src/foo.py`, at `1795200026000` and `1795200032000`. [session-ses_worker.json, messages[0].content[0..1]]
+- `ses_parent` has three subagent calls: `part_p1` "Implement A" and `part_p2` "Implement B" name `ses_worker`; `part_p3` "Review" names `ses_missing`. [session-ses_parent.json, messages[0].parts[0..2]]
+- `ses_worker` exists with `parentID` `ses_parent`. It has two read parts, `part_w1` and `part_w2`, both for `src/foo.py` through `filePath`, at `1795200026000` and `1795200032000`. [session-ses_worker.json, messages[0].parts[0..1]]
 - There is no `session-ses_missing.json`. The index still lists the Review call. [index.md]
-- Token counters: `msg_p1` has input 1200 and output 80; `msg_w1` has input 5000 and output 120; `msg_w2` has no counters. [session-ses_parent.json messages[0].tokens; session-ses_worker.json messages[0].tokens and messages[1]]
-- The parent spans `1795200000000` to `1795200600000`. The worker spans `1795200020000` to `1795200500000`. The worker window is inside the parent window. [session-ses_parent.json info.time; session-ses_worker.json info.time]
+- Token counters: `msg_p1` has input 1200 and output 80; `msg_p2` has input 1400 and output 20; `msg_w1` has input 5000 and output 120; `msg_w2` has no counters. [session-ses_parent.json messages[0].info.tokens and messages[1].info.tokens; session-ses_worker.json messages[0].info.tokens and messages[1]]
+- The parent spans `1795200000000` to `1795200600000`. The worker spans `1795200020000` to `1795200500000`. The dispatch windows `part_p1` (`1795200010000` to `1795200300000`) and `part_p2` (`1795200200000` to `1795200400000`) overlap from `1795200200000` to `1795200300000`. The worker window is inside the parent window. [session-ses_parent.json messages[0].parts[0..1].state.time; session-ses_worker.json info.time]
 - No file records a historical skill revision. [all three files]
 
 ## Possible explanations
@@ -34,17 +34,19 @@ Re-export the parent tree with the same exporter and check whether `session-ses_
 ## Inventory and totals
 
 - Two exported sessions: `ses_parent` and `ses_worker`. One child is missing: `ses_missing`.
-- The worker is named by two dispatch calls but counted once.
+- The worker is named by two dispatch calls but counted once. The two dispatch windows overlap by 100 seconds.
 - Elapsed parent time is 600 seconds. The worker window is 480 seconds and lies inside the parent window. Do not add it to elapsed time.
 - Usage is incomplete: one message has no counters, and the missing child has none. Do not total it as complete usage. No price follows from these counts.
 
 ## File hashes
 
 - `index.md`: `3472a155d35639ae9ca05922688884a301b9b93bce237a3abc249b0ac2750594`
-- `session-ses_parent.json`: `109e46e345c6b31e1c112a46332d644d3b6ca4e4d2a6f7cd8ac551746c350edd`
-- `session-ses_worker.json`: `c67b322f105458e791bfc16db44cb9c4b70d1c037b3452cd66460fa4a5e148d7`
+- `session-ses_parent.json`: `6986ff1a2ba9ded1817309e02bbfea8833c42da79158ee091e7202cada1fa631`
+- `session-ses_worker.json`: `6d88997f3b330786b268450b48b20dd278a49960ca77ec41406f0286c8d9416b`
 
-The hashes were read after the diagnosis. The files were not edited.
+The hashes were read after the diagnosis. The files were not edited after that read.
+
+The fixture was revised after the first review to use the 1.x message and token shape and overlapping dispatch windows. This report describes the current files.
 
 ## Assessment
 

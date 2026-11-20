@@ -6,7 +6,7 @@ Answer one question about an exported session tree from observed events. This ta
 
 Require the export directory or session identifier, the reported symptom, and the question to answer. Accept a clear question without another interview. Ask only when missing scope prevents a useful investigation.
 
-If the user supplies a session identifier, reuse `scripts/export-opencode-sessions.py` to create the tree. Treat the exported files as immutable evidence.
+If the user supplies a session identifier, reuse `scripts/export-opencode-sessions.py` to create the tree. Treat the exported files as immutable evidence. Keep the report outside the export directory.
 
 ## Measure first
 
@@ -16,7 +16,9 @@ Read `index.md` and the parent export. Record file sizes and event counts before
 
 Start with the parent and the events around the symptom. Read targeted fields and events instead of dumping large tool bodies. Cite the session, message, and part identifiers when present, or a precise JSON path.
 
-Count a reused worker session once in the inventory. Calculate durations from recorded timestamps. Keep overlapping child durations separate from elapsed session time. State which token counters are present. Do not sum incomplete counts as a total or infer prices.
+Distinguish instructions from a parent session from direct user instructions. Label present-day inspection separately from the recorded session.
+
+Count a reused worker session once in the inventory. Calculate durations from recorded timestamps. Keep overlapping child durations separate from elapsed session time. State which token counters are present. Summed input counts are not unique context. Do not sum incomplete counts as a total or infer prices.
 
 ## Report
 
