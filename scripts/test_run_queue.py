@@ -932,6 +932,22 @@ class ParentSubIssueTests(unittest.TestCase):
         with patch("run_queue.observe_issue", side_effect=fake_observe):
             self.assertIsNone(run_queue.next_item_for_parent(children))
 
+    def test_next_item_for_parent_skips_triage_needs_definition(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            number = int(str(ref).rstrip("/").split("/")[-1])
+            labels = (["triage:needs-definition"] if number == 101
+                      else ["triage:ready", "impl:local"])
+            return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 102)
+
     def test_next_item_for_parent_excludes_labels(self):
         children = [
             {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
@@ -1087,6 +1103,9 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("/tmp/wt/issue-102", extra)
         self.assertEqual(child2_session[2].get("branch"), "issue-102")
         self.assertIn("created now", extra)
+        self.assertIn("project checkout", extra)
+        self.assertIn("do not re-export", extra)
+        self.assertIn("do not run `worktree prepare`", extra)
 
     def test_published_pr_state_builds_a_draft_view(self):
         seeded = run_queue.published_pr_state({
@@ -1099,6 +1118,58 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertEqual(seeded["state"], "OPEN")
         self.assertIsNone(run_queue.published_pr_state(None))
         self.assertIsNone(run_queue.published_pr_state({"number": 1}))
+
+    def test_primary_checkout_change_reports_only_a_difference(self):
+        self.assertIsNone(run_queue.primary_checkout_change(None, " M x"))
+        self.assertIsNone(run_queue.primary_checkout_change("", ""))
+        self.assertIsNone(run_queue.primary_checkout_change(" M x", " M x"))
+        change = run_queue.primary_checkout_change("", " M src/agent.py")
+        self.assertEqual(change["before"], "")
+        self.assertEqual(change["after"], " M src/agent.py")
+
+    def test_parked_pr_url_reads_the_linked_pr(self):
+        self.assertEqual(run_queue.parked_pr_url({"pr": {"url": "https://github.com/o/r/pull/52"}}),
+                         "https://github.com/o/r/pull/52")
+        with patch("run_queue.observe_issue",
+                   return_value={"pr": {"url": "https://github.com/o/r/pull/51"}}):
+            self.assertEqual(run_queue.parked_pr_url({"issue": "https://github.com/o/r/issues/101"}),
+                             "https://github.com/o/r/pull/51")
+        self.assertEqual(run_queue.parked_pr_url({}), "")
+
+    def test_retry_directive_names_the_prior_actions(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            log = Path(tmp) / "session.log"
+            log.write_text("\n".join([
+                json.dumps({"type": "tool_use", "part": {"type": "tool", "tool": "read",
+                                                        "state": {"input": {"path": "/w/a.py"}}}}),
+                json.dumps({"type": "tool_use", "part": {"type": "tool", "tool": "shell",
+                                                        "state": {"input": {"command": "grep -n x /w/a.py"}}}}),
+            ]) + "\n", encoding="utf-8")
+            actions = run_queue.recent_session_actions(log)
+        self.assertEqual(len(actions), 2)
+        self.assertIn("grep -n x", actions[-1])
+        text = run_queue.retry_directive("Base.", actions)
+        self.assertTrue(text.startswith("Base."))
+        self.assertIn("grep -n x /w/a.py", text)
+        self.assertIn("first edit", text)
+        self.assertEqual(run_queue.retry_directive("Base.", []), "Base.")
+
+    def test_stale_facts_warning_names_the_sources(self):
+        facts = {"project_facts": {"origin": {"stale_sources": [
+            {"path": "Makefile"}, {"path": "pyproject.toml"}]}}}
+        warning = run_queue.stale_facts_warning(facts)
+        self.assertIn("Makefile", warning)
+        self.assertIn("pyproject.toml", warning)
+        self.assertIsNone(run_queue.stale_facts_warning(
+            {"project_facts": {"origin": {"stale_sources": []}}}))
+        self.assertIsNone(run_queue.stale_facts_warning({}))
+
+    def test_run_summary_lists_followups(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            Path(tmp, "followups.md").write_text("- #1600 filed for agent.py:185.\n", encoding="utf-8")
+            summary = run_queue.format_run_summary([], [], Path(tmp), 0)
+        self.assertIn("## Follow-ups", summary)
+        self.assertIn("#1600 filed for agent.py:185", summary)
 
     def test_publish_with_a_lagging_issue_link_does_not_park(self):
         """A publish whose PR is not yet linked must advance to review, not park."""
