@@ -1714,6 +1714,9 @@ class PublishCommittedTests(unittest.TestCase):
         self.assertEqual(result["url"], "https://github.com/o/r/pull/9")
         restores = [call for call in calls if "restore" in call]
         self.assertEqual([call[-1] for call in restores], ["openapi.json", "src/client/"])
+        self.assertIn("--source=HEAD", restores[0])
+        self.assertIn("--staged", restores[0])
+        self.assertIn("--worktree", restores[0])
         restore_index = next(i for i, call in enumerate(calls) if "restore" in call)
         push_index = next(i for i, call in enumerate(calls) if "push" in call)
         self.assertLess(restore_index, push_index)

@@ -957,7 +957,8 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         return None
     if generated:
         for pattern in generated:
-            output, code = cli_fn("exec", "--", "git", "-C", path, "restore", "--", pattern,
+            output, code = cli_fn("exec", "--", "git", "-C", path, "restore",
+                                  "--source=HEAD", "--staged", "--worktree", "--", pattern,
                                   cwd=options.get("cwd"))
             if code != 0:
                 print(f"[{time.strftime('%X')}] Could not restore generated path {pattern}: {output}",
@@ -1701,7 +1702,7 @@ def main(argv=None):
                     " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
                     + (f" Worktree: {step_options['session_cwd']}." if step_options.get("session_cwd") else "")
                 )
-                model_note = (f" Record the review model in the verdict marker: `model={options['model']}`."
+                model_note = (f" Post the verdict with `review verdict ... --model {options['model']}` or include `model={options['model']}` in a `pr comment` marker."
                               if options.get("model") else "")
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (

@@ -4973,7 +4973,7 @@ class ReviewVerdictTests(unittest.TestCase):
         self.assertEqual(res["verdict"], "clean")
         self.assertIn("<!-- ghflow-review head=abcd123 verdict=clean -->", calls[0][2])
 
-    def test_strips_a_marker_with_model(self):
+    def test_preserves_a_body_model(self):
         calls = []
 
         def fake_comment(repo, number, path, identity=None):
@@ -4986,8 +4986,22 @@ class ReviewVerdictTests(unittest.TestCase):
              patch("ghflow.pr_comment", side_effect=fake_comment):
             res, code = review_verdict("o/r", 5, "clean", body=body)
         self.assertEqual(code, 0)
-        self.assertNotIn("model=m/x", calls[0])
+        self.assertIn("model=m/x", calls[0])
         self.assertEqual(calls[0].count("<!-- ghflow-review"), 1)
+
+    def test_model_option_is_written(self):
+        calls = []
+
+        def fake_comment(repo, number, path, identity=None):
+            calls.append(Path(path).read_text())
+            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_comment", side_effect=fake_comment):
+            res, code = review_verdict("o/r", 5, "clean",
+                                       body="## Blocking findings\n\nNone.\n", model="m/x")
+        self.assertEqual(code, 0)
+        self.assertIn("head=abcd123 verdict=clean model=m/x", calls[0])
 
     def test_coerces_clean_when_no_blocking_findings(self):
         calls = []
@@ -5011,10 +5025,12 @@ class ReviewVerdictTests(unittest.TestCase):
 
         with patch("ghflow.pr_state", return_value=({"head": "feed123"}, 0)), \
              patch("ghflow.pr_comment", side_effect=fake_comment):
-            code = main(["review", "verdict", "https://github.com/o/r/pull/5", "--verdict", "clean", "--body", "LGTM"])
+            code = main(["review", "verdict", "https://github.com/o/r/pull/5", "--verdict", "clean",
+                         "--body", "LGTM", "--model", "m/x"])
         self.assertEqual(code, 0)
         self.assertEqual(len(calls), 1)
         self.assertIn("verdict=clean", calls[0][2])
+        self.assertIn("model=m/x", calls[0][2])
 
 
 class SessionCommandTests(unittest.TestCase):
