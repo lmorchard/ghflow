@@ -1517,7 +1517,8 @@ class ParentSubIssueTests(unittest.TestCase):
         line = json.dumps({
             "type": "step_finish", "sessionID": "s1",
             "part": {"type": "step-finish",
-                     "tokens": {"input": 105000, "output": 10, "reasoning": 0}}}) + "\n"
+                     "tokens": {"input": 500, "output": 10, "reasoning": 0,
+                                "cache": {"read": 105000, "write": 0}}}}) + "\n"
         with tempfile.TemporaryDirectory() as tmp:
             notes = Path(tmp)
             skill = notes / "skill"
@@ -1535,7 +1536,7 @@ class ParentSubIssueTests(unittest.TestCase):
                 return {"dispatch_prompt": "do it"}, 0
 
             with patch("run_queue.git_output", return_value=""), \
-                 patch("run_queue.subprocess.Popen", return_value=FakeProc([line])), \
+                 patch("run_queue.subprocess.Popen", return_value=FakeProc([line, line])), \
                  patch("run_queue.subprocess.run"):
                 out = io.StringIO()
                 with contextlib.redirect_stdout(out):
@@ -1543,7 +1544,11 @@ class ParentSubIssueTests(unittest.TestCase):
                         "implement-issue", "https://github.com/o/r/issues/1", notes,
                         options, cli_fn=fake_cli)
             self.assertTrue(ok)
-            self.assertIn("Session context reached 105000", out.getvalue())
+            self.assertEqual(out.getvalue().count("Session context reached"), 1)
+            self.assertIn("Session context reached 105500", out.getvalue())
+            log_text = next(notes.glob("session-*.log")).read_text(encoding="utf-8")
+            self.assertEqual(log_text.count("runner_warning"), 1)
+            self.assertIn("105500", log_text)
 
             options["max_context_tokens"] = 100000
             with patch("run_queue.git_output", return_value=""), \
