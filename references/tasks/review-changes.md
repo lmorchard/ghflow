@@ -34,11 +34,13 @@ Keep the original base when overall coverage needs it. Distinguish that base fro
 
 For each previous finding, give one outcome:
 
-- Addressed: cite the change and its evidence.
+- Addressed: cite the change and its evidence, and state the remaining uncertainty.
 - Still present: cite the current lines and the impact.
 - Unverified: name the missing evidence.
 
-Examine the changes since the previous review and the callers they affect. Report defects that the correction introduces. A defect outside the correction diff can still matter when the correction changes its input or assumption.
+Examine the changes since the previous review and the callers they affect. Report defects that the correction introduces. A defect outside the correction diff can still matter when the correction changes its input or assumption. Location outside the diff alone does not make a defect nonblocking.
+
+If the correction expands the change, or the inputs cannot establish coverage, require a broader review and name the range it must cover.
 
 A review of the correction diff is not a complete review of the new branch head. Do not claim that coverage without evidence. If the head changed during review, tie the report to the commit you examined.
 
