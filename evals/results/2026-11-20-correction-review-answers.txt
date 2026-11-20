@@ -214,4 +214,3 @@ Session ID: fa4c5bd8-d10c-44e4-bfb7-d0f64223b243
 3. My report gives the reviewed base A and head B, the model identities and their sources, the findings, and the checks I ran. It states the coverage limit explicitly: "covers A..B only; earlier changes were reviewed at A by a report with an unstated scope, so they are not independently confirmed here."
 4. The verdict marker, if one is requested, names head B. If the PR head has moved past B, I say my result covers the earlier commit.
 5. I don't mark the PR as fully reviewed. If the user or merge process needs coverage of the whole PR, I return that to the parent as an open gap: either review the full base..B range, or have someone confirm what the review at A covered. I don't edit code or post anything without authorization.
-

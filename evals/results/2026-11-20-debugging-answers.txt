@@ -126,4 +126,3 @@ Two more points from the rule apply:
 - I run one full suite at a time, with targeted tests during iteration, as the skill says.
 - I carry on with the plan, implementation, self-review, and commit.
 - In the report, I don't claim `-n auto` was verified.
-
