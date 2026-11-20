@@ -79,8 +79,9 @@ class NextStepTableTests(unittest.TestCase):
             ],
         }
         self.assertEqual(run_queue.next_step(state, correction_limit=2), "park-blocker")
-    def test_default_step_idle_timeout_is_300(self):
-        self.assertEqual(run_queue.DEFAULT_STEP_IDLE_TIMEOUT, 300)
+    def test_default_step_idle_timeout_is_900(self):
+        self.assertEqual(run_queue.DEFAULT_STEP_IDLE_TIMEOUT, 900)
+        self.assertEqual(run_queue.SLOW_STEP_WARN_SECONDS, 120)
 
 
     def test_human_changes_requested_on_draft_triggers_address_review(self):
@@ -1086,6 +1087,82 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("/tmp/wt/issue-102", extra)
         self.assertEqual(child2_session[2].get("branch"), "issue-102")
         self.assertIn("created now", extra)
+
+    def test_published_pr_state_builds_a_draft_view(self):
+        seeded = run_queue.published_pr_state({
+            "number": 52, "url": "https://github.com/o/r/pull/52",
+            "head": "c2", "head_branch": "issue-102-feat",
+        })
+        self.assertEqual(seeded["number"], 52)
+        self.assertEqual(seeded["head"], "c2")
+        self.assertTrue(seeded["is_draft"])
+        self.assertEqual(seeded["state"], "OPEN")
+        self.assertIsNone(run_queue.published_pr_state(None))
+        self.assertIsNone(run_queue.published_pr_state({"number": 1}))
+
+    def test_publish_with_a_lagging_issue_link_does_not_park(self):
+        """A publish whose PR is not yet linked must advance to review, not park."""
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN",
+                       "url": "https://github.com/o/r/issues/100"},
+            "children": [{"number": 102, "title": "Child 2", "state": "OPEN",
+                          "url": "https://github.com/o/r/issues/102"}],
+        }
+        base = {"issue": "https://github.com/o/r/issues/102", "number": 102,
+                "title": "Child 2", "body": "", "labels": ["triage:ready"], "repo": "o/r"}
+        calls = {"n": 0}
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            calls["n"] += 1
+            if calls["n"] <= 3:
+                return {**base, "pr": None}
+            if calls["n"] == 4:
+                return {**base,
+                        "pr": {"number": 52, "url": "https://github.com/o/r/pull/52",
+                               "head": "c2", "head_branch": "issue-102-feat",
+                               "state": "OPEN", "is_draft": True},
+                        "ci": "pending",
+                        "review_verdicts": [{"head": "c2", "verdict": "clean"}],
+                        "pending_review_requests": []}
+            return {**base,
+                    "pr": {"number": 52, "url": "https://github.com/o/r/pull/52",
+                           "head": "c2", "head_branch": "issue-102-feat",
+                           "state": "OPEN", "is_draft": False},
+                    "ci": "green", "pending_review_requests": []}
+
+        sessions, cli_calls = [], []
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            sessions.append(step)
+            return True, "ses_id"
+
+        def fake_publish(*args, **kwargs):
+            return {"number": 52, "url": "https://github.com/o/r/pull/52",
+                    "head": "c2", "head_branch": "issue-102-feat"}
+
+        def fake_cli(*args, cwd=None):
+            cli_calls.append(args)
+            if args and args[0] == "worktree" and args[1] == "create":
+                branch = args[args.index("--branch") + 1]
+                return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", return_value=parent_data), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_issue", side_effect=fake_observe), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.publish_committed", side_effect=fake_publish), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+                                  "--no-symbol-indexing", "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertIn("implement-issue", sessions)
+        self.assertIn("review-changes", sessions)
+        self.assertFalse([args for args in cli_calls if args and args[0] == "park"],
+                         "a successful publish must not be parked")
 
     def test_main_processes_multiple_parents_sequentially(self):
         parents = {

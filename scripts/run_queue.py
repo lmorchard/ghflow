@@ -21,7 +21,8 @@ DEFAULT_FLOOR_MINUTES = 30
 CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 150
 DEFAULT_SESSION_TIMEOUT = 5400
-DEFAULT_STEP_IDLE_TIMEOUT = 300
+DEFAULT_STEP_IDLE_TIMEOUT = 900
+SLOW_STEP_WARN_SECONDS = 120
 MAX_DEGENERATE_REASONING = 10000
 PRIORITY_ORDER = ("P0", "P1")
 SIZE_ORDER = ("XS", "S", "M", "L", "XL")
@@ -668,10 +669,12 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     start_ts = time.time()
     last_event_ts = time.time()
     abort_reason = None
+    slow_step_warned = False
 
     def process_line(line_str):
-        nonlocal session_id, step_num, abort_reason, last_event_ts
+        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned
         last_event_ts = time.time()
+        slow_step_warned = False
         log_fp.write(line_str)
         log_fp.flush()
         stripped = line_str.strip()
@@ -722,6 +725,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
                 if now - last_event_ts > step_idle_timeout:
                     abort_reason = f"Session idle timeout ({step_idle_timeout}s without events)"
                     break
+                if not slow_step_warned and now - last_event_ts > SLOW_STEP_WARN_SECONDS:
+                    print(f"[{time.strftime('%X')}] No session events for "
+                          f"{int(now - last_event_ts)}s; waiting up to {step_idle_timeout}s", flush=True)
+                    slow_step_warned = True
                 if abort_reason:
                     break
                 if proc.poll() is not None:
@@ -901,6 +908,8 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
                        "--expect-head", head, cwd=options.get("cwd"))
     url = (out or {}).get("url") if isinstance(out, dict) else None
     if code == 0:
+        if isinstance(out, dict):
+            out["head"] = head
         print(f"[{time.strftime('%X')}] Opened draft PR {url} at {head[:7]}", flush=True)
         return out
     if code == 3:
@@ -908,6 +917,26 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
         return None
     print(f"[{time.strftime('%X')}] Draft PR creation failed (exit {code}): {out}", flush=True)
     return None
+
+
+def published_pr_state(published):
+    """Build a PR view from a publish result when the issue link lags.
+
+    ``facts --issue`` can trail ``pr create`` by a few seconds. Seeding this
+    view keeps the reconciliation loop on the review step instead of parking a
+    successful publish as no progress.
+    """
+    if not isinstance(published, dict) or not published.get("url"):
+        return None
+    return {
+        "number": published.get("number"),
+        "url": published.get("url"),
+        "head": published.get("head"),
+        "head_branch": published.get("head_branch"),
+        "is_draft": True,
+        "state": "OPEN",
+    }
+
 
 def run_precomputed_gate(wt_path, timeout=300):
     """Run local project test gates deterministically before a review-changes session."""
@@ -1435,6 +1464,7 @@ def main(argv=None):
         issue_ref = item.get("url") or item.get("issue") or (str(item["number"]) if item.get("number") is not None else None)
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
+        published_pr = None
         # Issue reconciliation loop
         while True:
             remaining_minutes = (deadline_time - time.time()) / 60
@@ -1442,6 +1472,10 @@ def main(argv=None):
                 print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m). Stopping.")
                 break
             state = observe_issue(issue_ref)
+            if not state.get("pr"):
+                seeded = published_pr_state(published_pr)
+                if seeded:
+                    state["pr"] = seeded
             step = next_step(state)
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):
@@ -1635,24 +1669,25 @@ def main(argv=None):
                     live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli,
                                                        cwd=options.get("cwd"), child_state=state,
                                                        force=args.stack) if parent_children else None
-                    publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
-                                      notes_dir, step_options,
-                                      base_branch=live_preceding["branch"] if live_preceding else None,
-                                      cli_fn=run_cli)
+                    return publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
+                                             notes_dir, step_options,
+                                             base_branch=live_preceding["branch"] if live_preceding else None,
+                                             cli_fn=run_cli)
+                return None
 
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options,
                                         log_hook=lambda path: captured.update(log=path))
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
             note_session(step, state["issue"], success, info, captured.get("log"), state)
-            publish_step_work()
+            published_pr = publish_step_work() or published_pr
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
                 captured = {}
                 success, info = run_session(step, state["issue"], notes_dir, step_options,
                                             log_hook=lambda path: captured.update(log=path))
                 note_session(step, state["issue"], success, info, captured.get("log"), state)
-                publish_step_work()
+                published_pr = publish_step_work() or published_pr
                 if not success:
                     pr_url = (state.get("pr") or {}).get("url") or ""
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
