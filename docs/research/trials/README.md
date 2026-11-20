@@ -229,4 +229,4 @@ New problems: `opencode run` sessions outlive their client, two coordinators ove
 
 ## 2026-11-20: session diagnosis fixture
 
-The [session diagnosis folder](2026-11-20-session-diagnosis) contains a synthetic export tree with a missing child, repeated reads, overlapping timestamps, and incomplete token data. The [manual report](2026-11-20-session-diagnosis/report.md) records a Pass and its limits. Skills: `bbe00d4`. The implementing agent ran and graded it; no fresh model session was used.
+The [session diagnosis folder](2026-11-20-session-diagnosis) contains a synthetic export tree with a missing child, repeated reads, overlapping timestamps, and incomplete token data. The [manual report](2026-11-20-session-diagnosis/report.md) records a Pass and its limits. Skills: `d8ecca6`. The implementing agent ran and graded it; no fresh model session was used.
