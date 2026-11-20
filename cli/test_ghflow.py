@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -4611,6 +4611,15 @@ class ReviewSummaryTests(unittest.TestCase):
                 self.assertEqual(review_summary(reviews, latest, [])["state"], "incomplete")
 
 
+class ReviewVerdictMarkerTests(unittest.TestCase):
+    def test_model_field_is_optional(self):
+        old = [{"id": 1, "author": "a", "body": "<!-- ghflow-review head=abc verdict=clean -->"}]
+        new = [{"id": 2, "author": "a",
+                "body": "<!-- ghflow-review head=abc verdict=clean model=m/x -->"}]
+        self.assertIsNone(parse_review_verdicts(old)[0]["model"])
+        self.assertEqual(parse_review_verdicts(new)[0]["model"], "m/x")
+
+
 class QueueSummaryTests(unittest.TestCase):
     def test_reports_current_head_ci_and_review_state(self):
         issues = {
@@ -4673,6 +4682,22 @@ class QueueSummaryTests(unittest.TestCase):
         self.assertEqual(status, 0)
         self.assertEqual((result["rows"][0]["ci"], result["rows"][0]["review"]), (None, None))
         self.assertIn("| none |  | none | none | none | In review |", result["table"])
+
+    def test_current_head_verdict_is_shown_with_its_model(self):
+        issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN",
+                                          "isDraft": False, "headRefOid": HEAD}])}
+        marker = (f"<!-- ghflow-review head={HEAD} verdict=clean "
+                  f"model=lmstudio/qwen3.8-27b-mlx@4bit -->\n\nClean.")
+        deliveries = {10: {"pr": pr(number=10, url="pr/10"),
+                           "issue_comments": [{"id": 1, "user": {"login": "MokaGnome"},
+                                               "created_at": "2026-11-20T00:00:00Z",
+                                               "html_url": "c/1", "body": marker}]}}
+        gh, gh_paginated = summary_gh(issues, deliveries)
+        result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
+        self.assertEqual(status, 0)
+        self.assertEqual(result["rows"][0]["verdict"]["verdict"], "clean")
+        self.assertEqual(result["rows"][0]["verdict"]["model"], "lmstudio/qwen3.8-27b-mlx@4bit")
+        self.assertIn("verdict: clean at aaaaaaa (lmstudio/qwen3.8-27b-mlx@4bit)", result["table"])
 
     def test_unread_issue_is_reported_with_exit_2(self):
         def gh(args):
