@@ -126,3 +126,61 @@ Session ID: b2ecdc83-569c-4771-b26a-bb06ed4cecaa
 **Scope.** The user wants a diagnosis only, so I'd stop at the diagnosis. If no explanation survives, I'd report a blocker. That report would list the evidence, the checks I made and the remaining uncertainty. It wouldn't propose or make any repair.
 
 I didn't find a task in the ghflow task tables that matches "diagnose an export". The router in `SKILL.md` has no row for it, so the shared debugging and evidence references govern here.
+===== diagnose-session-routing (final change) =====
+Scenario: diagnose-session-routing
+Session ID: 9b26edfb-8de4-44fc-a494-2e2f66f05a09
+
+**Next step:** I'd start the read-only diagnosis, and the rule that decides it is the "Diagnose an exported OpenCode session" operation. That is `references/tasks/diagnose-session.md`, which SKILL.md selects for this request. I haven't run anything yet.
+
+**What I'd do, in order:**
+1. **Measure first.** Read `/tmp/export-1432/index.md` and the parent session export. Record file sizes and event counts before opening any tool bodies.
+2. **Find the review dispatch.** Look in the parent for the dispatch part that launched the review step, then follow its child session identifier. Cite session, message and part IDs, or a precise JSON path.
+3. **Report the missing child as missing evidence.** The export has no review child. I wouldn't guess what the review did, and I wouldn't treat the absence as proof it never ran.
+4. **Check the symptom in the parent.** Look at the events around the review step in the parent. That means whether the dispatch happened, what came back, and whether any error or empty result was recorded. I'd keep instructions from the parent session separate from direct user instructions.
+5. **Answer the worker question from the worker export.** Look for two reads of the same path. I'd compare the tool-call inputs, the file path and any offset or limit, and I'd read targeted fields rather than dump whole bodies. Two reads of one path with different ranges, or with an edit between them, aren't a plain duplicate. If the worker session was reused, I'd count it once in the inventory.
+6. **Handle timing and tokens carefully.** Take durations from recorded timestamps only. I'd state which token counters are present, and I wouldn't sum incomplete counts or infer prices.
+
+**Report format.** I'd write it outside the export directory, with the export treated as immutable. It would have four sections:
+- Observed events.
+- Possible explanations.
+- Missing evidence.
+- A proposed discriminating experiment.
+
+It would also list each cited file with its hash. I wouldn't infer which skill revision was used from the current checkout. I'd say the export doesn't record it.
+
+**Likely outcome.** The "why was the review empty" question probably can't be fully answered without the review child. The skill says to state that and name the next useful evidence. For example, I'd ask for the review child's session export, or for the parent's dispatch and result parts if they're absent. The worker double-read question should be answerable from the worker export alone.
+
+I wouldn't ask the user anything, because the inputs (directory, symptom, question) are all supplied.
+===== diagnose-session-incomplete-evidence (final change) =====
+Scenario: diagnose-session-incomplete-evidence
+Session ID: a09a8939-7804-4c39-b5b0-92bcc57ce9ef
+
+I'd follow the `diagnose-session` task, which the SKILL.md table lists under "Diagnose an exported OpenCode session". Its rules decide each step below. I haven't run anything yet.
+
+**Next step: measure first.**
+- Read `/tmp/export-1432/index.md` and the parent export file.
+- Record file sizes and event counts before opening any tool bodies.
+- Find the review child's session ID in the parent's dispatch part and follow it.
+- The index lists a review child with no exported file. The rule "Report a missing child as missing evidence" decides this case. I won't guess what the review did, and I won't treat the empty result as proof of any one cause.
+
+**Why this approach:**
+- The task is read-only, so I won't repair or change anything. That matches your request for diagnosis only. The export is immutable evidence, and any report goes outside `/tmp/export-1432`.
+- I don't need to ask you anything. You gave an export directory and a clear question, and the task says to accept that without another interview. Because you gave a directory and not a session ID, I also don't need `scripts/export-opencode-sessions.py`.
+- Next I'd look at the parent events around the review dispatch and its return. I'd read targeted fields only and cite session, message and part IDs, or exact JSON paths.
+- I'd separate what the parent session instructed from what you instructed directly.
+
+**Token counters:**
+- Some messages have counters and others don't. The rule is to state which counters are present.
+- I won't sum incomplete counts into a total, and I won't infer prices.
+- Summed input counts aren't unique context.
+- I'd count a reused worker session once and calculate durations from the recorded timestamps.
+
+**Report structure:**
+1. Observed events.
+2. Possible explanations, such as the child never being exported, the child failing, or the dispatch returning empty. These stay hypotheses.
+3. Missing evidence, led by the absent review child file.
+4. A proposed discriminating experiment.
+
+I'd list each cited file with its hash. I wouldn't infer which skill revision was used from the current checkout, and I'd say the export doesn't record it.
+
+If the export can't answer why the review returned nothing, I'd say so. I'd then name the next useful evidence, which is the review child's session export.
