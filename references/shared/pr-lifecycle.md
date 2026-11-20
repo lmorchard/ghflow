@@ -8,7 +8,7 @@ Prefer opening a draft PR as soon as significant committed work exists, before i
 
 Use [submit-pr](../tasks/submit-pr.md) for publication. Keep the issue In progress while the PR is a draft, and defer review requests and review follow-up. In an ongoing delivery flow, an early draft is a progress checkpoint. It does not complete a ready-submission or review-follow-up endpoint. An explicit draft-only submission can stop with the requested draft.
 
-Keep the same PR and branch as work continues. Publish further logical commits at useful checkpoints. Update the description with completed work, remaining work, actual check results, and the next useful action. Preserve the PR URL, worktree, branch, base, and published head in handoffs so another session can resume. Carry any [Task notes](task-notes.md) path in the handoff alongside this evidence. Uncommitted changes still need a separate report.
+Keep the same PR and branch as work continues. Publish further logical commits at useful checkpoints. Update the description with completed work, remaining work, actual check results, and the next useful action. Preserve the PR URL, worktree, branch, base, published head, actual check results, and evidence limits in handoffs so another session can resume. Carry any [Task notes](task-notes.md) path in the handoff alongside this evidence. Uncommitted changes still need a separate report.
 
 ## Mark the PR ready
 

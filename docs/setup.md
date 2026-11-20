@@ -82,6 +82,8 @@ Check it with:
 git -C ~/.agents/skills/ghflow worktree list
 ```
 
+The expected result is one line for the checkout.
+
 If it lists more than the main checkout, remove a worktree only when it has no uncommitted changes and no open PR.
 Otherwise use another clean checkout.
 A worktree still exposes its copy through the separate checkout.
@@ -119,6 +121,13 @@ Inspect the installed source's worktrees for nested skill files.
 Maintain worktrees through authorized cleanup, and preserve worktrees with uncommitted changes or an open PR.
 If additional skills are unwanted, use a separate source checkout without nested skill packages.
 The [root-package trial](research/trials/2026-10-07-ghflow-root-setup.md#nested-worktree-discovery) records the evidence and decision.
+
+## Runtime limits
+
+An OpenCode bash tool call ends at its configured timeout and sends a hangup to the process group.
+A full test suite can exceed that timeout.
+Run a long suite detached with its output in a file and read the file.
+Otherwise raise the tool timeout for the session.
 
 ## Prepare the project facts
 
@@ -207,5 +216,6 @@ The repository owner grants access before an agent works in the repository or pr
 - For a user-owned project board, add the machine user as a writer with `scripts/add-board-writer.sh OWNER PROJECT_NUMBER LOGIN`.
 
 Resolve the script from the source checkout containing the entry skill. Do not resolve it from the target project.
+Check the active identity with `python3 "$GHFLOW_CLI" identity` and `python3 "$GHFLOW_CLI" exec -- gh api user`. Expect `ready: true` and the configured login.
 The [identity reference](../references/shared/identity.md) supplies runtime configuration and credential handling.
 The [identity research and trials](research/agent-identity.md) document records the adoption evidence and historical limits.

@@ -22,6 +22,20 @@ Define a necessary technical term at its first use in each document. Keep the de
 
 The official dictionary controls approved words, meanings, and grammar. The skill supplies only part of that guidance. If a word is uncertain, use a simpler word or record the need for a dictionary review.
 
+## Setup documents
+
+A setup document can describe mutable state, such as installed links, worktrees, identity readiness, tokens, ports, and local services.
+Name the command that checks each mutable state and the expected result.
+Do not assert the current state.
+
+For example, check the OpenCode checkout with:
+
+```sh
+git -C ~/.agents/skills/ghflow worktree list
+```
+
+The expected result is one line for the checkout.
+
 ## Specifications
 
 Keep proposals separate from requirements. Use “must” only for a requirement. To describe a proposal, start with “We propose” or identify the section as a proposal.
