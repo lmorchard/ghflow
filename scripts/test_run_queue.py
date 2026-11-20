@@ -175,6 +175,14 @@ class NextStepTableTests(unittest.TestCase):
         self.assertIsNone(run_queue.context_cap_reason(100000, 0))
         self.assertIsNone(run_queue.context_cap_reason(99999, 100000))
         self.assertIn("cap 100000", run_queue.context_cap_reason(100000, 100000))
+        self.assertEqual(run_queue.step_context_tokens(
+            {"input": 500, "cache": {"read": 105000, "write": 7}}), 105507)
+        self.assertEqual(run_queue.step_context_tokens({"input": 10}), 10)
+        self.assertEqual(run_queue.step_context_tokens({}), 0)
+
+    def test_negative_context_limits_are_rejected(self):
+        with self.assertRaises(SystemExit):
+            run_queue.main(["--context-warn-tokens", "-1", "--no-notebook"])
 
     def test_verification_lines_extracts_verify_clause(self):
         body = "**Size:** S\n\n**Verify.** `make test` — `tests/test_x.py`.\n\n**Tests.** Add a case."

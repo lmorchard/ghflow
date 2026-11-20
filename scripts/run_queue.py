@@ -679,18 +679,27 @@ def slow_step_warning(now, last_event_ts, step_idle_timeout, warned):
             f"waiting up to {step_idle_timeout}s")
 
 
-def context_warning(input_tokens, warn_tokens, warned):
+def context_warning(context_tokens, warn_tokens, warned):
     """Describe a session that reached the context warning threshold."""
-    if warned or not warn_tokens or input_tokens < warn_tokens:
+    if warned or not warn_tokens or context_tokens < warn_tokens:
         return None
-    return f"Session context reached {input_tokens} input tokens (warn {warn_tokens})."
+    return f"Session context reached {context_tokens} tokens (warn {warn_tokens})."
 
 
-def context_cap_reason(input_tokens, max_tokens):
+def context_cap_reason(context_tokens, max_tokens):
     """Describe a session that reached the context cap, or None."""
-    if not max_tokens or input_tokens < max_tokens:
+    if not max_tokens or context_tokens < max_tokens:
         return None
-    return f"Session context reached {input_tokens} input tokens (cap {max_tokens})"
+    return f"Session context reached {context_tokens} tokens (cap {max_tokens})"
+
+
+def step_context_tokens(tokens):
+    """Return a step's context size, including cached prompt tokens."""
+    tokens = tokens or {}
+    cache = tokens.get("cache") or {}
+    return (int(tokens.get("input") or 0)
+            + int(cache.get("read") or 0)
+            + int(cache.get("write") or 0))
 
 
 def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
@@ -792,12 +801,17 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             out_tok = tokens.get("output", 0)
             reason_tok = tokens.get("reasoning", 0)
             reason = part.get("reason") or event.get("reason")
-            print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens)", flush=True)
-            warning = context_warning(in_tok, context_warn_tokens, context_warned)
+            context_tokens = step_context_tokens(tokens)
+            print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens, "
+                  f"context: {context_tokens})", flush=True)
+            warning = context_warning(context_tokens, context_warn_tokens, context_warned)
             if warning:
                 print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
+                log_fp.write(json.dumps({"type": "runner_warning", "reason": warning,
+                                         "timestamp": int(time.time() * 1000)}) + "\n")
+                log_fp.flush()
                 context_warned = True
-            cap_reason = context_cap_reason(in_tok, max_context_tokens)
+            cap_reason = context_cap_reason(context_tokens, max_context_tokens)
             if cap_reason:
                 abort_reason = cap_reason
             if out_tok == 0 and (reason_tok >= MAX_DEGENERATE_REASONING or reason == "length"):
@@ -1439,9 +1453,9 @@ def main(argv=None):
     parser.add_argument("--step-idle-timeout", type=int, default=DEFAULT_STEP_IDLE_TIMEOUT,
                         help=f"maximum idle seconds without stream events before session abort (default {DEFAULT_STEP_IDLE_TIMEOUT})")
     parser.add_argument("--context-warn-tokens", type=int, default=DEFAULT_CONTEXT_WARN_TOKENS,
-                        help=f"warn when a step reaches this input-token count (default {DEFAULT_CONTEXT_WARN_TOKENS})")
+                        help=f"warn when a step reaches this input and cached-prompt token count (default {DEFAULT_CONTEXT_WARN_TOKENS})")
     parser.add_argument("--max-context-tokens", type=int, default=DEFAULT_MAX_CONTEXT_TOKENS,
-                        help="stop a session at a step boundary at this input-token count (default 0, off)")
+                        help="stop a session at a step boundary at this input and cached-prompt token count (default 0, off)")
     parser.add_argument("--no-precompute-gates", action="store_true",
                         help="do not run pre-computed test gates before review-changes")
     parser.add_argument("--no-symbol-indexing", action="store_true",
@@ -1451,6 +1465,8 @@ def main(argv=None):
     parser.add_argument("--no-deterministic-pr", action="store_true",
                         help="dispatch an LLM worker session for submit-pr instead of submitting deterministically")
     args = parser.parse_args(argv)
+    if args.context_warn_tokens < 0 or args.max_context_tokens < 0:
+        parser.error("--context-warn-tokens and --max-context-tokens must be 0 or greater")
 
     exclude = set()
     if args.exclude:
