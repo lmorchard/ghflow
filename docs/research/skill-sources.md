@@ -257,3 +257,18 @@ Cloud-model defaults remain unless the user explicitly selects this mode.
 The new scenarios cover delivery, review after corrections, and the cloud-mode boundary.
 They define expected decisions, not observed local-model behavior.
 No new model session or subagent was used to evaluate this change.
+
+## Review of a correction
+
+The [Superpowers re-review prompt](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/subagent-driven-development/re-review-prompt.md) supplies the idea of reviewing a correction against the earlier findings.
+The [review task](../../references/tasks/review-changes.md#review-a-correction) adds per-finding outcomes, the original base and reviewed head, coverage gaps, and caller checks.
+It does not adopt the rule that every observation outside the correction is nonblocking, because ghflow does not guarantee a later whole-branch review.
+The [scenarios](../../evals/scenarios/review-correction-two-findings.md) record the expected decisions.
+
+## Debugging unclear failures
+
+The [Superpowers systematic debugging guide](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/systematic-debugging/SKILL.md#phase-3-hypothesis-and-testing) supplies the hypothesis and experiment sequence.
+The new [debugging reference](../../references/shared/debugging.md) keeps one hypothesis, one discriminating experiment, and the actual result.
+It adds no retry count, automatic escalation, or new framework.
+The existing investigation limits stay in the implementation and PR follow-up tasks.
+The [scenarios](../../evals/scenarios/debug-missing-generated-file.md) record the expected decisions.

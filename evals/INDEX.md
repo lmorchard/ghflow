@@ -219,10 +219,18 @@ A different repository HEAD does not invalidate a recorded run. Read the report 
 
 These scenarios have no structured run record in the reports. This does not prove that no unrecorded run occurred.
 
+- [debug-missing-generated-file](scenarios/debug-missing-generated-file.md)
+- [debug-repeated-correction-failure](scenarios/debug-repeated-correction-failure.md)
+- [debug-serial-parallel-suite](scenarios/debug-serial-parallel-suite.md)
 - [draft-pr-explicit-limit](scenarios/draft-pr-explicit-limit.md)
 - [express-single-session-endpoint](scenarios/express-single-session-endpoint.md)
 - [local-model-single-session](scenarios/local-model-single-session.md)
 - [mismatched-plain-gh-login](scenarios/mismatched-plain-gh-login.md)
+- [review-correction-head-change](scenarios/review-correction-head-change.md)
+- [review-correction-missing-evidence](scenarios/review-correction-missing-evidence.md)
+- [review-correction-scope-claim](scenarios/review-correction-scope-claim.md)
+- [review-correction-shared-helper](scenarios/review-correction-shared-helper.md)
+- [review-correction-two-findings](scenarios/review-correction-two-findings.md)
 - [single-session-review-corrections](scenarios/single-session-review-corrections.md)
 - [single-session-scope-boundary](scenarios/single-session-scope-boundary.md)
 - [task-notes-read-only](scenarios/task-notes-read-only.md)
