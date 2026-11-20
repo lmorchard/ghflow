@@ -11,17 +11,17 @@ All operative rules are inlined below. Do not spend tool turns reading external 
 
 ## 1. Tool setup and symbol navigation
 
-Set `GHFLOW_CLI` to the absolute path of `cli/ghflow.py` in the source checkout:
+The queue runner sets `GHFLOW_CLI` in the environment. If it is unset, set it once:
 
 ```sh
 export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
 ```
 
-For fast definition lookups without noisy grepping, use Universal Ctags via `ghflow tags`:
+Do not re-export it in every command. For symbol lookups, use Universal Ctags before `grep`/`rg`:
 
 ```sh
-python3 "$GHFLOW_CLI" tags find <symbol>
+python3 "$GHFLOW_CLI" tags find <symbol> --refs
 python3 "$GHFLOW_CLI" tags outline <file>
 ```
 
@@ -32,6 +32,7 @@ Before editing files, run the idempotent worktree precondition command:
 python3 "$GHFLOW_CLI" worktree prepare <issue>
 ```
 - **If already inside the worktree**, it returns `"ready": true` with `"action": "already_inside"`. Proceed directly.
+- The queue runner starts this session inside the prepared worktree. If `pwd` is already the worktree, do not run `worktree prepare` and do not prefix commands with `cd`; run commands directly.
 - **If outside**, it prepares the worktree, seeds environment files (`.env`), runs dependency setup, and outputs `"cd_command"`. Run the `cd` command to enter it.
 - **Feed of needful details**: The response supplies the target worktree path, branch, base, test gates (`make check`), and symbol definition locations.
 - **Never edit files in the primary checkout.** Perform all reads, edits, tests, and commits inside your assigned worktree.
@@ -45,7 +46,7 @@ Follow project test-first conventions:
 2. **Minimal changes**: Make the smallest change that satisfies the issue requirements. Do not add speculative refactoring or touch unrelated code.
 3. **Behavioral assertions**: Write tests that fail when the covered behavior is disabled, not only when the entire change is absent.
 4. **Targeted feedback**: Run targeted unit tests during iterations for fast feedback.
-5. **Gate verification**: Run the full project gate (`make check`) before committing. Ensure zero regressions, clean formatting, and passing type checks.
+5. **Gate verification**: Read the issue's `Verify` line. Run those focused tests during iteration. Run `make check` before committing, and run the full `make test` suite once before finishing.
 6. **Bounded test gate output**: For full gate or test suite runs, use `ghflow gate` with `--summary` to protect your context window from multi-thousand-line test dumps:
    ```sh
    python3 "$GHFLOW_CLI" gate --cmd "make check" --summary

@@ -1,7 +1,9 @@
 """Session log inspection, tailing, summary, and debriefing."""
 
+from collections import Counter
 import json
 from pathlib import Path
+import re
 import sys
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -122,6 +124,29 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
     total_reasoning = sum(t["tokens"]["reasoning"] for t in turns)
     peak_reasoning = max((t["tokens"]["reasoning"] for t in turns), default=0)
 
+    tool_counts = Counter()
+    tool_signals = Counter()
+    for turn in turns:
+        for tool in turn.get("tools") or []:
+            name = tool.get("tool") or "unknown"
+            tool_counts[name] += 1
+            if name == "shell":
+                command = (tool.get("summary") or "").lower()
+                if re.search(r"\btags\s+(find|outline)\b", command):
+                    tool_signals["tags"] += 1
+                if re.search(r"\b(grep|rg)\b", command):
+                    tool_signals["grep"] += 1
+                if command.lstrip().startswith("cd ") and ".claude/worktrees" in command:
+                    tool_signals["cd_worktree"] += 1
+                if "ghflow" in command and " gate" in command:
+                    tool_signals["ghflow_gate"] += 1
+                if re.search(r"\bmake\s+test\b", command):
+                    tool_signals["make_test"] += 1
+                if re.search(r"\bmake\s+check\b", command):
+                    tool_signals["make_check"] += 1
+            elif name == "grep":
+                tool_signals["grep"] += 1
+
     finished_turns = [t for t in turns if t.get("stop") is not None or t["tokens"]["input"] > 0]
     current_context = finished_turns[-1]["tokens"]["input"] if finished_turns else (turns[-1]["tokens"]["input"] if turns else 0)
 
@@ -160,6 +185,8 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
         "total_output_tokens": total_output,
         "total_reasoning_tokens": total_reasoning,
         "peak_reasoning_tokens": peak_reasoning,
+        "tool_counts": dict(tool_counts),
+        "tool_signals": dict(tool_signals),
         "last_turn": last_turn,
         "turns": turns,
     }
@@ -290,6 +317,8 @@ def session_debrief(dir_path: Optional[Path | str] = None) -> Tuple[Dict[str, An
             "output_tokens": p.get("total_output_tokens"),
             "reasoning_tokens": p.get("total_reasoning_tokens"),
             "peak_reasoning": p.get("peak_reasoning_tokens"),
+            "tools": p.get("tool_counts") or {},
+            "signals": p.get("tool_signals") or {},
         })
 
     # Render Markdown table
@@ -311,6 +340,31 @@ def session_debrief(dir_path: Optional[Path | str] = None) -> Tuple[Dict[str, An
             f"max {format_tokens(max(r['peak_reasoning'] for r in rows))} |"
         )
 
+    tool_header = ("| File | Shell | Read | Grep | Edit | Write | Tags | "
+                   "cd-worktree | make-test | make-check |")
+    tool_divider = ("| :--- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |")
+    tool_lines = [tool_header, tool_divider]
+    totals = Counter()
+    for r in rows:
+        tools, signals = r["tools"], r["signals"]
+        for key in ("shell", "read", "edit", "write"):
+            totals[key] += tools.get(key, 0)
+        for key in ("grep", "tags", "cd_worktree", "make_test", "make_check"):
+            totals[key] += signals.get(key, 0)
+        tool_lines.append(
+            f"| `{r['file']}` | {tools.get('shell', 0)} | {tools.get('read', 0)} | "
+            f"{signals.get('grep', 0)} | {tools.get('edit', 0)} | {tools.get('write', 0)} | "
+            f"{signals.get('tags', 0)} | {signals.get('cd_worktree', 0)} | "
+            f"{signals.get('make_test', 0)} | {signals.get('make_check', 0)} |"
+        )
+    if rows:
+        tool_lines.append(
+            f"| **Total ({len(rows)})** | {totals['shell']} | {totals['read']} | "
+            f"{totals['grep']} | {totals['edit']} | {totals['write']} | "
+            f"{totals['tags']} | {totals['cd_worktree']} | "
+            f"{totals['make_test']} | {totals['make_check']} |"
+        )
+
     rendered = "\n".join(table_lines)
     return {
         "success": True,
@@ -318,4 +372,6 @@ def session_debrief(dir_path: Optional[Path | str] = None) -> Tuple[Dict[str, An
         "count": len(rows),
         "sessions": rows,
         "table": rendered,
+        "tool_table": "\n".join(tool_lines),
+        "tool_totals": dict(totals),
     }, 0

@@ -11,7 +11,7 @@ import time
 import unittest
 from datetime import datetime, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 import ghflow
 from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
@@ -4308,6 +4308,44 @@ class QueueItemsTests(unittest.TestCase):
         }])
 
 
+class TagsReferenceTests(unittest.TestCase):
+    def test_filters_docs_and_caps(self):
+        import tags
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = MagicMock(returncode=0, stdout="src/a.py:3:foo()\ndocs/a.md:1:foo\nsrc/b.py:5:foo\n", stderr="")
+            with patch("subprocess.run", return_value=fake):
+                refs = tags.find_references("foo", repo_root=tmp, limit=1)
+            self.assertEqual(refs, [{"path": "src/a.py", "line": 3, "text": "foo()"}])
+
+    def test_no_match_returns_empty(self):
+        import tags
+        with tempfile.TemporaryDirectory() as tmp:
+            fake = MagicMock(returncode=1, stdout="", stderr="")
+            with patch("subprocess.run", return_value=fake):
+                self.assertEqual(tags.find_references("foo", repo_root=tmp), [])
+
+
+class ReviewInspectTests(unittest.TestCase):
+    def test_no_gate_returns_pr_state_without_running_the_gate(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            prep = {"path": tmp, "base": "origin/main", "head": "a" * 40, "stat": ""}
+
+            def fake_state(*args, **kwargs):
+                return {"ci": "green", "checks": [{"name": "lint"}], "reviews": [],
+                        "review_summary": {}, "review_verdicts": [], "pending_review_requests": [],
+                        "state": "OPEN", "is_draft": False, "base_behind_by": 0, "errors": []}, 0
+
+            with patch("ghflow.review_prepare", return_value=(prep, 0)), \
+                 patch("ghflow.pr_state", side_effect=fake_state), \
+                 patch("ghflow.run_gate") as gate:
+                result, status = review_inspect("o/r", 7, no_gate=True, git=lambda args, cwd=None: "")
+        self.assertEqual(status, 0)
+        self.assertEqual(result["gate"], "skipped")
+        self.assertEqual(result["ci"], "green")
+        self.assertEqual(result["checks"], [{"name": "lint"}])
+        gate.assert_not_called()
+
+
 def triage_item(number, priority=None, labels=(), sub_issues=0, status="Backlog", size=None, state="OPEN", kind="Issue"):
     content = {"__typename": kind, "url": f"https://github.com/o/r/issues/{number}",
                "repository": {"nameWithOwner": "o/r"}}
@@ -4988,6 +5026,29 @@ class SessionCommandTests(unittest.TestCase):
         self.assertIn("aborted", res["status"])
         self.assertIn("turn limit", res["status"])
 
+    def test_parse_session_log_counts_tool_signals(self):
+        import session as session_mod
+        log_path = self.tmp / "session-tools.log"
+        tool = lambda name, input: {"type": "tool_use", "sessionID": "ses_tools",
+                                     "part": {"type": "tool", "tool": name, "state": {"input": input}}}
+        log_path.write_text("\n".join([
+            json.dumps({"type": "step_start", "sessionID": "ses_tools", "part": {"type": "step-start"}}),
+            json.dumps(tool("shell", {"command": "cd /x/.claude/worktrees/w && tags find foo --refs"})),
+            json.dumps(tool("shell", {"command": "grep -rn foo src"})),
+            json.dumps(tool("grep", {"pattern": "foo", "path": "src"})),
+            json.dumps(tool("shell", {"command": "make test"})),
+            json.dumps({"type": "step_finish", "sessionID": "ses_tools",
+                        "part": {"type": "step-finish", "reason": "stop",
+                                 "tokens": {"input": 10, "output": 2, "reasoning": 1}}}),
+        ]) + "\n")
+        res = session_mod.parse_session_log(log_path)
+        self.assertEqual(res["tool_counts"]["shell"], 3)
+        self.assertEqual(res["tool_counts"]["grep"], 1)
+        self.assertEqual(res["tool_signals"]["tags"], 1)
+        self.assertEqual(res["tool_signals"]["grep"], 2)
+        self.assertEqual(res["tool_signals"]["cd_worktree"], 1)
+        self.assertEqual(res["tool_signals"]["make_test"], 1)
+
     def test_session_tail_and_summary(self):
         import session as session_mod
         log_path = self.tmp / "session-test.log"
@@ -5014,6 +5075,8 @@ class SessionCommandTests(unittest.TestCase):
         self.assertIn("| `session-1.log` |", debrief_res["table"])
         self.assertIn("| `session-2.log` |", debrief_res["table"])
         self.assertIn("**Total (2)**", debrief_res["table"])
+        self.assertIn("| Shell | Read |", debrief_res["tool_table"])
+        self.assertIn("**Total (2)**", debrief_res["tool_table"])
 
     def test_session_cli_dispatch(self):
         log_path = self.tmp / "session-test.log"

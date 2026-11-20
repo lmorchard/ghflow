@@ -167,6 +167,12 @@ class NextStepTableTests(unittest.TestCase):
         self.assertEqual(run_queue.issue_turn_limit("no size"), run_queue.DEFAULT_MAX_TURNS)
         self.assertEqual(run_queue.issue_turn_limit("**Size:** S", 42), 42)
 
+    def test_verification_lines_extracts_verify_clause(self):
+        body = "**Size:** S\n\n**Verify.** `make test` — `tests/test_x.py`.\n\n**Tests.** Add a case."
+        self.assertEqual(run_queue.verification_lines(body),
+                         ["**Verify.** `make test` — `tests/test_x.py`."])
+        self.assertEqual(run_queue.verification_lines("no verification"), [])
+
 
 class NextItemSelectionTests(unittest.TestCase):
     """Tests for next_item board-driven selection (Decision 9)."""
@@ -442,6 +448,29 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             delete_calls = [c for c in subproc_calls if "delete" in c]
             self.assertEqual(len(delete_calls), 1)
             self.assertEqual(delete_calls[0][-1], "ses_test123")
+
+    def test_run_session_uses_worktree_cwd_and_sets_cli_env(self):
+        mock_proc = MagicMock()
+        mock_proc.stdout = ['{"type": "step_start", "sessionID": "ses_test123"}\n', '{"type": "step_finish"}\n']
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            skill_dir = notes_dir / "skill"
+            (skill_dir / "cli").mkdir(parents=True)
+            (skill_dir / "SKILL.md").write_text("# Skill", encoding="utf-8")
+            options = {"skill_dir": str(skill_dir), "opencode_cmd": "fake_opencode",
+                       "session_cwd": "/tmp/task-worktree"}
+            with patch("subprocess.Popen", return_value=mock_proc) as popen, \
+                 patch("subprocess.run"):
+                ok, _ = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                              notes_dir, options, cli_fn=lambda *a, **k: ({"dispatch_prompt": "p"}, 0))
+            self.assertTrue(ok)
+            kwargs = popen.call_args.kwargs
+            self.assertEqual(kwargs["cwd"], "/tmp/task-worktree")
+            self.assertEqual(kwargs["env"]["GHFLOW_CLI"],
+                             str((skill_dir / "cli" / "ghflow.py").resolve()))
 
     def test_run_session_aborts_on_turn_limit(self):
         mock_proc = MagicMock()

@@ -257,6 +257,55 @@ def generate_tags(repo_root=None, out_path=None, languages=None, git=None):
     }, 0
 
 
+CODE_SUFFIXES = (
+    ".py", ".js", ".mjs", ".cjs", ".ts", ".tsx", ".jsx",
+    ".go", ".rs", ".java", ".c", ".h", ".cpp", ".hpp", ".sh", ".rb",
+)
+DOC_OR_GENERATED_PREFIXES = ("docs/", ".ghflow/", "node_modules/", "tui/node_modules/")
+
+
+def is_code_path(path):
+    """Return whether a repository path is source code rather than docs or generated data."""
+    if path.startswith(DOC_OR_GENERATED_PREFIXES) or path.endswith((".md", ".json", ".yaml", ".yml", ".lock")):
+        return False
+    return path.endswith(CODE_SUFFIXES)
+
+
+def find_references(symbol, repo_root=None, limit=5):
+    """Find up to limit code-only references to a symbol with git grep.
+
+    Definitions come from the tags file. This companion search covers the call sites
+    that a model would otherwise find with repeated grep and read calls.
+    """
+    root = Path(repo_root or os.getcwd()).resolve()
+    clean_sym = symbol.lstrip("#")
+    try:
+        proc = subprocess.run(
+            ["git", "grep", "-n", "-I", "-m", str(limit), "--", clean_sym],
+            cwd=root, capture_output=True, text=True, timeout=10,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return []
+    if proc.returncode != 0:
+        return []
+    references = []
+    for line in proc.stdout.splitlines():
+        parts = line.split(":", 2)
+        if len(parts) < 3:
+            continue
+        path, line_no, text = parts
+        if not is_code_path(path):
+            continue
+        references.append({
+            "path": path,
+            "line": int(line_no) if line_no.isdigit() else line_no,
+            "text": text.strip()[:200],
+        })
+        if len(references) >= limit:
+            break
+    return references
+
+
 def find_tags(symbol, repo_root=None, tags_file=None, exact=True, kind=None):
     """Find definitions matching a symbol name in the tags file."""
     root = Path(repo_root or os.getcwd()).resolve()
