@@ -93,8 +93,10 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
                 state = part.get("state", {})
                 inp = state.get("input", {})
                 summary = ""
+                command = ""
                 if tool_name == "shell":
-                    summary = inp.get("command", "")
+                    command = inp.get("command", "") or ""
+                    summary = command
                 elif tool_name in ("read", "write", "patch", "edit"):
                     summary = inp.get("path", "")
                 elif tool_name == "grep":
@@ -106,6 +108,7 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
                     current_turn["tools"].append({
                         "tool": tool_name,
                         "summary": summary[:120],
+                        "command": command,
                     })
             elif tp == "step_finish" or part_type == "step-finish":
                 if current_turn:
@@ -131,7 +134,7 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
             name = tool.get("tool") or "unknown"
             tool_counts[name] += 1
             if name == "shell":
-                command = (tool.get("summary") or "").lower()
+                command = (tool.get("command") or tool.get("summary") or "").lower()
                 if re.search(r"\btags\s+(find|outline|brief)\b", command):
                     tool_signals["tags"] += 1
                 if re.search(r"\b(grep|rg)\b", command):

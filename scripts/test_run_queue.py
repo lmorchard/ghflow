@@ -4,6 +4,7 @@ import contextlib
 import io
 import json
 import os
+import subprocess
 import tempfile
 import unittest
 from pathlib import Path
@@ -2004,6 +2005,216 @@ class SymbolIndexTests(unittest.TestCase):
             self.assertEqual(len(res), 1)
             self.assertEqual(res[0]["symbol"], "_foo")
             self.assertEqual(res[0]["matches"][0], ("src/a.py:42", "def _foo(): pass"))
+
+class FloorDecisionTests(unittest.TestCase):
+    """The time floor stops long sessions but not cheap finishing steps."""
+
+    def test_floor_allows_deterministic_submit(self):
+        # The #1421 case: a reviewed draft with 14.3 minutes left must still
+        # reach the ready step.
+        self.assertFalse(run_queue.should_stop_for_floor("submit-pr", 14.3, 30))
+
+    def test_floor_stops_implementation(self):
+        self.assertTrue(run_queue.should_stop_for_floor("implement-issue", 14.3, 30))
+
+    def test_floor_stops_review(self):
+        self.assertTrue(run_queue.should_stop_for_floor("review-changes", 14.3, 30))
+
+    def test_floor_allows_done(self):
+        self.assertFalse(run_queue.should_stop_for_floor("DONE", 5, 30))
+
+    def test_floor_allows_park(self):
+        self.assertFalse(run_queue.should_stop_for_floor("park-blocker", 5, 30))
+
+    def test_floor_does_not_stop_at_the_threshold(self):
+        self.assertFalse(run_queue.should_stop_for_floor("implement-issue", 30, 30))
+
+    def test_floor_stops_non_deterministic_submit(self):
+        self.assertTrue(
+            run_queue.should_stop_for_floor("submit-pr", 14.3, 30, deterministic_pr=False)
+        )
+
+
+class RestoreGeneratedPathsTests(unittest.TestCase):
+    """Gate-generated tracked files are restored after the gate."""
+
+    def _git(self, tmp, *args):
+        return subprocess.run(["git", *args], cwd=tmp, check=True,
+                              stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
+
+    def test_restores_modified_tracked_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            self._git(tmp, "init", "-q")
+            self._git(tmp, "config", "user.email", "test@example.com")
+            self._git(tmp, "config", "user.name", "Test")
+            target = Path(tmp) / "openapi.json"
+            target.write_text("original\n")
+            self._git(tmp, "add", "openapi.json")
+            self._git(tmp, "commit", "-qm", "base")
+            target.write_text("gate drift\n")
+
+            restored = run_queue.restore_generated_paths(tmp, ["openapi.json"])
+
+            self.assertEqual(restored, ["openapi.json"])
+            self.assertEqual(target.read_text(), "original\n")
+
+    def test_empty_paths_is_a_noop(self):
+        self.assertEqual(run_queue.restore_generated_paths("/tmp", []), [])
+        self.assertEqual(run_queue.restore_generated_paths(None, ["openapi.json"]), [])
+
+    def test_gate_call_restores_generated_paths(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "Makefile").write_text("check:\n\techo ok\n")
+            target = Path(tmp) / "openapi.json"
+            target.write_text("original\n")
+            self._git(tmp, "init", "-q")
+            self._git(tmp, "config", "user.email", "test@example.com")
+            self._git(tmp, "config", "user.name", "Test")
+            self._git(tmp, "add", "openapi.json")
+            self._git(tmp, "commit", "-qm", "base")
+            target.write_text("gate drift\n")
+
+            real_run = subprocess.run
+
+            def fake_run(cmd, **kwargs):
+                if cmd[:2] == ["make", "check"]:
+                    return MagicMock(returncode=0, stdout="ok\n")
+                return real_run(cmd, **kwargs)
+
+            with patch("subprocess.run", side_effect=fake_run):
+                res = run_queue.run_precomputed_gate(tmp, generated_paths=["openapi.json"])
+
+            self.assertTrue(res["success"])
+            self.assertEqual(target.read_text(), "original\n")
+
+
+class FloorReplayTests(unittest.TestCase):
+    """Replay of #1421: a reviewed draft must reach ready below the floor."""
+
+    def test_clean_draft_is_submitted_below_the_floor(self):
+        state = {
+            "issue": "https://github.com/o/r/issues/1421",
+            "number": 1421,
+            "title": "Split tests",
+            "labels": ["triage:ready"],
+            "pr": {"number": 1619, "url": "https://github.com/o/r/pull/1619",
+                   "head": "dcf16807", "head_branch": "issue-1421",
+                   "state": "OPEN", "is_draft": True},
+            "ci": "green",
+            "pending_review_requests": [],
+            "review_verdicts": [{"head": "dcf16807", "verdict": "clean"}],
+        }
+        submitted = []
+
+        def fake_submit(state_arg, owner, project, notes_dir, options, cli_fn=None):
+            submitted.append(state_arg["issue"])
+            return True, {"url": "https://github.com/o/r/pull/1619", "number": 1619}
+
+        def fake_observe_parent(ref, gh_cmd="gh", cwd=None):
+            return {
+                "parent": {"number": 1438, "title": "Epic", "state": "OPEN",
+                           "url": "https://github.com/o/r/issues/1438"},
+                "children": [{"number": 1421, "title": "Split tests", "state": "OPEN",
+                              "url": state["issue"]}],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", side_effect=fake_observe_parent), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.execute_submit_pr", side_effect=fake_submit), \
+             patch("run_queue.run_cli", return_value=({}, 0)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.narrative.post_issue_checkpoint"):
+            ret = run_queue.main(["--parent", "1438", "--project", "o/6",
+                                  "--hours", "0.2", "--floor", "30", "--once",
+                                  "--no-notebook", "--no-symbol-indexing",
+                                  "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(submitted, [state["issue"]])
+
+    def test_failed_submit_is_parked_without_crashing(self):
+        state = {
+            "issue": "https://github.com/o/r/issues/1421",
+            "number": 1421,
+            "title": "Split tests",
+            "labels": ["triage:ready"],
+            "pr": {"number": 1619, "url": "https://github.com/o/r/pull/1619",
+                   "head": "dcf16807", "head_branch": "issue-1421",
+                   "state": "OPEN", "is_draft": True},
+            "ci": "green",
+            "pending_review_requests": [],
+            "review_verdicts": [{"head": "dcf16807", "verdict": "clean"}],
+        }
+
+        def fake_submit(state_arg, owner, project, notes_dir, options, cli_fn=None):
+            return False, {"error": "boom"}
+
+        def fake_observe_parent(ref, gh_cmd="gh", cwd=None):
+            return {
+                "parent": {"number": 1438, "title": "Epic", "state": "OPEN",
+                           "url": "https://github.com/o/r/issues/1438"},
+                "children": [{"number": 1421, "title": "Split tests", "state": "OPEN",
+                              "url": state["issue"]}],
+            }
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", side_effect=fake_observe_parent), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.execute_submit_pr", side_effect=fake_submit), \
+             patch("run_queue.run_cli", return_value=({}, 0)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.narrative.post_issue_checkpoint"):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--parent", "1438", "--project", "o/6",
+                                      "--hours", "0.2", "--floor", "30", "--once",
+                                      "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertIn("parked", out.getvalue())
+
+
+class StaleFactsDirectiveTests(unittest.TestCase):
+    """Stale project-facts sources are named in the session directive."""
+
+    def test_stale_sources_are_named_in_the_implement_directive(self):
+        captured = {}
+
+        def fake_run_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            captured.update(options)
+            return True, "ses_id"
+
+        state = {"issue": "https://github.com/o/r/issues/7", "number": 7, "title": "Fix it",
+                 "labels": ["triage:ready"], "pr": None}
+        facts = {"project_facts": {"origin": {"stale_sources": [{"path": "Makefile"}]}}}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            if args and args[0] == "worktree" and args[1] == "create":
+                return {"path": "/repo/.claude/worktrees/issue-7-fix-it", "action": "exists"}, 3
+            return {}, 0
+
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": state["issue"]}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.publish_committed", return_value=None), \
+             patch("run_queue.run_session", side_effect=fake_run_session), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing", "--notes-dir", tmp])
+
+        extra = captured.get("extra_text", "")
+        self.assertIn("Makefile", extra)
+        self.assertIn("do not rely on the stale facts sections", extra)
+
 
 if __name__ == "__main__":
     unittest.main()
