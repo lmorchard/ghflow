@@ -4813,13 +4813,42 @@ class TagsTests(unittest.TestCase):
         out_tags.write_text("!_TAG_FILE_SORTED\t1\t/sorted/\nmy_var\tsrc/config.py\t12;\"\tkind:v\tline:12\n")
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
-            status = main(["tags", "find", "my_var", "--repo", str(self.tmp), "--tags-file", str(out_tags)])
+            status = main(["tags", "find", "my_var", "--json", "--repo", str(self.tmp), "--tags-file", str(out_tags)])
         self.assertEqual(status, 0)
         output = json.loads(mock_stdout.getvalue())
         self.assertEqual(output["symbol"], "my_var")
         self.assertEqual(len(output["matches"]), 1)
         self.assertEqual(output["matches"][0]["path"], "src/config.py")
         self.assertEqual(output["matches"][0]["line"], 12)
+
+    def test_ghflow_tags_compact_find_outline_and_brief(self):
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "!_TAG_FILE_SORTED\t1\t/sorted/\n"
+            "my_fn\tsrc/config.py\t12;\"\tkind:function\tline:12\n"
+            "my_fn\tsrc/config.py\t30;\"\tkind:function\tline:30\n"
+        )
+        args = ["--repo", str(self.tmp), "--tags-file", str(out_tags)]
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "find", "my_fn"] + args)
+        self.assertEqual(status, 0)
+        self.assertEqual(mock_stdout.getvalue().splitlines(),
+                         ["src/config.py:12:function", "src/config.py:30:function"])
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "outline", "src/config.py"] + args)
+        self.assertEqual(status, 0)
+        self.assertEqual(mock_stdout.getvalue().splitlines(),
+                         ["my_fn:12-29:function", "my_fn:30:function"])
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "brief", "my_fn"] + args)
+        self.assertEqual(status, 0)
+        lines = mock_stdout.getvalue().splitlines()
+        self.assertIn("symbol my_fn", lines)
+        self.assertIn("src/config.py:12:function", lines)
+        self.assertIn("file src/config.py", lines)
+        self.assertIn("my_fn:12-29:function", lines)
 
 
 class BuildFinishTests(unittest.TestCase):

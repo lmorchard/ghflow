@@ -1123,6 +1123,7 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("project checkout", extra)
         self.assertIn("do not re-export", extra)
         self.assertIn("do not run `worktree prepare`", extra)
+        self.assertIn("tags brief", extra)
 
     def test_published_pr_state_builds_a_draft_view(self):
         seeded = run_queue.published_pr_state({

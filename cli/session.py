@@ -132,7 +132,7 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
             tool_counts[name] += 1
             if name == "shell":
                 command = (tool.get("summary") or "").lower()
-                if re.search(r"\btags\s+(find|outline)\b", command):
+                if re.search(r"\btags\s+(find|outline|brief)\b", command):
                     tool_signals["tags"] += 1
                 if re.search(r"\b(grep|rg)\b", command):
                     tool_signals["grep"] += 1

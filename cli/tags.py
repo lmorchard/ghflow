@@ -415,3 +415,97 @@ def outline_file(file_path, repo_root=None, tags_file=None):
         "tags_file": str(tf),
         "symbols": symbols,
     }, 0
+
+
+OUTLINE_KINDS = ("function", "method", "class", "struct", "interface", "enum",
+                 "constructor", "macro", "subroutine")
+
+
+def parse_kinds(value):
+    """Return a kind filter. None accepts the default outline kinds; 'all' accepts every kind."""
+    if value is None:
+        return set(OUTLINE_KINDS)
+    if value.strip().lower() == "all":
+        return None
+    return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+
+def outline_lines(symbols, kinds=None):
+    """Return compact name:line-range:kind lines for the selected symbols."""
+    selected = [s for s in symbols
+                if kinds is None or (s.get("kind") or "").lower() in kinds]
+    selected.sort(key=lambda s: (s.get("line") or 0, s.get("name") or ""))
+    lines = []
+    for index, symbol in enumerate(selected):
+        start = symbol.get("line") or 0
+        end = None
+        if index + 1 < len(selected):
+            end = (selected[index + 1].get("line") or 0) - 1
+        span = f"{start}-{end}" if end and end >= start else str(start)
+        lines.append(f"{symbol.get('name')}:{span}:{symbol.get('kind') or 'symbol'}")
+    return lines
+
+
+def format_find_text(result):
+    """Format definitions and references as compact lines."""
+    lines = []
+    for match in result.get("matches") or []:
+        lines.append(f"{match.get('path')}:{match.get('line')}:{match.get('kind') or 'symbol'}")
+    for reference in result.get("references") or []:
+        lines.append(f"ref {reference.get('path')}:{reference.get('line')}")
+    if not lines:
+        lines.append(f"no definition: {result.get('symbol')}")
+    return "\n".join(lines)
+
+
+def format_outline_text(result, kinds=None):
+    """Format a file outline as compact lines."""
+    lines = outline_lines(result.get("symbols") or [], kinds)
+    if not lines:
+        lines.append(f"no outline: {result.get('file')}")
+    return "\n".join(lines)
+
+
+def format_brief_text(result, kinds=None):
+    """Format definitions and file outlines as compact lines."""
+    lines = []
+    for entry in result.get("symbols") or []:
+        symbol = entry.get("symbol")
+        matches = entry.get("matches") or []
+        lines.append(f"symbol {symbol}")
+        if matches:
+            for match in matches:
+                lines.append(f"{match.get('path')}:{match.get('line')}:{match.get('kind') or 'symbol'}")
+        else:
+            lines.append("no definition")
+        for reference in entry.get("references") or []:
+            lines.append(f"ref {reference.get('path')}:{reference.get('line')}")
+    for entry in result.get("files") or []:
+        lines.append(f"file {entry.get('file')}")
+        lines.extend(outline_lines(entry.get("symbols") or [], kinds))
+    return "\n".join(lines)
+
+
+def brief(symbols, repo_root=None, tags_file=None, refs=False, ref_limit=5):
+    """Return definitions and compact file outlines for one or more symbols."""
+    root = Path(repo_root or os.getcwd()).resolve()
+    entries = []
+    files = []
+    for symbol in symbols:
+        result, _ = find_tags(symbol, repo_root=root, tags_file=tags_file)
+        entry = {"symbol": symbol, "matches": result.get("matches") or []}
+        if result.get("error"):
+            entry["error"] = result["error"]
+        if refs:
+            entry["references"] = find_references(symbol, repo_root=root, limit=ref_limit)
+        entries.append(entry)
+        for match in entry["matches"]:
+            path = match.get("path")
+            if path and path not in files:
+                files.append(path)
+    file_entries = []
+    for path in files:
+        result, _ = outline_file(root / path, repo_root=root, tags_file=tags_file)
+        file_entries.append({"file": result.get("file") or path,
+                             "symbols": result.get("symbols") or []})
+    return {"symbols": entries, "files": file_entries}, 0
