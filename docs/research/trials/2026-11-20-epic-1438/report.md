@@ -140,7 +140,7 @@ A better next trial uses a task that needs symbol navigation, such as a cross-mo
 
 ### Candidate changes
 
-These are proposals. None is decided or implemented.
+These were proposals at the time of the run. The implemented subset is in "Implemented after the trial" below.
 
 1. Add a facts-refresh dispatch to `scripts/run_queue.py`, or state in the burndown reference that the coordinator must run `prepare-project-facts` before launch. The current runner only warns.
 2. Pass a context cap for local runs, such as `--max-context-tokens 120000`, so a session stops at a step boundary instead of growing to 149k.
@@ -150,6 +150,18 @@ These are proposals. None is decided or implemented.
 6. Consider a deterministic test-file splitter for issues like #1419 and #1421. The local model does not complete them within one session.
 7. Decide whether to close #1423 as already met by #1520 and keep the regression guard, or fold the guard into another issue.
 8. Re-run the compact-tags trial on a symbol-navigation task and compare tokens with a same-task baseline.
+
+### Implemented after the trial
+
+[PR #213](https://github.com/lmorchard/ghflow/pull/213) implements the safe subset:
+
+- A deterministic `submit-pr`, the endpoint bookkeeping, and a park can run below the time floor. A successful submit below the floor is recorded as endpoint `ready`. This fixes the stranded #1421 draft.
+- The precomputed gate restores the paths that `make check` regenerates, and the implement directive names those paths.
+- The implement directive asks for a checkpoint commit before the full gate.
+- The session debrief counts the compact tags from the full shell command, not the truncated summary.
+- Every session directive names the stale project-facts sources.
+
+The full facts-refresh dispatch, a context cap, a deterministic test splitter, and the #1423 and #1422 decisions remain open.
 
 ## Evidence limits
 
