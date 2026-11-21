@@ -27,6 +27,7 @@ Each operation links to its task procedure.
 - [submit-pr](../references/tasks/submit-pr.md) publishes draft progress or marks completed work ready for review. Independent local review is the primary source for agent PRs. The user can request Copilot review.
 - [address-pr-review](../references/tasks/address-pr-review.md) waits for requested review, addresses findings, and repairs failing CI on an existing PR.
 - [merge-pr](../references/tasks/merge-pr.md) confirms CI and review findings, merges authorized changes, and confirms the result.
+- [diagnose-session](../references/tasks/diagnose-session.md) answers a question about an exported session tree from cited events, read-only.
 
 ## Project facts
 

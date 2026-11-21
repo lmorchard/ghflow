@@ -272,3 +272,10 @@ The new [debugging reference](../../references/shared/debugging.md) keeps one hy
 It adds no retry count, automatic escalation, or new framework.
 The existing investigation limits stay in the implementation and PR follow-up tasks.
 The [scenarios](../../evals/scenarios/debug-missing-generated-file.md) record the expected decisions.
+
+## Session diagnosis
+
+The [Superpowers diagnosis skill](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/diagnosing-superpowers/SKILL.md) separates observed events from explanations and focuses the investigation on one question.
+The [cost and time analysis](https://github.com/obra/superpowers/blob/bb92a77741419a4ab5f06e711a283343f1ada0c3/skills/diagnosing-superpowers/prompts/cost-and-time.md) supplies the caution about incomplete token and duration data.
+The new [diagnose-session task](../../references/tasks/diagnose-session.md) keeps the read-only boundary, cited events, missing evidence, and a proposed discriminating experiment.
+The [fixture trial](trials/2026-11-20-session-diagnosis/report.md) records a manual execution and its limits.

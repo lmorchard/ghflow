@@ -1,0 +1,33 @@
+{
+  "info": {
+    "id": "ses_parent",
+    "title": "Diagnosis fixture parent",
+    "parentID": null,
+    "time": {"created": 1795200000000, "updated": 1795200600000}
+  },
+  "messages": [
+    {
+      "info": {"id": "msg_p1", "role": "assistant", "time": {"created": 1795200010000},
+               "tokens": {"input": 1200, "output": 80}},
+      "parts": [
+        {"id": "part_p1", "type": "tool", "tool": "task",
+         "state": {"input": {"description": "Implement A"},
+                   "metadata": {"sessionId": "ses_worker"},
+                   "time": {"start": 1795200010000, "end": 1795200300000}}},
+        {"id": "part_p2", "type": "tool", "tool": "task",
+         "state": {"input": {"description": "Implement B"},
+                   "metadata": {"sessionId": "ses_worker"},
+                   "time": {"start": 1795200200000, "end": 1795200400000}}},
+        {"id": "part_p3", "type": "tool", "tool": "task",
+         "state": {"input": {"description": "Review"},
+                   "metadata": {"sessionId": "ses_missing"},
+                   "time": {"start": 1795200400000, "end": 1795200600000}}}
+      ]
+    },
+    {
+      "info": {"id": "msg_p2", "role": "assistant", "time": {"created": 1795200600000},
+               "tokens": {"input": 1400, "output": 20}},
+      "parts": [{"id": "part_p4", "type": "text", "text": "done"}]
+    }
+  ]
+}

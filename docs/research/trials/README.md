@@ -226,3 +226,7 @@ New problems: the OpenCode client exited with status 1 and no logged error 35 mi
 The [seventh burndown record](2026-10-21-unattended-burndown-7.md) covers the first run with start-and-park, new sessions for later steps, and foreground dispatch, on OpenCode 2.0.32.
 [PR #1108](https://github.com/lmorchard/decafclaw/pull/1108) reached ready with a browser test for a visual bug, [PR #1109](https://github.com/lmorchard/decafclaw/pull/1109) was started and parked at the deadline, and the facts refresh [PR #1098](https://github.com/lmorchard/decafclaw/pull/1098) went ready without review. The first launch dispatched in the background, its client exited after 43 minutes, and its session kept running on OpenCode's service, so the relaunch put a second coordinator on the queue.
 New problems: `opencode run` sessions outlive their client, two coordinators overloaded the shared model cache, OpenCode auto-updated under the trial, and start-and-park has no time floor. Four candidate changes are listed in the record.
+
+## 2026-11-20: session diagnosis fixture
+
+The [session diagnosis folder](2026-11-20-session-diagnosis) contains a synthetic export tree with a missing child, repeated reads, overlapping timestamps, and incomplete token data. The [manual report](2026-11-20-session-diagnosis/report.md) records a Pass and its limits. Skills: `d8ecca6`. The implementing agent ran and graded it; no fresh model session was used.
