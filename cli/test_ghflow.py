@@ -4905,6 +4905,14 @@ class TagsTests(unittest.TestCase):
             _, status = tags.brief(["x"], repo_root=self.tmp)
         self.assertEqual(status, 1)
 
+    def test_brief_includes_requested_variable(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text("val\tsrc/a.py\t1;\"\tkind:variable\tline:1\n")
+        result, status = tags.brief(["val"], repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(status, 0)
+        self.assertIn("val:1:variable", tags.format_brief_text(result).splitlines())
+
 
 class BuildFinishTests(unittest.TestCase):
     def setUp(self):

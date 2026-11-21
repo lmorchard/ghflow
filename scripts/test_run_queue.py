@@ -392,6 +392,7 @@ class ComposePromptTests(unittest.TestCase):
             self.assertIn("Local-model single session", prompt)
             self.assertIn("implement-issue.md", prompt)
             self.assertIn("export GHFLOW_CLI=", prompt)
+            self.assertIn("tags brief", prompt)
             self.assertIn("Follow the handoff.", prompt)
 
     def test_step_inlines_slim_skill_body_when_available(self):
