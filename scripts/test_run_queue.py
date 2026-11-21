@@ -392,6 +392,7 @@ class ComposePromptTests(unittest.TestCase):
             self.assertIn("Local-model single session", prompt)
             self.assertIn("implement-issue.md", prompt)
             self.assertIn("export GHFLOW_CLI=", prompt)
+            self.assertIn("tags brief", prompt)
             self.assertIn("Follow the handoff.", prompt)
 
     def test_step_inlines_slim_skill_body_when_available(self):
@@ -1123,6 +1124,7 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("project checkout", extra)
         self.assertIn("do not re-export", extra)
         self.assertIn("do not run `worktree prepare`", extra)
+        self.assertIn("tags brief", extra)
 
     def test_published_pr_state_builds_a_draft_view(self):
         seeded = run_queue.published_pr_state({

@@ -4415,10 +4415,21 @@ def main(argv=None):
     tags_find.add_argument("--prefix", action="store_true", help="prefix match instead of exact match")
     tags_find.add_argument("--refs", action="store_true", help="include bounded, code-only reference locations")
     tags_find.add_argument("--ref-limit", type=int, default=5, help="maximum references to return (default 5)")
-    tags_outline = tags_commands.add_parser("outline", help="List all symbol definitions in a file.")
+    tags_find.add_argument("--json", action="store_true", help="print the detailed JSON result instead of compact lines")
+    tags_outline = tags_commands.add_parser("outline", help="List symbol definitions in a file as compact line ranges.")
     tags_outline.add_argument("file", help="path to source file")
     tags_outline.add_argument("--repo", help="repository root (default current directory)")
     tags_outline.add_argument("--tags-file", help="tags file path (default .git/tags)")
+    tags_outline.add_argument("--kinds", help="comma-separated kinds to include, or 'all' (default function, func, method, member, class, struct, interface, enum, constructor, macro, subroutine)")
+    tags_outline.add_argument("--json", action="store_true", help="print the detailed JSON result instead of compact lines")
+    tags_brief = tags_commands.add_parser("brief", help="Return compact definitions and file outlines for one or more symbols.")
+    tags_brief.add_argument("symbols", nargs="+", help="symbol names to look up")
+    tags_brief.add_argument("--repo", help="repository root (default current directory)")
+    tags_brief.add_argument("--tags-file", help="tags file path (default .git/tags)")
+    tags_brief.add_argument("--kinds", help="comma-separated outline kinds to include, or 'all' (default function, func, method, member, class, struct, interface, enum, constructor, macro, subroutine)")
+    tags_brief.add_argument("--refs", action="store_true", help="include bounded, code-only reference locations")
+    tags_brief.add_argument("--ref-limit", type=int, default=5, help="maximum references per symbol (default 5)")
+    tags_brief.add_argument("--json", action="store_true", help="print the detailed JSON result instead of compact lines")
     gate_cmd = commands.add_parser("gate", help="Run local project test gates with compact, bounded output.")
     gate_cmd.add_argument("--cmd", dest="gate_command", default="make check", help="test gate command to execute (default: make check)")
     gate_cmd.add_argument("--path", help="directory to run gate in (default: current directory)")
@@ -4445,6 +4456,7 @@ def main(argv=None):
     sess_debrief.add_argument("dir", nargs="?", help="directory containing session logs (default: ~/.local/state/ghflow/notes)")
     sess_debrief.add_argument("--json", action="store_true", help="output structured JSON")
     args = parser.parse_args(argv)
+    text_output = None
 
     if args.command == "audit" and args.audit_command == "toil":
         result, status = audit_toil(dirs=args.dir, last=args.last, min_strikes=args.min_strikes, min_length=args.min_length)
@@ -4558,8 +4570,17 @@ def main(argv=None):
                                         exact=not args.prefix, kind=args.kind)
         if status == 0 and args.refs:
             result["references"] = tags.find_references(args.symbol, repo_root=args.repo, limit=args.ref_limit)
+        if not args.json:
+            text_output = tags.format_find_text(result)
     elif args.command == "tags" and args.tags_command == "outline":
         result, status = tags.outline_file(args.file, repo_root=args.repo, tags_file=args.tags_file)
+        if not args.json:
+            text_output = tags.format_outline_text(result, tags.parse_kinds(args.kinds))
+    elif args.command == "tags" and args.tags_command == "brief":
+        result, status = tags.brief(args.symbols, repo_root=args.repo, tags_file=args.tags_file,
+                                    refs=args.refs, ref_limit=args.ref_limit)
+        if not args.json:
+            text_output = tags.format_brief_text(result, tags.parse_kinds(args.kinds))
     elif args.command == "handoff":
         result, status = write_handoff(args.operation, args.issue, args.out, args.decisions, args.review_plan, args.limits,
                                        args.notes, args.branch, args.extra, args.facts_path, deadline=args.deadline,
@@ -4660,8 +4681,11 @@ def main(argv=None):
         return res.returncode
     else:
         return 1
-    json.dump(result, sys.stdout, indent=2)
-    sys.stdout.write("\n")
+    if text_output is not None:
+        sys.stdout.write(text_output.rstrip() + "\n")
+    else:
+        json.dump(result, sys.stdout, indent=2)
+        sys.stdout.write("\n")
     return status
 
 

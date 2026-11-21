@@ -4813,13 +4813,105 @@ class TagsTests(unittest.TestCase):
         out_tags.write_text("!_TAG_FILE_SORTED\t1\t/sorted/\nmy_var\tsrc/config.py\t12;\"\tkind:v\tline:12\n")
 
         with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
-            status = main(["tags", "find", "my_var", "--repo", str(self.tmp), "--tags-file", str(out_tags)])
+            status = main(["tags", "find", "my_var", "--json", "--repo", str(self.tmp), "--tags-file", str(out_tags)])
         self.assertEqual(status, 0)
         output = json.loads(mock_stdout.getvalue())
         self.assertEqual(output["symbol"], "my_var")
         self.assertEqual(len(output["matches"]), 1)
         self.assertEqual(output["matches"][0]["path"], "src/config.py")
         self.assertEqual(output["matches"][0]["line"], 12)
+
+    def test_ghflow_tags_compact_find_outline_and_brief(self):
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "!_TAG_FILE_SORTED\t1\t/sorted/\n"
+            "my_fn\tsrc/config.py\t12;\"\tkind:function\tline:12\n"
+            "my_fn\tsrc/config.py\t30;\"\tkind:function\tline:30\n"
+        )
+        args = ["--repo", str(self.tmp), "--tags-file", str(out_tags)]
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "find", "my_fn"] + args)
+        self.assertEqual(status, 0)
+        self.assertEqual(mock_stdout.getvalue().splitlines(),
+                         ["src/config.py:12:function", "src/config.py:30:function"])
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "outline", "src/config.py"] + args)
+        self.assertEqual(status, 0)
+        self.assertEqual(mock_stdout.getvalue().splitlines(),
+                         ["my_fn:12-29:function", "my_fn:30:function"])
+
+        with patch("sys.stdout", new_callable=io.StringIO) as mock_stdout:
+            status = main(["tags", "brief", "my_fn"] + args)
+        self.assertEqual(status, 0)
+        lines = mock_stdout.getvalue().splitlines()
+        self.assertIn("symbol my_fn", lines)
+        self.assertIn("src/config.py:12:function", lines)
+        self.assertIn("file src/config.py", lines)
+        self.assertIn("my_fn:12-29:function", lines)
+
+    def test_outline_includes_python_member_and_go_func(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "Foo\tsrc/a.py\t1;\"\tkind:class\tline:1\n"
+            "bar\tsrc/a.py\t3;\"\tkind:member\tline:3\n"
+            "A\tsrc/a.go\t1;\"\tkind:func\tline:1\n"
+        )
+        py_result, _ = tags.outline_file("src/a.py", repo_root=self.tmp, tags_file=out_tags)
+        py_lines = tags.format_outline_text(py_result).splitlines()
+        self.assertIn("bar:3:member", py_lines)
+
+        go_result, _ = tags.outline_file("src/a.go", repo_root=self.tmp, tags_file=out_tags)
+        self.assertIn("A:1:func", tags.format_outline_text(go_result).splitlines())
+
+        brief_result, status = tags.brief(["bar"], repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(status, 0)
+        self.assertIn("bar:3:member", tags.format_brief_text(brief_result).splitlines())
+
+    def test_outline_kinds_filter(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "val\tsrc/a.py\t1;\"\tkind:variable\tline:1\n"
+            "fn\tsrc/a.py\t5;\"\tkind:function\tline:5\n"
+        )
+        result, _ = tags.outline_file("src/a.py", repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(tags.format_outline_text(result).splitlines(), ["fn:5:function"])
+        self.assertIn("val:1-4:variable",
+                      tags.format_outline_text(result, tags.parse_kinds("all")).splitlines())
+        self.assertIn("val:1:variable",
+                      tags.format_outline_text(result, tags.parse_kinds("variable")).splitlines())
+
+    def test_compact_formatters_report_errors_and_missing_definitions(self):
+        import tags
+        self.assertEqual(tags.format_find_text({"symbol": "x", "error": "ctags unavailable"}),
+                         "error: ctags unavailable")
+        self.assertEqual(tags.format_find_text({
+            "symbol": "x", "matches": [],
+            "references": [{"path": "a.py", "line": 4}],
+        }).splitlines(), ["no definition: x", "ref a.py:4"])
+        self.assertEqual(tags.format_find_text({
+            "symbol": "x", "matches": [{"path": "a.py", "line": 1, "kind": "function"}],
+            "references": [{"path": "b.py", "line": 2}],
+        }).splitlines(), ["a.py:1:function", "ref b.py:2"])
+        self.assertIn("error: boom", tags.format_brief_text({
+            "symbols": [{"symbol": "x", "matches": [], "error": "boom"}], "files": [],
+        }).splitlines())
+
+    def test_brief_returns_error_status(self):
+        import tags
+        with patch("tags.find_tags", return_value=({"error": "boom", "matches": []}, 1)):
+            _, status = tags.brief(["x"], repo_root=self.tmp)
+        self.assertEqual(status, 1)
+
+    def test_brief_includes_requested_variable(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text("val\tsrc/a.py\t1;\"\tkind:variable\tline:1\n")
+        result, status = tags.brief(["val"], repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(status, 0)
+        self.assertIn("val:1:variable", tags.format_brief_text(result).splitlines())
 
 
 class BuildFinishTests(unittest.TestCase):

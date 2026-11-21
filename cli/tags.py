@@ -415,3 +415,108 @@ def outline_file(file_path, repo_root=None, tags_file=None):
         "tags_file": str(tf),
         "symbols": symbols,
     }, 0
+
+
+OUTLINE_KINDS = ("function", "func", "method", "member", "class", "struct",
+                 "interface", "enum", "constructor", "macro", "subroutine")
+
+
+def parse_kinds(value):
+    """Return a kind filter. None accepts the default outline kinds; 'all' accepts every kind."""
+    if value is None:
+        return set(OUTLINE_KINDS)
+    if value.strip().lower() == "all":
+        return None
+    return {item.strip().lower() for item in value.split(",") if item.strip()}
+
+
+def outline_lines(symbols, kinds=None, include=None):
+    """Return compact name:line-range:kind lines for the selected symbols."""
+    include = set(include or [])
+    selected = [s for s in symbols
+                if kinds is None or (s.get("kind") or "").lower() in kinds
+                or (s.get("name") or "") in include]
+    selected.sort(key=lambda s: (s.get("line") or 0, s.get("name") or ""))
+    lines = []
+    for index, symbol in enumerate(selected):
+        start = symbol.get("line") or 0
+        end = None
+        if index + 1 < len(selected):
+            end = (selected[index + 1].get("line") or 0) - 1
+        span = f"{start}-{end}" if end and end >= start else str(start)
+        lines.append(f"{symbol.get('name')}:{span}:{symbol.get('kind') or 'symbol'}")
+    return lines
+
+
+def format_find_text(result):
+    """Format definitions and references as compact lines."""
+    if result.get("error"):
+        return f"error: {result['error']}"
+    lines = []
+    matches = result.get("matches") or []
+    for match in matches:
+        lines.append(f"{match.get('path')}:{match.get('line')}:{match.get('kind') or 'symbol'}")
+    if not matches:
+        lines.append(f"no definition: {result.get('symbol')}")
+    for reference in result.get("references") or []:
+        lines.append(f"ref {reference.get('path')}:{reference.get('line')}")
+    return "\n".join(lines)
+
+
+def format_outline_text(result, kinds=OUTLINE_KINDS):
+    """Format a file outline as compact lines."""
+    if result.get("error"):
+        return f"error: {result['error']}"
+    lines = outline_lines(result.get("symbols") or [], kinds)
+    if not lines:
+        lines.append(f"no outline: {result.get('file')}")
+    return "\n".join(lines)
+
+
+def format_brief_text(result, kinds=OUTLINE_KINDS):
+    """Format definitions and file outlines as compact lines."""
+    lines = []
+    for entry in result.get("symbols") or []:
+        symbol = entry.get("symbol")
+        matches = entry.get("matches") or []
+        lines.append(f"symbol {symbol}")
+        if entry.get("error"):
+            lines.append(f"error: {entry['error']}")
+        elif matches:
+            for match in matches:
+                lines.append(f"{match.get('path')}:{match.get('line')}:{match.get('kind') or 'symbol'}")
+        else:
+            lines.append("no definition")
+        for reference in entry.get("references") or []:
+            lines.append(f"ref {reference.get('path')}:{reference.get('line')}")
+    for entry in result.get("files") or []:
+        lines.append(f"file {entry.get('file')}")
+        lines.extend(outline_lines(entry.get("symbols") or [], kinds, entry.get("include")))
+    return "\n".join(lines)
+
+
+def brief(symbols, repo_root=None, tags_file=None, refs=False, ref_limit=5):
+    """Return definitions and compact file outlines for one or more symbols."""
+    root = Path(repo_root or os.getcwd()).resolve()
+    entries = []
+    files = {}
+    for symbol in symbols:
+        result, _ = find_tags(symbol, repo_root=root, tags_file=tags_file)
+        entry = {"symbol": symbol, "matches": result.get("matches") or []}
+        if result.get("error"):
+            entry["error"] = result["error"]
+        if refs:
+            entry["references"] = find_references(symbol, repo_root=root, limit=ref_limit)
+        entries.append(entry)
+        for match in entry["matches"]:
+            path = match.get("path")
+            if path:
+                files.setdefault(path, set()).add(match.get("name") or symbol)
+    file_entries = []
+    for path, include in files.items():
+        result, _ = outline_file(root / path, repo_root=root, tags_file=tags_file)
+        file_entries.append({"file": result.get("file") or path,
+                             "symbols": result.get("symbols") or [],
+                             "include": sorted(include)})
+    status = 1 if any(entry.get("error") for entry in entries) else 0
+    return {"symbols": entries, "files": file_entries}, status

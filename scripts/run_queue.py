@@ -599,7 +599,7 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             f'GHFLOW_CLI is set in the environment; if it is unset, export GHFLOW_CLI="{cli_py}".\n'
             'python3 "$GHFLOW_CLI" --help\n\n'
             "Code exploration:\n"
-            'Use `python3 "$GHFLOW_CLI" tags find <symbol> --refs` for definitions and references, and `tags outline <file>` for file structure.'
+            'Use `python3 "$GHFLOW_CLI" tags brief <symbol>...` for compact definitions and file outlines, `tags find <symbol> --refs` for references, and `tags outline <file>` for file structure.'
         )
         return (
             f"{body}\n\n"
@@ -1765,6 +1765,7 @@ def main(argv=None):
                     "Do not edit the primary checkout, and do not survey the code with `git show origin/...` or "
                     "`git grep origin/...` instead of the worktree: those reads publish nothing. "
                     "`GHFLOW_CLI` is already set in the environment; use `python3 \"$GHFLOW_CLI\"` and do not re-export it. "
+                    "For symbol lookups, run `python3 \"$GHFLOW_CLI\" tags brief SYMBOL...` before `grep` or a full read. Use `tags outline FILE` to choose line ranges. "
                     "The task worktree is already prepared; do not run `worktree prepare`. "
                     "Focus solely on editing files in the worktree and passing test gates (`make check`). "
                     "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
