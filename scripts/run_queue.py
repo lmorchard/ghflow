@@ -330,6 +330,25 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
     return "WAITING"
 
 
+CHEAP_BELOW_FLOOR_STEPS = ("DONE", "PARKED", "park-blocker")
+
+
+def should_stop_for_floor(step, remaining_minutes, floor, deterministic_pr=True):
+    """Return whether the time floor stops this step.
+
+    The floor prevents starting a long session. It does not block a cheap
+    deterministic step that finishes an issue, such as marking a reviewed
+    draft ready or recording an endpoint.
+    """
+    if remaining_minutes >= floor:
+        return False
+    if step in CHEAP_BELOW_FLOOR_STEPS:
+        return False
+    if step == "submit-pr" and deterministic_pr:
+        return False
+    return True
+
+
 def next_item(board, attempted=None):
     """Pure function selecting the next item from board state (Decision 9)."""
     attempted = attempted or set()
@@ -1071,7 +1090,32 @@ def stale_facts_warning(facts):
             f"Workers branch from origin and may read an outdated file.")
 
 
-def run_precomputed_gate(wt_path, timeout=300):
+def restore_generated_paths(wt_path, paths):
+    """Restore tracked files that a gate regenerated in a worktree.
+
+    ``paths`` are repo-relative paths from the project facts. A failed restore
+    is not fatal; the worker's own restore instruction still applies.
+    """
+    if not wt_path or not paths:
+        return []
+    restored = []
+    for rel in paths:
+        try:
+            proc = subprocess.run(
+                ["git", "restore", "--", rel],
+                cwd=wt_path, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+                text=True, timeout=30,
+            )
+            if proc.returncode == 0:
+                restored.append(rel)
+        except Exception:
+            continue
+    if restored:
+        print(f"[{time.strftime('%X')}] Restored gate-generated path(s): {', '.join(restored)}", flush=True)
+    return restored
+
+
+def run_precomputed_gate(wt_path, timeout=300, generated_paths=None):
     """Run local project test gates deterministically before a review-changes session."""
     if not wt_path or not Path(wt_path).is_dir():
         return None
@@ -1089,6 +1133,7 @@ def run_precomputed_gate(wt_path, timeout=300):
     try:
         proc = subprocess.run(["make", "check"], cwd=wt_path, stdout=subprocess.PIPE,
                               stderr=subprocess.STDOUT, text=True, timeout=timeout)
+        restore_generated_paths(wt_path, generated_paths)
         output = proc.stdout or ""
         test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?)", output)
         test_info = f", {test_match.group(1)}" if test_match else ""
@@ -1115,6 +1160,7 @@ def run_precomputed_gate(wt_path, timeout=300):
             }
     except subprocess.TimeoutExpired:
         print(f"[{time.strftime('%X')}] Pre-computed gate timed out after {timeout}s", flush=True)
+        restore_generated_paths(wt_path, generated_paths)
         return {
             "success": False,
             "command": "make check",
@@ -1124,6 +1170,7 @@ def run_precomputed_gate(wt_path, timeout=300):
         }
     except Exception as e:
         print(f"[{time.strftime('%X')}] Pre-computed gate error: {e}", flush=True)
+        restore_generated_paths(wt_path, generated_paths)
         return None
 
 
@@ -1530,6 +1577,7 @@ def main(argv=None):
         check_active_runs()
     if not args.no_symbol_indexing:
         refresh_tags(options["cwd"])
+    facts_out = {}
     try:
         facts_out, _ = run_cli("facts", cwd=options.get("cwd"))
         warning = stale_facts_warning(facts_out)
@@ -1537,6 +1585,8 @@ def main(argv=None):
             print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
     except Exception as error:
         print(f"[{time.strftime('%X')}] Project facts check skipped: {error}", flush=True)
+    stale_note = stale_facts_warning(facts_out)
+    generated_paths = (((facts_out or {}).get("project_facts") or {}).get("worktree") or {}).get("generated") or []
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
                                      enabled=not args.no_notebook)
@@ -1623,16 +1673,17 @@ def main(argv=None):
         published_pr = None
         # Issue reconciliation loop
         while True:
-            remaining_minutes = (deadline_time - time.time()) / 60
-            if remaining_minutes < args.floor:
-                print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m). Stopping.")
-                break
             state = observe_issue(issue_ref)
             if not state.get("pr"):
                 seeded = published_pr_state(published_pr)
                 if seeded:
                     state["pr"] = seeded
             step = next_step(state)
+            remaining_minutes = (deadline_time - time.time()) / 60
+            if should_stop_for_floor(step, remaining_minutes, args.floor,
+                                     options.get("deterministic_pr", True)):
+                print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m) before {step}. Stopping.")
+                break
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):
                 print(f"[{time.strftime('%X')}] {issue_ref} reached endpoint state: {step}")
@@ -1695,6 +1746,14 @@ def main(argv=None):
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
                     break
+                if (deadline_time - time.time()) / 60 < args.floor:
+                    pr_url = info.get("url") if isinstance(info, dict) else None
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref,
+                                             "pr": pr_url or (state.get("pr") or {}).get("url"),
+                                             "endpoint": "ready"})
+                    print(f"[{time.strftime('%X')}] {issue_ref} is ready; stopping below the floor before the CI wait.", flush=True)
+                    break
                 continue
             elif step == "address-pr-review":
                 existing = worktree_status(state["issue"], cwd=options.get("cwd"))
@@ -1723,7 +1782,7 @@ def main(argv=None):
                     review_wt = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
                     if review_wt and review_wt.get("path"):
                         step_options["session_cwd"] = review_wt["path"]
-                        gate_res = run_precomputed_gate(review_wt["path"])
+                        gate_res = run_precomputed_gate(review_wt["path"], generated_paths=generated_paths)
                         if gate_res and gate_res.get("text"):
                             gate_note = f" {gate_res['text']}"
                             checkpoint = f"**Gate check** — `{step}` for {state['issue']}: {gate_res['summary']}."
@@ -1824,7 +1883,22 @@ def main(argv=None):
                 narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint,
                                                 cwd=options.get("cwd"))
                 directive += verification_note
+                directive += (
+                    " Commit a checkpoint as soon as the change is coherent and the focused tests pass, "
+                    "before the full `make check`/`make test`. If the full gate finds a fix, make a follow-up commit."
+                )
+                if generated_paths:
+                    directive += (
+                        " The project facts list generated paths: " + ", ".join(generated_paths) +
+                        ". If `make check` regenerates them, restore them with "
+                        "`git restore -- <paths>` before committing; do not commit generated drift."
+                    )
                 step_options["extra_text"] = directive
+            if stale_note:
+                step_options["extra_text"] = (
+                    (step_options.get("extra_text") or "") + " " + stale_note +
+                    " Read the current files in your worktree and do not rely on the stale facts sections."
+                ).strip()
             captured = {}
 
             def publish_step_work():
