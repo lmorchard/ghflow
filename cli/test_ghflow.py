@@ -4850,6 +4850,61 @@ class TagsTests(unittest.TestCase):
         self.assertIn("file src/config.py", lines)
         self.assertIn("my_fn:12-29:function", lines)
 
+    def test_outline_includes_python_member_and_go_func(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "Foo\tsrc/a.py\t1;\"\tkind:class\tline:1\n"
+            "bar\tsrc/a.py\t3;\"\tkind:member\tline:3\n"
+            "A\tsrc/a.go\t1;\"\tkind:func\tline:1\n"
+        )
+        py_result, _ = tags.outline_file("src/a.py", repo_root=self.tmp, tags_file=out_tags)
+        py_lines = tags.format_outline_text(py_result).splitlines()
+        self.assertIn("bar:3:member", py_lines)
+
+        go_result, _ = tags.outline_file("src/a.go", repo_root=self.tmp, tags_file=out_tags)
+        self.assertIn("A:1:func", tags.format_outline_text(go_result).splitlines())
+
+        brief_result, status = tags.brief(["bar"], repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(status, 0)
+        self.assertIn("bar:3:member", tags.format_brief_text(brief_result).splitlines())
+
+    def test_outline_kinds_filter(self):
+        import tags
+        out_tags = self.tmp / "tags"
+        out_tags.write_text(
+            "val\tsrc/a.py\t1;\"\tkind:variable\tline:1\n"
+            "fn\tsrc/a.py\t5;\"\tkind:function\tline:5\n"
+        )
+        result, _ = tags.outline_file("src/a.py", repo_root=self.tmp, tags_file=out_tags)
+        self.assertEqual(tags.format_outline_text(result).splitlines(), ["fn:5:function"])
+        self.assertIn("val:1-4:variable",
+                      tags.format_outline_text(result, tags.parse_kinds("all")).splitlines())
+        self.assertIn("val:1:variable",
+                      tags.format_outline_text(result, tags.parse_kinds("variable")).splitlines())
+
+    def test_compact_formatters_report_errors_and_missing_definitions(self):
+        import tags
+        self.assertEqual(tags.format_find_text({"symbol": "x", "error": "ctags unavailable"}),
+                         "error: ctags unavailable")
+        self.assertEqual(tags.format_find_text({
+            "symbol": "x", "matches": [],
+            "references": [{"path": "a.py", "line": 4}],
+        }).splitlines(), ["no definition: x", "ref a.py:4"])
+        self.assertEqual(tags.format_find_text({
+            "symbol": "x", "matches": [{"path": "a.py", "line": 1, "kind": "function"}],
+            "references": [{"path": "b.py", "line": 2}],
+        }).splitlines(), ["a.py:1:function", "ref b.py:2"])
+        self.assertIn("error: boom", tags.format_brief_text({
+            "symbols": [{"symbol": "x", "matches": [], "error": "boom"}], "files": [],
+        }).splitlines())
+
+    def test_brief_returns_error_status(self):
+        import tags
+        with patch("tags.find_tags", return_value=({"error": "boom", "matches": []}, 1)):
+            _, status = tags.brief(["x"], repo_root=self.tmp)
+        self.assertEqual(status, 1)
+
 
 class BuildFinishTests(unittest.TestCase):
     def setUp(self):

@@ -13,6 +13,7 @@ class BundleSkillTests(unittest.TestCase):
         self.assertIn("name: ghflow-build-slim", content)
         self.assertIn("make check", content)
         self.assertIn("tags find", content)
+        self.assertIn("tags brief", content)
         self.assertIn("address-pr-review", content)
         self.assertIn("ABSOLUTE_SKILL_DIRECTORY", content)
         self.assertNotIn("triage-issues", content)

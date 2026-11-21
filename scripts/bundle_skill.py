@@ -38,6 +38,7 @@ python3 "$GHFLOW_CLI" --help
 Do not re-export it in every command. For symbol lookups, use Universal Ctags before `grep`/`rg`:
 
 ```sh
+python3 "$GHFLOW_CLI" tags brief <symbol>...
 python3 "$GHFLOW_CLI" tags find <symbol> --refs
 python3 "$GHFLOW_CLI" tags outline <file>
 ```

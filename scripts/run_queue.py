@@ -599,7 +599,7 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             f'GHFLOW_CLI is set in the environment; if it is unset, export GHFLOW_CLI="{cli_py}".\n'
             'python3 "$GHFLOW_CLI" --help\n\n'
             "Code exploration:\n"
-            'Use `python3 "$GHFLOW_CLI" tags find <symbol> --refs` for definitions and references, and `tags outline <file>` for file structure.'
+            'Use `python3 "$GHFLOW_CLI" tags brief <symbol>...` for compact definitions and file outlines, `tags find <symbol> --refs` for references, and `tags outline <file>` for file structure.'
         )
         return (
             f"{body}\n\n"

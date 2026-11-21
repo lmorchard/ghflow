@@ -23,8 +23,9 @@ export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
 ```
 
-For symbol discovery and code navigation, use `tags find --refs` for definitions and bounded code-only references, and `tags outline` for file structure:
+For symbol discovery and code navigation, use `tags brief` for compact definitions and file outlines, `tags find --refs` for references, and `tags outline` for file structure:
 ```sh
+python3 "$GHFLOW_CLI" tags brief <symbol>...
 python3 "$GHFLOW_CLI" tags find <symbol> --refs
 python3 "$GHFLOW_CLI" tags outline <file>
 ```

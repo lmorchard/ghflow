@@ -18,10 +18,10 @@ export GHFLOW_CLI="ABSOLUTE_SKILL_DIRECTORY/cli/ghflow.py"
 python3 "$GHFLOW_CLI" --help
 ```
 
-For symbol discovery and code navigation, use `tags find` and `tags outline` for instant definition lookups across git-tracked source files:
+For symbol discovery and code navigation, use `tags brief` and `tags outline` for instant definition lookups across git-tracked source files:
 
 ```sh
-python3 "$GHFLOW_CLI" tags find <symbol>
+python3 "$GHFLOW_CLI" tags brief <symbol>...
 python3 "$GHFLOW_CLI" tags outline <file>
 ```
 
