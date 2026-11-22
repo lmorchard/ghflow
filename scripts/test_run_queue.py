@@ -12,6 +12,70 @@ from unittest.mock import MagicMock, patch
 
 import run_queue
 
+_LOCK_DIR = None
+_SAVED_LOCK_ENV = None
+
+
+def setUpModule():
+    """Point the run lock at a temporary file, so tests never take a live runner's lock."""
+    global _LOCK_DIR, _SAVED_LOCK_ENV
+    _LOCK_DIR = tempfile.TemporaryDirectory()
+    _SAVED_LOCK_ENV = os.environ.get("GHFLOW_RUNNER_LOCK")
+    os.environ["GHFLOW_RUNNER_LOCK"] = str(Path(_LOCK_DIR.name) / "runner.lock")
+
+
+def tearDownModule():
+    if run_queue._RUN_LOCK is not None:
+        run_queue._RUN_LOCK.close()
+        run_queue._RUN_LOCK = None
+    if _SAVED_LOCK_ENV is None:
+        os.environ.pop("GHFLOW_RUNNER_LOCK", None)
+    else:
+        os.environ["GHFLOW_RUNNER_LOCK"] = _SAVED_LOCK_ENV
+    _LOCK_DIR.cleanup()
+
+
+class RunLockTests(unittest.TestCase):
+    def setUp(self):
+        # acquire_run_lock reuses a lock this process already holds; start each test without one.
+        self._held = run_queue._RUN_LOCK
+        run_queue._RUN_LOCK = None
+
+    def tearDown(self):
+        if run_queue._RUN_LOCK is not None:
+            run_queue._RUN_LOCK.close()
+        run_queue._RUN_LOCK = self._held
+
+    def test_environment_variable_names_the_lock_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "state" / "runner.lock"
+            with patch.dict(os.environ, {"GHFLOW_RUNNER_LOCK": str(lock)}):
+                fp = run_queue.acquire_run_lock(tmp, target="o/r#1")
+            self.assertEqual(Path(fp.name), lock)
+            self.assertEqual(json.loads(lock.read_text(encoding="utf-8"))["target"], "o/r#1")
+
+    def test_module_setup_keeps_tests_off_the_real_lock(self):
+        real = Path.home() / ".local/state/ghflow/runner.lock"
+        self.assertNotEqual(Path(os.environ["GHFLOW_RUNNER_LOCK"]), real)
+
+    def test_refuses_when_another_process_holds_the_lock(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            lock = Path(tmp) / "runner.lock"
+            lock.write_text('{"pid": 1}\n', encoding="utf-8")
+            holder = subprocess.Popen(
+                ["python3", "-c",
+                 "import fcntl, sys; f = open(sys.argv[1], 'a+'); "
+                 "fcntl.flock(f, fcntl.LOCK_EX); print('held', flush=True); sys.stdin.read()",
+                 str(lock)],
+                stdin=subprocess.PIPE, stdout=subprocess.PIPE, text=True)
+            try:
+                self.assertEqual(holder.stdout.readline().strip(), "held")
+                with self.assertRaisesRegex(RuntimeError, "Another queue runner holds"):
+                    run_queue.acquire_run_lock(tmp, lock_path=lock)
+            finally:
+                holder.stdin.close()
+                holder.wait(timeout=10)
+
 
 class NextStepTableTests(unittest.TestCase):
     """Table tests for next_step pure function covering each observed state."""
