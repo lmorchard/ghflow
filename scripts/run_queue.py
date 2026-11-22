@@ -104,6 +104,10 @@ def acquire_run_lock(notes_dir, target=None, lock_path=None):
     The lock file also records the holder for a human. The file lock is released by
     the operating system when the process exits, so a crash does not require a stale
     PID cleanup.
+
+    Without ``lock_path``, ``GHFLOW_RUNNER_LOCK`` names the file, and the default is
+    ``~/.local/state/ghflow/runner.lock``. Tests set the variable so that they never
+    take a live runner's lock.
     """
     global _RUN_LOCK
     if _RUN_LOCK is not None:
@@ -120,7 +124,8 @@ def acquire_run_lock(notes_dir, target=None, lock_path=None):
         }) + "\n")
         fp.flush()
         return fp
-    path = Path(lock_path) if lock_path else Path.home() / ".local/state/ghflow/runner.lock"
+    path = Path(lock_path or os.environ.get("GHFLOW_RUNNER_LOCK")
+                or Path.home() / ".local/state/ghflow/runner.lock")
     path.parent.mkdir(parents=True, exist_ok=True)
     fp = open(path, "a+", encoding="utf-8")
     try:
