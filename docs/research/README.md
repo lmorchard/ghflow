@@ -11,3 +11,4 @@ Earlier proposals and trial conditions remain evidence of their own period.
 - [First experiment](first-experiment.md): The completed issue-definition trial and its method.
 - [Trial records](trials/README.md): Observed actions on real issues and synthetic projects.
 - [Queue runner proposal](queue-runner.md): Deterministic unattended queue runner design and findings.
+- [OpenComputer review](opencomputer.md): Runner lessons from the OpenComputer Calvin gateway.
