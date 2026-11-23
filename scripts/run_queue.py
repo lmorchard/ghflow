@@ -5,6 +5,7 @@ import json
 import os
 import re
 import select
+import shlex
 import shutil
 import subprocess
 import sys
@@ -829,6 +830,88 @@ def step_context_tokens(tokens):
             + int(cache.get("write") or 0))
 
 
+SESSION_TRAILER_KEY = "Ghflow-Session"
+SESSION_HOOK = "prepare-commit-msg"
+SESSION_HOOK_SCRIPT = """#!/bin/sh
+# Add the ghflow session trailer and keep the repository's own hooks.
+original="${GHFLOW_ORIGINAL_HOOKS_PATH:-}"
+if [ -n "$original" ] && [ -x "$original/prepare-commit-msg" ]; then
+    "$original/prepare-commit-msg" "$@" || exit $?
+fi
+[ -n "${GHFLOW_SESSION:-}" ] || exit 0
+git interpret-trailers --in-place --no-divider --if-exists addIfDifferent \\
+    --trailer "Ghflow-Session: ${GHFLOW_SESSION}" "$1" || true
+exit 0
+"""
+
+
+def session_reference(notes_dir, session_log):
+    """Return the trailer value for a session log, relative to the notes root."""
+    notes_dir = Path(notes_dir)
+    session_log = Path(session_log)
+    try:
+        relative = session_log.relative_to(notes_dir.parent)
+    except ValueError:
+        relative = Path(session_log.name)
+    return str(relative.with_suffix(""))
+
+
+def original_hooks_path(session_cwd):
+    """Return the repository's hook directory before the session override."""
+    if not session_cwd or not Path(session_cwd).is_dir():
+        return None
+    configured = git_output(["config", "--get", "core.hooksPath"], cwd=session_cwd)
+    if configured:
+        path = Path(configured).expanduser()
+        if not path.is_absolute():
+            root = git_output(["rev-parse", "--show-toplevel"], cwd=session_cwd)
+            if root:
+                path = Path(root) / path
+        return str(path)
+    common = git_output(["rev-parse", "--path-format=absolute", "--git-common-dir"], cwd=session_cwd)
+    if common:
+        return str(Path(common) / "hooks")
+    return None
+
+
+def write_session_hooks(notes_dir, original_hooks=None):
+    """Create the hook directory and preserve every other repository hook."""
+    hooks_dir = Path(notes_dir) / "hooks"
+    hooks_dir.mkdir(parents=True, exist_ok=True)
+    original = Path(original_hooks) if original_hooks else None
+    if original and original.is_dir() and original.resolve() != hooks_dir.resolve():
+        for entry in original.iterdir():
+            if (entry.name == SESSION_HOOK or not entry.is_file()
+                    or not os.access(entry, os.X_OK)):
+                continue
+            target = hooks_dir / entry.name
+            if target.exists():
+                continue
+            target.write_text(f"#!/bin/sh\nexec {shlex.quote(str(entry))} \"$@\"\n",
+                              encoding="utf-8")
+            target.chmod(0o755)
+    hook = hooks_dir / SESSION_HOOK
+    hook.write_text(SESSION_HOOK_SCRIPT, encoding="utf-8")
+    hook.chmod(0o755)
+    return hooks_dir
+
+
+def session_git_environment(notes_dir, session_log, session_cwd):
+    """Build the git environment that adds the session trailer to session commits."""
+    env = {"GHFLOW_SESSION": session_reference(notes_dir, session_log)}
+    original = original_hooks_path(session_cwd)
+    if not original:
+        return env
+    hooks_dir = write_session_hooks(notes_dir, original)
+    env.update({
+        "GHFLOW_ORIGINAL_HOOKS_PATH": original,
+        "GIT_CONFIG_COUNT": "1",
+        "GIT_CONFIG_KEY_0": "core.hooksPath",
+        "GIT_CONFIG_VALUE_0": str(hooks_dir),
+    })
+    return env
+
+
 def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=None):
     """Create a handoff and execute one OpenCode session.
 
@@ -880,6 +963,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     if primary_cwd and session_cwd and Path(session_cwd).resolve() != Path(primary_cwd).resolve():
         primary_before = git_output(["status", "--porcelain"], cwd=primary_cwd)
     session_log = notes_dir / f"session-{step}-{stamp}.log"
+    env.update(session_git_environment(notes_dir, session_log, session_cwd))
     print(f"[{time.strftime('%X')}] Logging session output to {session_log}")
     if options.get("session_cwd"):
         print(f"[{time.strftime('%X')}] Session cwd: {options['session_cwd']}", flush=True)
@@ -1116,13 +1200,14 @@ def committed_count(path, base):
 
 
 def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base_branch=None,
-                      stack=None, cli_fn=run_cli):
+                      stack=None, session_ref=None, cli_fn=run_cli):
     """Push a session's committed work and open a draft PR when none exists.
 
     The session keeps the content and commit role. This closes the gap that the
     epic #1434 trial showed: a session that commits and stops leaves the delivery
     invisible. ``pr create`` refuses an existing open PR, so a session that
-    published its own PR keeps that PR instead of a duplicate.
+    published its own PR keeps that PR instead of a duplicate. A commit this
+    function makes carries the session trailer when ``session_ref`` is given.
     """
     if not worktree or not worktree.get("path"):
         return None
@@ -1150,7 +1235,10 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
                 print(f"[{time.strftime('%X')}] Excluded generated paths from the commit: {', '.join(generated)}", flush=True)
             number = str(issue_url).rstrip("/").split("/")[-1].split("#")[-1]
             commit_msg = f"refactor: {title or branch} (Closes #{number})"
-            cli_fn("exec", "--", "git", "-C", path, "commit", "-m", commit_msg, cwd=options.get("cwd"))
+            commit_args = ["git", "-C", path, "commit", "-m", commit_msg]
+            if session_ref:
+                commit_args += ["--trailer", f"{SESSION_TRAILER_KEY}: {session_ref}"]
+            cli_fn("exec", "--", *commit_args, cwd=options.get("cwd"))
             count = committed_count(path, count_ref)
     if not count:
         return None
@@ -2384,10 +2472,13 @@ def main(argv=None):
             def publish_step_work():
                 """Publish committed implementation work that the session left unpublished."""
                 if step == "implement-issue":
+                    session_ref = None
+                    if captured.get("log"):
+                        session_ref = session_reference(notes_dir, Path(captured["log"]))
                     return publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
                                              notes_dir, step_options,
                                              base_branch=stack_base["branch"] if stack_base else None,
-                                             stack=stack_base, cli_fn=run_cli)
+                                             stack=stack_base, session_ref=session_ref, cli_fn=run_cli)
                 return None
 
             session_monitor.phase_start("session", issue=state["issue"], step=step,
