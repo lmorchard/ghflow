@@ -1,0 +1,285 @@
+{
+  "source": "~/.local/state/ghflow/notes/runner-janitorial-20261121-1056.log",
+  "note": "Observations the coordinator found by hand after the weekend run. #1707 was ready with missing CI; #1755 and #1759 were drafts at the phase boundary; #1379 was never started; origin facts were stale; hours per done issue rose from 1.15 to 1.90.",
+  "preflight": {
+    "facts": {
+      "identity": {
+        "login": "MokaGnome",
+        "ready": true,
+        "configured": true,
+        "effective_gh_login": "MokaGnome",
+        "identity_mismatch": false
+      },
+      "checkout": {
+        "branch": "main",
+        "head": "3bd3005c904cd9a7c374ebde881662eb66088289",
+        "dirty": false
+      },
+      "repository": {
+        "local_default_head": "3bd3005c904cd9a7c374ebde881662eb66088289",
+        "origin_default_head": "3bd3005c904cd9a7c374ebde881662eb66088289"
+      },
+      "skill_source": {
+        "head": "c72e792553ecbd1051616f16492b5206c7bf2d66",
+        "up_to_date": true
+      },
+      "base_ci": {
+        "commit": "3bd3005c904cd9a7c374ebde881662eb66088289",
+        "summary": "green",
+        "checks": [
+          {
+            "name": "js-test",
+            "state": "passed"
+          },
+          {
+            "name": "lint-and-test",
+            "state": "passed"
+          }
+        ]
+      },
+      "project_facts": {
+        "present": true,
+        "origin": {
+          "present": true,
+          "stale_sources": [
+            {
+              "path": "AGENTS.md"
+            },
+            {
+              "path": "CLAUDE.md"
+            },
+            {
+              "path": "Makefile"
+            },
+            {
+              "path": ".github/workflows/ci.yml"
+            },
+            {
+              "path": "conftest.py"
+            },
+            {
+              "path": "tests/conftest.py"
+            },
+            {
+              "path": "pyproject.toml"
+            },
+            {
+              "path": "docs/config.md"
+            },
+            {
+              "path": "docs/testing.md"
+            }
+          ]
+        }
+      }
+    },
+    "identity": {
+      "login": "MokaGnome",
+      "ready": true,
+      "configured": true,
+      "source": "/Users/lmorchard/.config/ghflow/identity.json"
+    },
+    "exec_login": "MokaGnome",
+    "lock": {
+      "pid": 94672,
+      "started": "2026-11-21 10:55:57",
+      "target": "parent lmorchard/decafclaw#1429"
+    },
+    "model": "lmstudio/qwen3.8-27b-mlx@4bit",
+    "model_available": true
+  },
+  "selection": [
+    {
+      "number": 1370,
+      "labels": [
+        "triage:ready"
+      ]
+    },
+    {
+      "number": 1378,
+      "labels": [
+        "triage:ready"
+      ]
+    },
+    {
+      "number": 1405,
+      "labels": [
+        "triage:ready"
+      ]
+    },
+    {
+      "number": 1379,
+      "labels": [
+        "triage:ready"
+      ]
+    }
+  ],
+  "issues": [
+    {
+      "number": 1370,
+      "url": "https://github.com/lmorchard/decafclaw/issues/1370",
+      "step": "submit-pr",
+      "pr": {
+        "number": 1707,
+        "url": "https://github.com/lmorchard/decafclaw/pull/1707",
+        "head": "f7731642d4e8a8fb14ae004ed18c877a08dc5120",
+        "is_draft": false,
+        "state": "OPEN"
+      },
+      "ci": "missing",
+      "checks": [
+        {
+          "name": "js-test",
+          "state": "missing",
+          "required": true
+        },
+        {
+          "name": "lint-and-test",
+          "state": "missing",
+          "required": true
+        }
+      ],
+      "review_verdicts": [
+        {
+          "head": "f7731642d4e8a8fb14ae004ed18c877a08dc5120",
+          "verdict": "clean"
+        }
+      ],
+      "worktree_dirty": 0
+    },
+    {
+      "number": 1378,
+      "url": "https://github.com/lmorchard/decafclaw/issues/1378",
+      "step": "implement-issue",
+      "pr": {
+        "number": 1755,
+        "url": "https://github.com/lmorchard/decafclaw/pull/1755",
+        "head": "51f083d000000000000000000000000000000000",
+        "is_draft": true,
+        "state": "OPEN"
+      },
+      "ci": "green",
+      "checks": [
+        {
+          "name": "js-test",
+          "state": "passed"
+        },
+        {
+          "name": "lint-and-test",
+          "state": "passed"
+        }
+      ],
+      "worktree_dirty": 0,
+      "phase_end": true
+    },
+    {
+      "number": 1405,
+      "url": "https://github.com/lmorchard/decafclaw/issues/1405",
+      "step": "implement-issue",
+      "pr": {
+        "number": 1759,
+        "url": "https://github.com/lmorchard/decafclaw/pull/1759",
+        "head": "31c9d8c00000000000000000000000000000000000",
+        "is_draft": true,
+        "state": "OPEN"
+      },
+      "ci": "green",
+      "checks": [
+        {
+          "name": "js-test",
+          "state": "passed"
+        },
+        {
+          "name": "lint-and-test",
+          "state": "passed"
+        }
+      ],
+      "worktree_dirty": 0,
+      "phase_end": true
+    },
+    {
+      "number": 1379,
+      "url": "https://github.com/lmorchard/decafclaw/issues/1379",
+      "step": "implement-issue",
+      "started": false,
+      "pr": null
+    }
+  ],
+  "records": [
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1370",
+      "pr": "https://github.com/lmorchard/decafclaw/pull/1707",
+      "endpoint": "ready"
+    },
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1378",
+      "pr": "https://github.com/lmorchard/decafclaw/pull/1755",
+      "endpoint": "time-park"
+    },
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1405",
+      "pr": "https://github.com/lmorchard/decafclaw/pull/1759",
+      "endpoint": "time-park"
+    }
+  ],
+  "states": [
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1370",
+      "pr": {
+        "url": "https://github.com/lmorchard/decafclaw/pull/1707",
+        "is_draft": false,
+        "state": "OPEN"
+      }
+    },
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1378",
+      "pr": {
+        "url": "https://github.com/lmorchard/decafclaw/pull/1755",
+        "is_draft": true,
+        "state": "OPEN"
+      }
+    },
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1405",
+      "pr": {
+        "url": "https://github.com/lmorchard/decafclaw/pull/1759",
+        "is_draft": true,
+        "state": "OPEN"
+      }
+    },
+    {
+      "issue": "https://github.com/lmorchard/decafclaw/issues/1379",
+      "started": false,
+      "pr": {}
+    }
+  ],
+  "phase_throughput": [
+    {
+      "name": "phase A",
+      "hours_per_done": 1.15
+    },
+    {
+      "name": "phase D",
+      "hours_per_done": 1.9
+    }
+  ],
+  "summary_rows": [
+    {
+      "issue": "lmorchard/decafclaw#1370"
+    },
+    {
+      "issue": "lmorchard/decafclaw#1378"
+    },
+    {
+      "issue": "lmorchard/decafclaw#1405"
+    }
+  ],
+  "toil": {
+    "patterns": []
+  },
+  "budget": {
+    "hours": 8,
+    "elapsed_hours": 13.3,
+    "remaining_minutes": 0
+  }
+}
