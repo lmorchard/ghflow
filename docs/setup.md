@@ -195,7 +195,23 @@ python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 --
 
 `--project OWNER/NUMBER` selects the project board. If omitted, the runner automatically discovers the single open project linked to the repository. `--hours` sets the time budget (default 8). `--once` drives the single next item to its desired state and exits.
 When the remaining time is below `--floor` minutes, the runner stops before a long step. If that phase boundary leaves an open draft with committed work, the runner parks the issue with kind `time` and names the PR and remaining steps, so the next run resumes from the record.
-`--model` overrides the model for worker sessions. A local model can take minutes to process a large context. The runner logs a warning after 120 seconds without events. It stops a step after `--step-idle-timeout` seconds (default 900). Raise the value for large contexts. On macOS it runs under `caffeinate` so the machine does not sleep.
+`--model` pins every worker session to one model and bypasses the per-issue map. Without `--model`, the runner reads `~/.config/ghflow/runner.json` (or `--model-config FILE`) before issue selection. The file has `models` and `review` objects keyed by `impl:*` labels. The implement and correction steps use `models`; the review step uses `review`. A missing, conflicting, or unknown fit label parks the issue with the reason. A missing or invalid map, with no `--model`, stops the run before issue selection.
+Example `runner.json`:
+
+```json
+{
+  "models": {
+    "impl:local": "lmstudio/qwen3.8-27b-mlx@4bit",
+    "impl:strong": "anthropic/claude-sonnet-5.5"
+  },
+  "review": {
+    "impl:local": "anthropic/claude-opus-5.5",
+    "impl:strong": "anthropic/claude-opus-5.5"
+  }
+}
+```
+
+A local model can take minutes to process a large context. The runner logs a warning after 120 seconds without events. It stops a step after `--step-idle-timeout` seconds (default 900). Raise the value for large contexts. On macOS it runs under `caffeinate` so the machine does not sleep.
 
 When `facts` reports stale sources on `origin`, the runner creates a refresh worktree and branch, dispatches `prepare-project-facts` before the first issue, and points every later handoff at the refreshed copy. It records the refresh PR or the failure in the run summary. A failed refresh continues with the stale-source note unless `--require-facts-refresh` stops the run.
 

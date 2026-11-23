@@ -14,17 +14,24 @@ import run_queue
 
 _LOCK_DIR = None
 _SAVED_LOCK_ENV = None
+_PROBE_PATCH = None
 
 
 def setUpModule():
     """Point the run lock at a temporary file, so tests never take a live runner's lock."""
-    global _LOCK_DIR, _SAVED_LOCK_ENV
+    global _LOCK_DIR, _SAVED_LOCK_ENV, _PROBE_PATCH
     _LOCK_DIR = tempfile.TemporaryDirectory()
     _SAVED_LOCK_ENV = os.environ.get("GHFLOW_RUNNER_LOCK")
     os.environ["GHFLOW_RUNNER_LOCK"] = str(Path(_LOCK_DIR.name) / "runner.lock")
+    _PROBE_PATCH = patch("run_queue.monitor_mod.probe_model", return_value=True)
+    _PROBE_PATCH.start()
 
 
 def tearDownModule():
+    global _PROBE_PATCH
+    if _PROBE_PATCH is not None:
+        _PROBE_PATCH.stop()
+        _PROBE_PATCH = None
     if run_queue._RUN_LOCK is not None:
         run_queue._RUN_LOCK.close()
         run_queue._RUN_LOCK = None
@@ -247,7 +254,7 @@ class NextStepTableTests(unittest.TestCase):
 
     def test_negative_context_limits_are_rejected(self):
         with self.assertRaises(SystemExit):
-            run_queue.main(["--context-warn-tokens", "-1", "--no-notebook"])
+            run_queue.main(["--model", "test/model", "--context-warn-tokens", "-1", "--no-notebook"])
 
     def test_verification_lines_extracts_verify_clause(self):
         body = "**Size:** S\n\n**Verify.** `make test` — `tests/test_x.py`.\n\n**Tests.** Add a case."
@@ -725,7 +732,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)):
-                run_queue.main(["--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
+                run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
 
         steps = [s for s, _ in captured_options]
         self.assertEqual(steps, ["review-changes", "submit-pr"])
@@ -773,7 +780,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes", "submit-pr"])
                 # queue summary was called
@@ -823,7 +830,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--once", "--no-notebook", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes"])
                 ready_calls = [c for c in mock_cli.call_args_list if c[0][:2] == ("pr", "ready")]
@@ -929,7 +936,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_run_cli):
-            status = run_queue.main(["--once", "--no-notebook", "--notes-dir", tmp])
+            status = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(status, 1)
 
     def test_parse_issue_ref(self):
@@ -1213,7 +1220,7 @@ class ParentSubIssueTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir), "--stack"])
+                ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir), "--stack"])
                 self.assertEqual(ret, 0)
 
         # Child 2 was implemented
@@ -1559,7 +1566,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook",
                                   "--no-symbol-indexing", "--step-idle-timeout", "1200",
                                   "--context-warn-tokens", "50000",
                                   "--max-context-tokens", "90000",
@@ -1604,7 +1611,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_session", return_value=(False, "boom")), \
              patch("run_queue.publish_committed", side_effect=fake_publish), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
+            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook",
                                   "--no-symbol-indexing", "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1821,7 +1828,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1846,7 +1853,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--require-facts-refresh", "--notes-dir", tmp])
 
         self.assertEqual(ret, 1)
@@ -1885,7 +1892,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1935,7 +1942,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=lambda *a, **k: (sessions.append(a[1]), fake_run_session(*a, **k))[1]), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--parent", "100", "--parent", "200", "--project", "o/12",
+            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--parent", "200", "--project", "o/12",
                                   "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(ret, 0)
         self.assertEqual([int(url.rsplit("/", 1)[-1]) for url in sessions], [101, 201])
@@ -1964,7 +1971,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--once", "--no-notebook", "--notes-dir", tmp])
+            run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", tmp])
         extra = captured.get("extra_text", "")
         self.assertIn("reused from an earlier attempt", extra)
         self.assertIn("continue that work", extra)
@@ -2025,7 +2032,7 @@ class NotebookPublishingTests(unittest.TestCase):
                  patch("run_queue.narrative.summarize_session",
                        return_value=("- Model bullet.", "model")) as summarize, \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                status = run_queue.main(["--once", "--notes-dir", tmp])
+                status = run_queue.main(["--model", "test/model", "--once", "--notes-dir", tmp])
         self.assertEqual(status, 0)
         return calls, bodies, comments, summarize, discussion_code
 
@@ -2224,7 +2231,7 @@ class PublishCommittedTests(unittest.TestCase):
              patch("run_queue.publish_committed", side_effect=lambda *a, **k: published.append((a, k))), \
              patch("run_queue.park_issue", return_value=({}, 0)), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--once", "--notes-dir", tmp])
+            run_queue.main(["--model", "test/model", "--once", "--notes-dir", tmp])
         self.assertEqual(len(published), 1)
         self.assertEqual(published[0][0][3], "o/r")
         self.assertIsNone(published[0][1].get("base_branch"))
@@ -2380,7 +2387,7 @@ class FloorDecisionTests(unittest.TestCase):
              patch("run_queue.run_cli", return_value=({}, 0)):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -2389,6 +2396,181 @@ class FloorDecisionTests(unittest.TestCase):
         self.assertEqual(parks[0][2], "time")
         self.assertIn("https://github.com/o/r/pull/8", parks[0][3])
         self.assertIn("review-changes", parks[0][3])
+
+
+class ModelRoutingTests(unittest.TestCase):
+    """The per-issue model map selects implementation and review models."""
+
+    def write_map(self, tmp, models=None, review=None):
+        path = Path(tmp) / "runner.json"
+        path.write_text(json.dumps({
+            "models": models or {"impl:local": "local/impl", "impl:strong": "strong/impl"},
+            "review": review or {"impl:local": "local/review", "impl:strong": "strong/review"},
+        }), encoding="utf-8")
+        return path
+
+    def test_load_model_map_accepts_labels_and_review_entries(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            loaded = run_queue.load_model_map(self.write_map(tmp))
+        self.assertEqual(loaded["models"]["impl:local"], "local/impl")
+        self.assertEqual(loaded["review"]["impl:strong"], "strong/review")
+
+    def test_load_model_map_reports_missing_and_invalid_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            with self.assertRaises(ValueError):
+                run_queue.load_model_map(Path(tmp) / "missing.json")
+            invalid = Path(tmp) / "invalid.json"
+            invalid.write_text("{", encoding="utf-8")
+            with self.assertRaises(ValueError):
+                run_queue.load_model_map(invalid)
+            no_review = Path(tmp) / "no-review.json"
+            no_review.write_text(json.dumps({"models": {"impl:local": "m"}}), encoding="utf-8")
+            with self.assertRaises(ValueError):
+                run_queue.load_model_map(no_review)
+
+    def test_selects_the_label_models(self):
+        model_map = {"models": {"impl:local": "local/impl", "impl:strong": "strong/impl"},
+                     "review": {"impl:local": "local/review", "impl:strong": "strong/review"}}
+        local, error = run_queue.select_issue_models(
+            {"labels": ["triage:ready", "impl:local"]}, model_map)
+        self.assertIsNone(error)
+        self.assertEqual(local, {"implementation": "local/impl", "review": "local/review",
+                                 "label": "impl:local", "pinned": False})
+        strong, error = run_queue.select_issue_models(
+            {"labels": ["impl:strong"]}, model_map)
+        self.assertIsNone(error)
+        self.assertEqual(strong["implementation"], "strong/impl")
+
+    def test_missing_or_conflicting_labels_return_a_reason(self):
+        model_map = {"models": {"impl:local": "m"}, "review": {"impl:local": "r"}}
+        for labels, needle in (
+            (["triage:ready"], "No fit label"),
+            (["impl:local", "impl:strong"], "Conflicting fit labels"),
+            (["impl:unknown"], "not in the model map"),
+        ):
+            with self.subTest(labels=labels):
+                models, error = run_queue.select_issue_models({"labels": labels}, model_map)
+                self.assertIsNone(models)
+                self.assertIn(needle, error)
+        models, error = run_queue.select_issue_models(
+            {"labels": ["impl:local"]}, {"models": {"impl:local": "m"}, "review": {}})
+        self.assertIsNone(models)
+        self.assertIn("No review model", error)
+
+    def test_a_pinned_model_bypasses_the_map_and_labels(self):
+        models, error = run_queue.select_issue_models(
+            {"labels": []}, {"models": {}, "review": {}}, pinned_model="pinned/model")
+        self.assertIsNone(error)
+        self.assertEqual(models, {"implementation": "pinned/model", "review": "pinned/model",
+                                  "pinned": True})
+
+    def test_summary_names_both_models(self):
+        records = [{"issue": "https://github.com/o/r/issues/7", "pr": "none", "endpoint": "DONE",
+                    "models": {"implementation": "local/impl", "review": "local/review"}}]
+        summary = run_queue.format_run_summary(
+            records, [], Path("."), 0, cwd="/nonexistent",
+            model_note="per-issue map `/tmp/runner.json`")
+        self.assertIn("local/impl / local/review", summary)
+        self.assertIn("Model: per-issue map", summary)
+
+
+class ModelRoutingMainTests(unittest.TestCase):
+    """main applies the map, parks label errors, and stops without a map."""
+
+    def issue(self, labels):
+        return {"issue": "https://github.com/o/r/issues/7", "number": 7, "title": "Fix it",
+                "labels": labels, "pr": None}
+
+    def run_main(self, tmp, issue, extra_args, run_session=None, park_issue=None):
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": issue["issue"]}]}
+        session = run_session or (lambda *a, **k: (True, "ses_1"))
+        park = park_issue or (lambda *a, **k: ({}, 0))
+
+        def fake_cli(*args, cwd=None):
+            return {}, 0
+
+        with patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=issue), \
+             patch("run_queue.publish_committed", return_value=None), \
+             patch("run_queue.run_session", side_effect=session), \
+             patch("run_queue.park_issue", side_effect=park), \
+             patch("run_queue.monitor_mod.probe_model", return_value=True), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp] + extra_args)
+        return ret, out.getvalue()
+
+    def test_uses_the_map_model_for_implementation(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = Path(tmp) / "runner.json"
+            map_path.write_text(json.dumps({
+                "models": {"impl:local": "local/impl"},
+                "review": {"impl:local": "local/review"},
+            }), encoding="utf-8")
+            captured = []
+
+            def session(step, issue_url, notes_dir, options, **kwargs):
+                captured.append((step, options))
+                return True, "ses_1"
+
+            ret, _ = self.run_main(tmp, self.issue(["triage:ready", "impl:local"]),
+                                   ["--model-config", str(map_path)], run_session=session)
+        self.assertEqual(ret, 0)
+        implement = [options for step, options in captured if step == "implement-issue"]
+        self.assertTrue(implement)
+        self.assertEqual(implement[0]["model"], "local/impl")
+
+    def test_parks_an_issue_without_a_fit_label(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            map_path = Path(tmp) / "runner.json"
+            map_path.write_text(json.dumps({
+                "models": {"impl:local": "local/impl"},
+                "review": {"impl:local": "local/review"},
+            }), encoding="utf-8")
+            parks = []
+
+            def park(issue_url, pr_url, kind, text, notes_dir, **kwargs):
+                parks.append((issue_url, pr_url, kind, text))
+                return {}, 0
+
+            ret, _ = self.run_main(tmp, self.issue(["triage:ready"]),
+                                   ["--model-config", str(map_path)], park_issue=park)
+        self.assertEqual(ret, 0)
+        self.assertEqual(parks[0][2], "blocker")
+        self.assertIn("No fit label", parks[0][3])
+
+    def test_stops_before_selection_without_a_model_or_map(self):
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.observe_board") as board:
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook",
+                                      "--model-config", str(Path(tmp) / "missing.json"),
+                                      "--notes-dir", tmp])
+        self.assertEqual(ret, 1)
+        board.assert_not_called()
+        self.assertIn("Model map not found", out.getvalue())
+
+    def test_pinned_model_bypasses_the_map(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            captured = []
+
+            def session(step, issue_url, notes_dir, options, **kwargs):
+                captured.append((step, options))
+                return True, "ses_1"
+
+            ret, _ = self.run_main(tmp, self.issue(["triage:ready"]),
+                                   ["--model", "pinned/model"], run_session=session)
+        self.assertEqual(ret, 0)
+        implement = [options for step, options in captured if step == "implement-issue"]
+        self.assertTrue(implement)
+        self.assertEqual(implement[0]["model"], "pinned/model")
 
 
 class RestoreGeneratedPathsTests(unittest.TestCase):
@@ -2482,7 +2664,7 @@ class FloorReplayTests(unittest.TestCase):
              patch("run_queue.check_active_runs"), \
              patch("run_queue.acquire_run_lock"), \
              patch("run_queue.narrative.post_issue_checkpoint"):
-            ret = run_queue.main(["--parent", "1438", "--project", "o/6",
+            ret = run_queue.main(["--model", "test/model", "--parent", "1438", "--project", "o/6",
                                   "--hours", "0.2", "--floor", "30", "--once",
                                   "--no-notebook", "--no-symbol-indexing",
                                   "--notes-dir", tmp])
@@ -2525,7 +2707,7 @@ class FloorReplayTests(unittest.TestCase):
              patch("run_queue.narrative.post_issue_checkpoint"):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--parent", "1438", "--project", "o/6",
+                ret = run_queue.main(["--model", "test/model", "--parent", "1438", "--project", "o/6",
                                       "--hours", "0.2", "--floor", "30", "--once",
                                       "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
@@ -2565,7 +2747,7 @@ class StaleFactsDirectiveTests(unittest.TestCase):
              patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing", "--notes-dir", tmp])
+            run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing", "--notes-dir", tmp])
 
         extra = captured.get("extra_text", "")
         self.assertIn("Makefile", extra)
@@ -2612,7 +2794,7 @@ class MonitorIntegrationTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
             self.assertEqual(ret, 0)
