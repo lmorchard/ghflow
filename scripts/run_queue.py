@@ -611,6 +611,10 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             "implement-issue": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "address-pr-review": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "review-changes": ("ghflow-review-slim", "skills/review-slim/SKILL.md"),
+            # The facts refresh has no slim role; inline its task procedure so the
+            # session does not have to read a reference file.
+            "prepare-project-facts": ("ghflow:prepare-project-facts",
+                                      "references/tasks/prepare-project-facts.md"),
         }
         role_name, role_skill = role_map.get(step, (f"ghflow:{step}", "SKILL.md"))
         cli_py = Path(skill_dir) / "cli" / "ghflow.py"
@@ -752,9 +756,11 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     handoff_file = notes_dir / f"handoff-{step}-{stamp}.md"
-    args = ["handoff", step, issue_url, "--out", str(handoff_file), "--runner"]
+    args = ["handoff", step, *([issue_url] if issue_url else []), "--out", str(handoff_file), "--runner"]
     if step == "review-changes":
         args.append("--verdict")
+    if options.get("facts_path"):
+        args += ["--facts-path", str(options["facts_path"])]
     if options.get("model"):
         args += ["--review-plan", f"model {options['model']}"]
     if options.get("deadline"):
@@ -1113,6 +1119,122 @@ def stale_facts_warning(facts):
             f"Workers branch from origin and may read an outdated file.")
 
 
+def prepare_facts_worktree(repo_root, default_branch, cli_fn=run_cli):
+    """Create the refresh branch and worktree the runner hands to the facts session."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    branch = f"facts-refresh-{stamp}"
+    path = Path(repo_root) / ".claude" / "worktrees" / branch
+    out, code = cli_fn("exec", "--", "git", "worktree", "add", "-b", branch, str(path),
+                       f"origin/{default_branch}", cwd=repo_root)
+    if code != 0:
+        print(f"[{time.strftime('%X')}] Facts refresh worktree failed (exit {code}): {out}", flush=True)
+        return None
+    print(f"[{time.strftime('%X')}] Facts refresh worktree at {path} on branch {branch}", flush=True)
+    return {"branch": branch, "path": str(path)}
+
+
+def find_open_pr(repo, branch, cwd, cli_fn=run_cli):
+    """Return the open PR record for a branch, or None when the read finds none."""
+    if not repo:
+        return None
+    out, code = cli_fn("exec", "--", "gh", "pr", "list", "--repo", repo, "--head", branch,
+                       "--state", "open", "--json", "url,number,headRefOid,isDraft,baseRefName", cwd=cwd)
+    if code == 0 and isinstance(out, list) and out:
+        return out[0]
+    return None
+
+
+def dispatch_facts_refresh(facts_out, options, notes_dir, cli_fn=run_cli, session_fn=None):
+    """Refresh origin's stale project facts before the first issue.
+
+    Returns the refresh record and the refreshed file path. The record is
+    always present when origin reports stale sources, so a failed dispatch
+    stays visible in the run summary. The caller points later handoffs at the
+    returned path only when the refresh is verified.
+    """
+    origin = (((facts_out or {}).get("project_facts") or {}).get("origin") or {})
+    if origin.get("present") is False:
+        # Writing the first facts file is a separate task the user requests.
+        return None, None
+    stale = origin.get("stale_sources") or []
+    if not stale:
+        return None, None
+    stale_names = [source.get("path", "?") if isinstance(source, dict) else str(source)
+                   for source in stale]
+    repository = (facts_out or {}).get("repository") or {}
+    checkout = (facts_out or {}).get("checkout") or {}
+    root = checkout.get("primary_root") or checkout.get("root") or options.get("cwd")
+    default_branch = repository.get("default_branch") or "main"
+    record = {"status": "failed", "stale_sources": stale_names, "remaining_stale_sources": [],
+              "reason": None, "pr": None, "branch": None, "path": None, "head": None}
+    if not root:
+        record["reason"] = "The subject checkout is unknown."
+        return record, None
+
+    worktree = prepare_facts_worktree(root, default_branch, cli_fn=cli_fn)
+    if not worktree:
+        record["reason"] = "The runner could not create the refresh worktree."
+        return record, None
+    record.update(branch=worktree["branch"], path=worktree["path"])
+
+    refresh_options = dict(options)
+    refresh_options["session_cwd"] = worktree["path"]
+    refresh_options["branch"] = worktree["branch"]
+    refresh_options["extra_text"] = (
+        f"Work in the prepared worktree at {worktree['path']} on branch {worktree['branch']}, "
+        f"created from origin/{default_branch}. Refresh `.ghflow/project.md` there, commit it, "
+        "push the branch, and open a ready PR to the default branch. Do not create another "
+        "worktree, do not request review, and do not merge. Return the PR URL and the refreshed file path."
+    )
+    session_fn = session_fn or run_session
+    success, info = session_fn("prepare-project-facts", None, notes_dir, refresh_options, cli_fn=cli_fn)
+    if not success:
+        record["reason"] = f"The refresh session failed: {info}."
+        return record, None
+
+    refreshed = Path(worktree["path"]) / ".ghflow" / "project.md"
+    if not refreshed.is_file():
+        record["reason"] = "The refresh session wrote no .ghflow/project.md."
+        return record, None
+    changed = git_output(["diff", "--name-only", f"origin/{default_branch}...HEAD"],
+                         cwd=worktree["path"])
+    files = sorted(line.strip() for line in (changed or "").splitlines() if line.strip())
+    if files != [".ghflow/project.md"]:
+        record["reason"] = ("The refresh branch changes "
+                            f"{', '.join(files) or 'no files'}; only .ghflow/project.md is allowed.")
+        return record, None
+    verified, code = cli_fn("facts", cwd=worktree["path"])
+    local = ((verified or {}).get("project_facts") or {}) if isinstance(verified, dict) else {}
+    remaining = local.get("stale_sources") or []
+    record["remaining_stale_sources"] = [source.get("path", "?") if isinstance(source, dict) else str(source)
+                                        for source in remaining]
+    if code != 0 or not local.get("present") or remaining:
+        record["reason"] = "The refreshed copy still reports stale or missing sources."
+        return record, None
+    if not git_output(["ls-remote", "--heads", "origin", worktree["branch"]], cwd=worktree["path"]):
+        record["reason"] = "The refresh branch was not pushed."
+        return record, None
+    head = git_output(["rev-parse", "HEAD"], cwd=worktree["path"])
+    pr = None
+    for attempt in range(3):
+        pr = find_open_pr(repository.get("remote"), worktree["branch"], options.get("cwd"), cli_fn=cli_fn)
+        if pr:
+            break
+        if attempt < 2:
+            time.sleep(2)
+    if not pr:
+        record["reason"] = "The refresh branch is pushed but no open PR was found."
+        return record, None
+    if head and pr.get("headRefOid") not in (None, head):
+        record["reason"] = "The refresh PR head does not match the refreshed branch head."
+        return record, None
+    if pr.get("baseRefName") not in (None, default_branch):
+        record["reason"] = f"The refresh PR targets {pr.get('baseRefName')}, not {default_branch}."
+        return record, None
+    record.update(status="refreshed", pr=pr.get("url"), head=head, pr_draft=pr.get("isDraft"))
+    return record, str(refreshed)
+
+
 def restore_generated_paths(wt_path, paths):
     """Restore tracked files that a gate regenerated in a worktree.
 
@@ -1456,9 +1578,18 @@ def worktree_status(issue_ref, cwd=None):
     return {"path": None, "dirty": None}
 
 
-def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None):
+def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None, facts_refresh=None):
     """Render the run's deliveries, parked items, worktree state, and token totals."""
     lines = ["", "## Run summary", ""]
+    if facts_refresh:
+        lines += ["## Project facts refresh", ""]
+        if facts_refresh.get("status") == "refreshed":
+            lines.append(f"- Refreshed: PR {facts_refresh.get('pr') or 'not read'} on branch "
+                         f"`{facts_refresh.get('branch')}`; handoffs used `{facts_refresh.get('path')}`.")
+        else:
+            stale = ", ".join(facts_refresh.get("stale_sources") or []) or "none reported"
+            lines.append(f"- Failed: {facts_refresh.get('reason')} Stale sources: {stale}.")
+        lines.append("")
     if records:
         lines += ["| Issue | PR | Endpoint | Worktree dirty |", "| --- | --- | --- | --- |"]
         for record in records:
@@ -1528,6 +1659,8 @@ def main(argv=None):
                         help="stop a session at a step boundary at this input and cached-prompt token count (default 0, off)")
     parser.add_argument("--no-precompute-gates", action="store_true",
                         help="do not run pre-computed test gates before review-changes")
+    parser.add_argument("--require-facts-refresh", action="store_true",
+                        help="stop before the first issue when a stale-facts refresh fails")
     parser.add_argument("--no-symbol-indexing", action="store_true",
                         help="do not index subsystem symbols before implement-issue")
     parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
@@ -1609,6 +1742,21 @@ def main(argv=None):
     except Exception as error:
         print(f"[{time.strftime('%X')}] Project facts check skipped: {error}", flush=True)
     stale_note = stale_facts_warning(facts_out)
+    facts_refresh = None
+    if stale_note:
+        print(f"[{time.strftime('%X')}] Dispatching the project facts refresh before the first issue...", flush=True)
+        facts_refresh, refreshed_facts_path = dispatch_facts_refresh(facts_out, options, notes_dir, cli_fn=run_cli)
+        if facts_refresh.get("status") == "refreshed":
+            options["facts_path"] = refreshed_facts_path
+            stale_note = None
+            print(f"[{time.strftime('%X')}] Project facts refreshed at {refreshed_facts_path} "
+                  f"(PR {facts_refresh.get('pr') or 'not read'}); handoffs point at that copy.", flush=True)
+        else:
+            print(f"[{time.strftime('%X')}] Project facts refresh failed: {facts_refresh.get('reason')} "
+                  "Continuing with the stale-source note.", flush=True)
+            if args.require_facts_refresh:
+                print(f"[{time.strftime('%X')}] Stopping: --require-facts-refresh and the refresh failed.", flush=True)
+                return 1
     generated_paths = (((facts_out or {}).get("project_facts") or {}).get("worktree") or {}).get("generated") or []
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
@@ -1980,7 +2128,8 @@ def main(argv=None):
     except Exception as e:
         print(f"[{time.strftime('%X')}] Toil audit skipped: {e}", flush=True)
 
-    print(format_run_summary(delivery_records, park_failures, notes_dir, start_time, options.get("cwd")), flush=True)
+    print(format_run_summary(delivery_records, park_failures, notes_dir, start_time,
+                             options.get("cwd"), facts_refresh=facts_refresh), flush=True)
     notebook.finish(delivered, park_failures, toil_report=toil_report)
     if delivered and owner and project:
         summary_out, summary_code = run_cli("queue", "summary", *[str(d) for d in delivered],
