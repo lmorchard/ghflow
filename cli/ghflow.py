@@ -1269,6 +1269,33 @@ def pr_ready(repo, number, body_file=None, expect_head=None, board=None, gh=run_
         fact("write", "refused")
         return fail("identity", error, 1)
 
+    if pr["isDraft"]:
+        # A ready PR whose required checks never ran cannot meet the merge policy.
+        # Refuse before the write so a stacked PR stays a draft until it can run.
+        try:
+            observed, observed_status = state(repo, number)
+        except read_errors as error:
+            fact("checks", "unknown")
+            return fail("checks", error, 2)
+        observed = observed if isinstance(observed, dict) else {}
+        checks_before = observed.get("checks")
+        ci = observed.get("ci")
+        result.update(ci_before=ci, checks_before=checks_before,
+                      required_checks_before=observed.get("required_checks"))
+        if observed_status == 1 or ci is None:
+            fact("checks", "unknown")
+            return fail("checks", "The check state on the current head could not be read; "
+                                  "the PR was not marked ready.", 2)
+        if ci == "missing":
+            missing = [check.get("name") for check in checks_before or [] if check.get("state") == "missing"]
+            names = f": {', '.join(name for name in missing if name)}" if missing else ""
+            fact("checks", "refused")
+            return fail("checks", (
+                f"A required check has no run on the current head {head}{names}. If the PR is stacked, keep it a "
+                "draft until its base merges and the PR targets the default branch. Otherwise, trigger the hosted "
+                "checks before marking the PR ready; nothing was written."), 3)
+        fact("checks", "confirmed")
+
     if body_file is not None:
         write_failed = False
         try:

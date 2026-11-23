@@ -2605,7 +2605,7 @@ class PrReadyTests(unittest.TestCase):
         self.assertEqual(result["_board_calls"], [("o/r", 5, "o", 6, "In review")])
         self.assertEqual(result["board"]["after"], "In review")
         self.assertEqual(result["pr_state"]["ci"], "green")
-        self.assertEqual([f["step"] for f in result["facts"]], ["description", "ready"])
+        self.assertEqual([f["step"] for f in result["facts"]], ["checks", "description", "ready"])
 
     def test_body_compared_without_trailing_newline_differences(self):
         fake = FakePr()
@@ -2748,14 +2748,57 @@ class PrReadyTests(unittest.TestCase):
 
     def test_partial_final_state_read_exits_2(self):
         fake = FakePr()
+        calls = []
 
         def state(repo, number):
+            calls.append(number)
+            if len(calls) == 1:
+                return {"head": fake.head, "ci": "green"}, 0
             return {"head": fake.head, "ci": None, "errors": [{"part": "rules", "error": "HTTP 403"}]}, 2
 
         result, status = ready(fake, state=state, tmp=self.tmp)
         self.assertEqual(status, 2)
         self.assertEqual(result["action"], "ready")
         self.assertEqual(result["errors"][0]["part"], "pr_state")
+
+    def test_missing_required_checks_refuse_ready_without_writes(self):
+        fake = FakePr()
+
+        def state(repo, number):
+            return {"head": fake.head, "ci": "missing",
+                    "checks": [{"name": "js-test", "state": "missing", "required": True},
+                               {"name": "lint-and-test", "state": "missing", "required": True}],
+                    "required_checks": ["js-test", "lint-and-test"]}, 0
+
+        result, status = ready(fake, body="new\n", state=state, tmp=self.tmp)
+        self.assertEqual((status, fake.writes), (3, []))
+        self.assertEqual(result["errors"][0]["part"], "checks")
+        self.assertIn("js-test", result["errors"][0]["error"])
+        self.assertEqual(result["ci_before"], "missing")
+        self.assertTrue(fake.is_draft)
+
+    def test_pending_checks_do_not_stop_ready(self):
+        fake = FakePr()
+
+        def state(repo, number):
+            return {"head": fake.head, "ci": "pending",
+                    "checks": [{"name": "test", "state": "pending", "required": True}],
+                    "required_checks": ["test"]}, 0
+
+        result, status = ready(fake, state=state, tmp=self.tmp)
+        self.assertEqual(status, 0, result)
+        self.assertEqual([w[:2] for w in fake.writes], [["pr", "ready"]])
+        self.assertEqual(result["ci_before"], "pending")
+
+    def test_unreadable_check_state_refuses_before_writes(self):
+        fake = FakePr()
+
+        def state(repo, number):
+            return {"head": fake.head, "ci": None, "errors": [{"part": "pr", "error": "HTTP 500"}]}, 1
+
+        result, status = ready(fake, body="new\n", state=state, tmp=self.tmp)
+        self.assertEqual((status, fake.writes), (2, []))
+        self.assertEqual(result["errors"][0]["part"], "checks")
 
     def test_main_requires_board_arguments_together(self):
         with self.assertRaises(SystemExit) as raised, patch("sys.stderr", new=io.StringIO()):
