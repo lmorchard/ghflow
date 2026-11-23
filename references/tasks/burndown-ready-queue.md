@@ -35,6 +35,7 @@ After the traversal and before the first dispatch, run `git fetch origin` and th
 Every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
 
 The queue request authorizes the refresh and its PR. It is part of the delivery flow, not a change outside an issue under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow). The refresh worker commits in its own worktree and publishes the file as a ready PR for the user's review; it does not merge. Workers branch from `origin/main`, where the refresh is not yet merged, so set the project facts path in every handoff to the refreshed file in the refresh worktree, as [Handoffs](../shared/coordination.md#handoffs) states. Record the refresh PR in the delivery summary.
+The deterministic runner performs this dispatch before the first issue. It creates the refresh worktree and branch, runs `prepare-project-facts`, verifies that the committed branch changes only `.ghflow/project.md`, and points every later handoff at that copy. `--require-facts-refresh` stops the run before the first issue when the refresh fails; without it, the runner continues with the stale-source note.
 If the refresh fails or returns no refreshed file, continue the queue: name the stale sources in each handoff, as [Handoffs](../shared/coordination.md#handoffs) states, and record the failure in the summary.
 
 If `project_facts.present` is false, continue without a facts file and say so in the summary; writing the first facts file is a separate task the user requests.
@@ -58,6 +59,7 @@ For an interactive delivery:
 When all selected issues have reached the agreed endpoint:
 
 1. Present a delivery summary table with `python3 "$GHFLOW_CLI" queue summary ISSUE_URL... --owner OWNER --project NUMBER`.
-2. Report the result, sources, check evidence, and remaining decisions to the user.
-3. Audit worker session logs for recurring operational toil with `python3 "$GHFLOW_CLI" audit toil`. Report any patterns that hit the Three Strikes threshold as candidates for deterministic automation.
-4. File out-of-scope findings as follow-ups, following [Follow-ups](../shared/followups.md). Write them to `followups.md` in the run notes directory so the run summary includes them.
+2. Read `monitor.json` and `monitor.md` in the run notes directory. The report names every check, its state, its evidence, and the alerts. Investigate only a novel alert instead of reading session logs by hand.
+3. Report the result, sources, check evidence, and remaining decisions to the user.
+4. Audit worker session logs for recurring operational toil with `python3 "$GHFLOW_CLI" audit toil`. Report any patterns that hit the Three Strikes threshold as candidates for deterministic automation.
+5. File out-of-scope findings as follow-ups, following [Follow-ups](../shared/followups.md). Write them to `followups.md` in the run notes directory so the run summary includes them.

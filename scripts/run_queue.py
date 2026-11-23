@@ -15,6 +15,7 @@ _ROOT = Path(__file__).resolve().parent.parent
 if str(_ROOT) not in sys.path:
     sys.path.insert(0, str(_ROOT))
 
+import monitor as monitor_mod
 import narrative
 
 DEFAULT_FLOOR_MINUTES = 30
@@ -151,6 +152,18 @@ def acquire_run_lock(notes_dir, target=None, lock_path=None):
     fp.flush()
     _RUN_LOCK = fp
     return fp
+
+
+def read_run_lock_holder(lock_path=None):
+    """Return the current lock holder record, or an error record."""
+    path = Path(lock_path or os.environ.get("GHFLOW_RUNNER_LOCK")
+                or Path.home() / ".local/state/ghflow/runner.lock")
+    try:
+        holder = json.loads(path.read_text(encoding="utf-8").strip() or "{}")
+    except (OSError, ValueError) as error:
+        return {"path": str(path), "error": str(error)}
+    holder["path"] = str(path)
+    return holder
 
 
 def project_owner(project):
@@ -352,6 +365,24 @@ def should_stop_for_floor(step, remaining_minutes, floor, deterministic_pr=True)
     if step == "submit-pr" and deterministic_pr:
         return False
     return True
+
+
+def phase_boundary_park(state, step, remaining_minutes, floor):
+    """Describe the time park for a draft that the floor leaves unfinished.
+
+    The floor ends a phase. When the issue has an open draft with committed
+    work, the park names the PR and the remaining steps, so the next run can
+    resume from the record instead of an In progress issue with no park.
+    """
+    pr = state.get("pr") or {}
+    if not pr.get("url") or not (pr.get("is_draft") or pr.get("draft")):
+        return None
+    head = pr.get("head") or "unknown"
+    return (
+        f"The time budget floor ({floor} min; {remaining_minutes:.1f} min remained) stopped the run before `{step}`. "
+        f"The pull request {pr['url']} is a draft with committed work at {head}. "
+        f"Remaining steps: `{step}`, then `submit-pr`."
+    )
 
 
 def next_item(board, attempted=None):
@@ -593,6 +624,10 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
             "implement-issue": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "address-pr-review": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "review-changes": ("ghflow-review-slim", "skills/review-slim/SKILL.md"),
+            # The facts refresh has no slim role; inline its task procedure so the
+            # session does not have to read a reference file.
+            "prepare-project-facts": ("ghflow:prepare-project-facts",
+                                      "references/tasks/prepare-project-facts.md"),
         }
         role_name, role_skill = role_map.get(step, (f"ghflow:{step}", "SKILL.md"))
         cli_py = Path(skill_dir) / "cli" / "ghflow.py"
@@ -734,9 +769,11 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     """
     stamp = time.strftime("%Y%m%d-%H%M%S")
     handoff_file = notes_dir / f"handoff-{step}-{stamp}.md"
-    args = ["handoff", step, issue_url, "--out", str(handoff_file), "--runner"]
+    args = ["handoff", step, *([issue_url] if issue_url else []), "--out", str(handoff_file), "--runner"]
     if step == "review-changes":
         args.append("--verdict")
+    if options.get("facts_path"):
+        args += ["--facts-path", str(options["facts_path"])]
     if options.get("model"):
         args += ["--review-plan", f"model {options['model']}"]
     if options.get("deadline"):
@@ -750,6 +787,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     h_out, code = cli_fn(*args, cwd=options.get("cwd"))
     if code != 0:
         return False, f"Handoff creation failed: {h_out}"
+
+    session_monitor = options.get("monitor")
+    if session_monitor is not None:
+        session_monitor.handoff_model(step, handoff_file, options.get("model"))
 
     prompt_text = compose_prompt(options["skill_dir"], h_out.get("dispatch_prompt", ""), step=step)
     cmd = [options.get("opencode_cmd", "opencode"), "run", "--auto", "--format", "json",
@@ -789,9 +830,30 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     context_warn_tokens = options.get("context_warn_tokens", DEFAULT_CONTEXT_WARN_TOKENS)
     max_context_tokens = options.get("max_context_tokens", DEFAULT_MAX_CONTEXT_TOKENS)
     context_warned = False
+    last_context_tokens = None
+    monitor_interval = options.get("monitor_interval", monitor_mod.DEFAULT_INTERVAL_SECONDS)
+    last_sample = start_ts
+
+    def sample_session():
+        if session_monitor is None:
+            return
+        session_monitor.session_sample(
+            step=step, issue=issue_url, session_id=session_id,
+            alive=proc.poll() is None,
+            last_event_age=time.time() - last_event_ts,
+            context_tokens=last_context_tokens,
+            turns=step_num,
+            age=time.time() - start_ts,
+            limits={"step_idle_timeout": step_idle_timeout,
+                    "session_timeout": timeout_sec,
+                    "max_turns": max_turns,
+                    "context_warn_tokens": context_warn_tokens,
+                    "max_context_tokens": max_context_tokens})
+        session_monitor.write()
+        print(session_monitor.status_line(), flush=True)
 
     def process_line(line_str):
-        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned, context_warned
+        nonlocal session_id, step_num, abort_reason, last_event_ts, slow_step_warned, context_warned, last_context_tokens
         last_event_ts = time.time()
         slow_step_warned = False
         log_fp.write(line_str)
@@ -826,6 +888,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             reason_tok = tokens.get("reasoning", 0)
             reason = part.get("reason") or event.get("reason")
             context_tokens = step_context_tokens(tokens)
+            last_context_tokens = context_tokens
             print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens, "
                   f"context: {context_tokens})", flush=True)
             warning = context_warning(context_tokens, context_warn_tokens, context_warned)
@@ -845,11 +908,15 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             if isinstance(err, dict) and err.get("type") == "output-limit":
                 abort_reason = f"Session output limit exceeded: {err.get('message', 'output truncated')}"
 
+    sample_session()
     try:
         has_fd = hasattr(proc.stdout, "fileno")
         if has_fd:
             while True:
                 now = time.time()
+                if now - last_sample >= monitor_interval:
+                    last_sample = now
+                    sample_session()
                 if now - start_ts > timeout_sec:
                     abort_reason = f"Session exceeded timeout ({timeout_sec}s)"
                     break
@@ -920,9 +987,14 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
         if change:
             print(f"[{time.strftime('%X')}] Warning: the primary checkout changed during the session. "
                   f"Work only in the task worktree.", flush=True)
+    success = proc.returncode == 0 and not abort_reason
+    if session_monitor is not None:
+        session_monitor.session_end(step, success, abort_reason or "", session_id, session_log)
+        session_monitor.write(force=True)
+        print(session_monitor.status_line(), flush=True)
     if abort_reason:
         return False, abort_reason
-    return proc.returncode == 0, session_id or ""
+    return success, session_id or ""
 
 
 def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli):
@@ -1093,6 +1165,122 @@ def stale_facts_warning(facts):
     paths = ", ".join(source.get("path", "?") for source in stale)
     return (f"project facts are stale on origin for: {paths}. "
             f"Workers branch from origin and may read an outdated file.")
+
+
+def prepare_facts_worktree(repo_root, default_branch, cli_fn=run_cli):
+    """Create the refresh branch and worktree the runner hands to the facts session."""
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    branch = f"facts-refresh-{stamp}"
+    path = Path(repo_root) / ".claude" / "worktrees" / branch
+    out, code = cli_fn("exec", "--", "git", "worktree", "add", "-b", branch, str(path),
+                       f"origin/{default_branch}", cwd=repo_root)
+    if code != 0:
+        print(f"[{time.strftime('%X')}] Facts refresh worktree failed (exit {code}): {out}", flush=True)
+        return None
+    print(f"[{time.strftime('%X')}] Facts refresh worktree at {path} on branch {branch}", flush=True)
+    return {"branch": branch, "path": str(path)}
+
+
+def find_open_pr(repo, branch, cwd, cli_fn=run_cli):
+    """Return the open PR record for a branch, or None when the read finds none."""
+    if not repo:
+        return None
+    out, code = cli_fn("exec", "--", "gh", "pr", "list", "--repo", repo, "--head", branch,
+                       "--state", "open", "--json", "url,number,headRefOid,isDraft,baseRefName", cwd=cwd)
+    if code == 0 and isinstance(out, list) and out:
+        return out[0]
+    return None
+
+
+def dispatch_facts_refresh(facts_out, options, notes_dir, cli_fn=run_cli, session_fn=None):
+    """Refresh origin's stale project facts before the first issue.
+
+    Returns the refresh record and the refreshed file path. The record is
+    always present when origin reports stale sources, so a failed dispatch
+    stays visible in the run summary. The caller points later handoffs at the
+    returned path only when the refresh is verified.
+    """
+    origin = (((facts_out or {}).get("project_facts") or {}).get("origin") or {})
+    if origin.get("present") is False:
+        # Writing the first facts file is a separate task the user requests.
+        return None, None
+    stale = origin.get("stale_sources") or []
+    if not stale:
+        return None, None
+    stale_names = [source.get("path", "?") if isinstance(source, dict) else str(source)
+                   for source in stale]
+    repository = (facts_out or {}).get("repository") or {}
+    checkout = (facts_out or {}).get("checkout") or {}
+    root = checkout.get("primary_root") or checkout.get("root") or options.get("cwd")
+    default_branch = repository.get("default_branch") or "main"
+    record = {"status": "failed", "stale_sources": stale_names, "remaining_stale_sources": [],
+              "reason": None, "pr": None, "branch": None, "path": None, "head": None}
+    if not root:
+        record["reason"] = "The subject checkout is unknown."
+        return record, None
+
+    worktree = prepare_facts_worktree(root, default_branch, cli_fn=cli_fn)
+    if not worktree:
+        record["reason"] = "The runner could not create the refresh worktree."
+        return record, None
+    record.update(branch=worktree["branch"], path=worktree["path"])
+
+    refresh_options = dict(options)
+    refresh_options["session_cwd"] = worktree["path"]
+    refresh_options["branch"] = worktree["branch"]
+    refresh_options["extra_text"] = (
+        f"Work in the prepared worktree at {worktree['path']} on branch {worktree['branch']}, "
+        f"created from origin/{default_branch}. Refresh `.ghflow/project.md` there, commit it, "
+        "push the branch, and open a ready PR to the default branch. Do not create another "
+        "worktree, do not request review, and do not merge. Return the PR URL and the refreshed file path."
+    )
+    session_fn = session_fn or run_session
+    success, info = session_fn("prepare-project-facts", None, notes_dir, refresh_options, cli_fn=cli_fn)
+    if not success:
+        record["reason"] = f"The refresh session failed: {info}."
+        return record, None
+
+    refreshed = Path(worktree["path"]) / ".ghflow" / "project.md"
+    if not refreshed.is_file():
+        record["reason"] = "The refresh session wrote no .ghflow/project.md."
+        return record, None
+    changed = git_output(["diff", "--name-only", f"origin/{default_branch}...HEAD"],
+                         cwd=worktree["path"])
+    files = sorted(line.strip() for line in (changed or "").splitlines() if line.strip())
+    if files != [".ghflow/project.md"]:
+        record["reason"] = ("The refresh branch changes "
+                            f"{', '.join(files) or 'no files'}; only .ghflow/project.md is allowed.")
+        return record, None
+    verified, code = cli_fn("facts", cwd=worktree["path"])
+    local = ((verified or {}).get("project_facts") or {}) if isinstance(verified, dict) else {}
+    remaining = local.get("stale_sources") or []
+    record["remaining_stale_sources"] = [source.get("path", "?") if isinstance(source, dict) else str(source)
+                                        for source in remaining]
+    if code != 0 or not local.get("present") or remaining:
+        record["reason"] = "The refreshed copy still reports stale or missing sources."
+        return record, None
+    if not git_output(["ls-remote", "--heads", "origin", worktree["branch"]], cwd=worktree["path"]):
+        record["reason"] = "The refresh branch was not pushed."
+        return record, None
+    head = git_output(["rev-parse", "HEAD"], cwd=worktree["path"])
+    pr = None
+    for attempt in range(3):
+        pr = find_open_pr(repository.get("remote"), worktree["branch"], options.get("cwd"), cli_fn=cli_fn)
+        if pr:
+            break
+        if attempt < 2:
+            time.sleep(2)
+    if not pr:
+        record["reason"] = "The refresh branch is pushed but no open PR was found."
+        return record, None
+    if head and pr.get("headRefOid") not in (None, head):
+        record["reason"] = "The refresh PR head does not match the refreshed branch head."
+        return record, None
+    if pr.get("baseRefName") not in (None, default_branch):
+        record["reason"] = f"The refresh PR targets {pr.get('baseRefName')}, not {default_branch}."
+        return record, None
+    record.update(status="refreshed", pr=pr.get("url"), head=head, pr_draft=pr.get("isDraft"))
+    return record, str(refreshed)
 
 
 def restore_generated_paths(wt_path, paths):
@@ -1438,9 +1626,27 @@ def worktree_status(issue_ref, cwd=None):
     return {"path": None, "dirty": None}
 
 
-def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None):
+def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None, facts_refresh=None,
+                       session_monitor=None):
     """Render the run's deliveries, parked items, worktree state, and token totals."""
     lines = ["", "## Run summary", ""]
+    if session_monitor is not None:
+        snapshot = session_monitor.snapshot()
+        lines += ["## Monitor", "",
+                  f"- Alerts: {len(snapshot['alerts'])}",
+                  f"- Reports: `{snapshot['reports']['json']}` and `{snapshot['reports']['markdown']}`."]
+        for alert in snapshot["alerts"]:
+            lines.append(f"- {alert['name']} ({alert['phase']}): {alert['message']}")
+        lines.append("")
+    if facts_refresh:
+        lines += ["## Project facts refresh", ""]
+        if facts_refresh.get("status") == "refreshed":
+            lines.append(f"- Refreshed: PR {facts_refresh.get('pr') or 'not read'} on branch "
+                         f"`{facts_refresh.get('branch')}`; handoffs used `{facts_refresh.get('path')}`.")
+        else:
+            stale = ", ".join(facts_refresh.get("stale_sources") or []) or "none reported"
+            lines.append(f"- Failed: {facts_refresh.get('reason')} Stale sources: {stale}.")
+        lines.append("")
     if records:
         lines += ["| Issue | PR | Endpoint | Worktree dirty |", "| --- | --- | --- | --- |"]
         for record in records:
@@ -1510,15 +1716,23 @@ def main(argv=None):
                         help="stop a session at a step boundary at this input and cached-prompt token count (default 0, off)")
     parser.add_argument("--no-precompute-gates", action="store_true",
                         help="do not run pre-computed test gates before review-changes")
+    parser.add_argument("--require-facts-refresh", action="store_true",
+                        help="stop before the first issue when a stale-facts refresh fails")
     parser.add_argument("--no-symbol-indexing", action="store_true",
                         help="do not index subsystem symbols before implement-issue")
     parser.add_argument("--narrative-category", default=narrative.DEFAULT_CATEGORY, help="discussion category slug for the run notebook (default lab-notebook)")
     parser.add_argument("--no-notebook", action="store_true", help="do not publish the run narrative to GitHub Discussions")
     parser.add_argument("--no-deterministic-pr", action="store_true",
                         help="dispatch an LLM worker session for submit-pr instead of submitting deterministically")
+    parser.add_argument("--monitor-interval", type=int, default=monitor_mod.DEFAULT_INTERVAL_SECONDS,
+                        help=f"seconds between monitor samples during a session (default {monitor_mod.DEFAULT_INTERVAL_SECONDS})")
+    parser.add_argument("--monitor-endpoint", action="store_true",
+                        help="probe LLAMA_CPP_BASE_URL for the model endpoint check")
     args = parser.parse_args(argv)
     if args.context_warn_tokens < 0 or args.max_context_tokens < 0:
         parser.error("--context-warn-tokens and --max-context-tokens must be 0 or greater")
+    if args.monitor_interval < 0:
+        parser.error("--monitor-interval must be 0 or greater")
 
     exclude = set()
     if args.exclude:
@@ -1575,11 +1789,27 @@ def main(argv=None):
     attempted, delivered, park_failures = set(), [], []
     delivery_records = []
 
+    session_monitor = monitor_mod.Monitor(notes_dir)
+    options["monitor"] = session_monitor
+    options["monitor_interval"] = args.monitor_interval
+
     target = (", ".join(f"parent {parent}" for parent in parents) if parents
               else f"project {owner}/{project}" if owner and project else None)
+    lock_info = None
     if not args.allow_concurrent:
-        acquire_run_lock(notes_dir, target)
-        check_active_runs()
+        try:
+            acquire_run_lock(notes_dir, target)
+            check_active_runs()
+        except RuntimeError as error:
+            lock_info = {"error": str(error)}
+            session_monitor.add("runner_lock", "preflight", monitor_mod.STOP,
+                                monitor_mod.FAIL, str(error), lock_info)
+            session_monitor.write(force=True)
+            print(session_monitor.status_line(), flush=True)
+            raise
+        lock_info = read_run_lock_holder()
+    else:
+        lock_info = read_run_lock_holder()
     if not args.no_symbol_indexing:
         refresh_tags(options["cwd"])
     facts_out = {}
@@ -1590,7 +1820,50 @@ def main(argv=None):
             print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
     except Exception as error:
         print(f"[{time.strftime('%X')}] Project facts check skipped: {error}", flush=True)
+    identity_out, _ = run_cli("identity", cwd=options.get("cwd"))
+    exec_user, _ = run_cli("exec", "--", "gh", "api", "user", cwd=options.get("cwd"))
+    exec_login = exec_user.get("login") if isinstance(exec_user, dict) else None
+    model_available = (monitor_mod.probe_model(model, options.get("opencode_cmd", "opencode"))
+                       if model else None)
+    endpoint_url = os.environ.get("LLAMA_CPP_BASE_URL") if args.monitor_endpoint else None
+    endpoint_ok = monitor_mod.probe_endpoint(endpoint_url) if endpoint_url else None
+    session_monitor.preflight(facts_out, identity=identity_out, exec_login=exec_login,
+                              lock=lock_info, model=model, model_available=model_available,
+                              endpoint_configured=endpoint_url, endpoint_ok=endpoint_ok)
+    session_monitor.budget.update({"hours": args.hours, "floor_minutes": args.floor,
+                                   "remaining_minutes": round((deadline_time - time.time()) / 60, 1)})
+    session_monitor.write(force=True)
+    print(session_monitor.status_line(), flush=True)
+    if session_monitor.stopped:
+        print(f"[{time.strftime('%X')}] Monitor stop: {session_monitor.stopped}", flush=True)
+        return 1
     stale_note = stale_facts_warning(facts_out)
+    facts_refresh = None
+    if stale_note:
+        print(f"[{time.strftime('%X')}] Dispatching the project facts refresh before the first issue...", flush=True)
+        facts_refresh, refreshed_facts_path = dispatch_facts_refresh(facts_out, options, notes_dir, cli_fn=run_cli)
+        if facts_refresh.get("status") == "refreshed":
+            options["facts_path"] = refreshed_facts_path
+            stale_note = None
+            print(f"[{time.strftime('%X')}] Project facts refreshed at {refreshed_facts_path} "
+                  f"(PR {facts_refresh.get('pr') or 'not read'}); handoffs point at that copy.", flush=True)
+        else:
+            print(f"[{time.strftime('%X')}] Project facts refresh failed: {facts_refresh.get('reason')} "
+                  "Continuing with the stale-source note.", flush=True)
+            if args.require_facts_refresh:
+                print(f"[{time.strftime('%X')}] Stopping: --require-facts-refresh and the refresh failed.", flush=True)
+                return 1
+        if facts_refresh.get("status") == "refreshed":
+            session_monitor.add("facts_refresh", "preflight", monitor_mod.ALERT, monitor_mod.PASS,
+                                f"Project facts refreshed from origin (PR {facts_refresh.get('pr') or 'not read'}).",
+                                {"pr": facts_refresh.get("pr"), "path": facts_refresh.get("path")})
+        else:
+            session_monitor.add("facts_refresh", "preflight", monitor_mod.ALERT, monitor_mod.FAIL,
+                                f"Project facts refresh failed: {facts_refresh.get('reason')}",
+                                {"pr": facts_refresh.get("pr"),
+                                 "stale_sources": facts_refresh.get("stale_sources")})
+        session_monitor.write(force=True)
+        print(session_monitor.status_line(), flush=True)
     generated_paths = (((facts_out or {}).get("project_facts") or {}).get("worktree") or {}).get("generated") or []
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
@@ -1627,20 +1900,33 @@ def main(argv=None):
             if telemetry_str:
                 source_desc += f"; {telemetry_str}"
             print(f"[{time.strftime('%X')}] Notebook step note posted ({source_desc})", flush=True)
-    def record_park(issue_url, pr_url, text):
+    def record_park(issue_url, pr_url, text, kind="blocker"):
         """Park an issue and keep a failed park visible in the run result."""
-        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir, cli_fn=run_cli)
+        out, code = park_issue(issue_url, pr_url, kind, text, notes_dir, cli_fn=run_cli)
         if code != 0:
             park_failures.append({"issue": issue_url, "reason": text, "output": out})
         return code
 
     previous_states = {}
+    selection_recorded = False
+    recorded_parents = set()
+    monitor_selection = []
+    final_states = []
+    throughput_marks = []
+
+    def mark_throughput():
+        done = sum(1 for record in delivery_records if record.get("endpoint") == "DONE")
+        if done:
+            throughput_marks.append({"name": f"issue {done}",
+                                     "hours_per_done": round((time.time() - start_time) / 3600 / done, 2)})
 
     parent_children = None
     parent_index = 0
     current_parent = None
     board_index = {}
     while True:
+        if session_monitor.stopped:
+            break
         if time.time() >= deadline_time:
             break
         if parents:
@@ -1654,6 +1940,13 @@ def main(argv=None):
                 parent_children = parent_data.get("children") or []
                 current_parent = parent_ref
                 board_index = load_board_index(owner, project, cli_fn=run_cli)
+            if parent_ref not in recorded_parents:
+                monitor_selection.extend(parent_children or [])
+                session_monitor.selection(parent_children, required_labels=require_labels,
+                                          exclude_labels=exclude_labels)
+                session_monitor.write(force=True)
+                print(session_monitor.status_line(), flush=True)
+                recorded_parents.add(parent_ref)
             item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"),
                                         exclude=exclude, require_labels=require_labels,
                                         exclude_labels=exclude_labels, board_index=board_index)
@@ -1667,6 +1960,14 @@ def main(argv=None):
         else:
             print(f"[{time.strftime('%X')}] Reading board for project {owner}/{project}...")
             board = observe_board(owner, project)
+            if not selection_recorded:
+                monitor_selection = ((board.get("parked") or [])
+                                     + (board.get("selection") or []))
+                session_monitor.selection(monitor_selection, required_labels=require_labels,
+                                          exclude_labels=exclude_labels)
+                session_monitor.write(force=True)
+                print(session_monitor.status_line(), flush=True)
+                selection_recorded = True
             item = next_item(board, attempted)
 
         if item is None:
@@ -1676,6 +1977,25 @@ def main(argv=None):
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
         attempted.add(issue_ref)
         published_pr = None
+        pending = {}
+
+        def flush_monitor(state, step, phase_end=False):
+            entry = pending.pop("entry", None)
+            if entry:
+                session_monitor.after_step(entry["step"], state, success=entry["success"],
+                                           info=entry["info"], published=entry["published"],
+                                           worktree=entry["worktree"])
+            if phase_end:
+                session_monitor.phase_end("issue", issue=state.get("issue") or issue_ref, step=step,
+                                          state=state,
+                                          remaining_minutes=(deadline_time - time.time()) / 60)
+            session_monitor.write(force=True)
+            print(session_monitor.status_line(), flush=True)
+
+        session_monitor.phase_start("issue", issue=issue_ref,
+                                    remaining_minutes=(deadline_time - time.time()) / 60)
+        session_monitor.write(force=True)
+        print(session_monitor.status_line(), flush=True)
         # Issue reconciliation loop
         while True:
             state = observe_issue(issue_ref)
@@ -1685,9 +2005,22 @@ def main(argv=None):
                     state["pr"] = seeded
             step = next_step(state)
             remaining_minutes = (deadline_time - time.time()) / 60
+            flush_monitor(state, step, phase_end=step in ("DONE", "PARKED", "WAITING"))
+            if session_monitor.stopped:
+                print(f"[{time.strftime('%X')}] Monitor stop: {session_monitor.stopped}", flush=True)
+                break
             if should_stop_for_floor(step, remaining_minutes, args.floor,
                                      options.get("deterministic_pr", True)):
                 print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m) before {step}. Stopping.")
+                flush_monitor(state, step, phase_end=True)
+                park_text = phase_boundary_park(state, step, remaining_minutes, args.floor)
+                if park_text:
+                    pr_url = (state.get("pr") or {}).get("url")
+                    code = record_park(state["issue"], pr_url, park_text, kind="time")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url,
+                                             "endpoint": "time-park" if code == 0 else "park-failed"})
+                final_states.append(dict(state))
                 break
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):
@@ -1695,7 +2028,9 @@ def main(argv=None):
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref,
                                          "pr": (state.get("pr") or {}).get("url"), "endpoint": step})
+                final_states.append(dict(state))
                 if step == "DONE":
+                    mark_throughput()
                     set_board_status(issue_ref, "In review", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
                 break
             if step == "park-blocker":
@@ -1703,6 +2038,8 @@ def main(argv=None):
                 record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                final_states.append(dict(state))
+                flush_monitor(state, step, phase_end=True)
                 break
             if step == "wait-ci":
                 time.sleep(15)
@@ -1733,7 +2070,9 @@ def main(argv=None):
             verification = verification_lines(state.get("body"))
             verification_note = (
                 " Issue verification: " + " ".join(verification) +
-                " Run these focused tests during iteration; run the full `make test` once before finishing."
+                " Run these focused tests during iteration; before finishing, run the project gates once with "
+                "`python3 \"$GHFLOW_CLI\" gate --summary --cmd \"make check\" --cmd \"make test\"` "
+                "(use the project facts gate commands)."
                 if verification else ""
             )
             if step == "submit-pr" and options.get("deterministic_pr", True):
@@ -1745,11 +2084,21 @@ def main(argv=None):
                     checkpoint += f" Run narrative: {notebook.discussion['url']}"
                 narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
                 note_session(step, state["issue"], success, "deterministic", None, state)
+                if success:
+                    pr = state.setdefault("pr", {})
+                    pr["is_draft"] = False
+                    if isinstance(info, dict) and info.get("url"):
+                        pr["url"] = pr.get("url") or info["url"]
+                pending["entry"] = {"step": "submit-pr", "success": success, "info": info,
+                                    "published": info if isinstance(info, dict) else None,
+                                    "worktree": worktree_status(state["issue"], cwd=options.get("cwd"))}
                 if not success:
                     pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
                     break
                 if (deadline_time - time.time()) / 60 < args.floor:
                     pr_url = info.get("url") if isinstance(info, dict) else None
@@ -1758,6 +2107,8 @@ def main(argv=None):
                                              "pr": pr_url or (state.get("pr") or {}).get("url"),
                                              "endpoint": "ready"})
                     print(f"[{time.strftime('%X')}] {issue_ref} is ready; stopping below the floor before the CI wait.", flush=True)
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
                     break
                 continue
             elif step == "address-pr-review":
@@ -1779,7 +2130,7 @@ def main(argv=None):
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
                 base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
-                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo, so rely exclusively on local worktree gate checks." if preceding_pr else ""
+                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo. Use local worktree gate checks for the review, and keep the PR a draft until hosted checks run." if preceding_pr else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
 
                 gate_note = ""
@@ -1796,10 +2147,12 @@ def main(argv=None):
                             narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
 
                 gate_instruction = (
-                    "The runner already ran `make check` at this head; use `review inspect --no-gate` and do not repeat the full check. "
-                    "Run `make test` and the issue's focused verification tests."
+                    "The runner already ran `make check` at this head; use `review inspect --no-gate` and do not repeat that command. "
+                    "Run the remaining project gates and the issue's focused verification tests with one "
+                    "`gate --summary --cmd ...` call."
                     if gate_note else
-                    "Run `review inspect` and the project gates (`make check`, `make test`)."
+                    "Run `review inspect`; run the project gates once with "
+                    "`gate --summary --cmd \"make check\" --cmd \"make test\"` (use the project facts gate commands)."
                 )
                 workspace_note = (
                     " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
@@ -1831,7 +2184,9 @@ def main(argv=None):
                     "`GHFLOW_CLI` is already set in the environment; use `python3 \"$GHFLOW_CLI\"` and do not re-export it. "
                     "For symbol lookups, run `python3 \"$GHFLOW_CLI\" tags brief SYMBOL...` before `grep` or a full read. Use `tags outline FILE` to choose line ranges. "
                     "The task worktree is already prepared; do not run `worktree prepare`. "
-                    "Focus solely on editing files in the worktree and passing test gates (`make check`). "
+                    "Focus solely on editing files in the worktree and passing the project gates. "
+                    "Run the gate sequence once with `python3 \"$GHFLOW_CLI\" gate --summary --cmd \"make check\" --cmd \"make test\"` "
+                    "(use the project facts gate commands); do not repeat a command the helper already ran. "
                     "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
                 )
                 if worktree:
@@ -1890,7 +2245,7 @@ def main(argv=None):
                 directive += verification_note
                 directive += (
                     " Commit a checkpoint as soon as the change is coherent and the focused tests pass, "
-                    "before the full `make check`/`make test`. If the full gate finds a fix, make a follow-up commit."
+                    "before the full gate run. If the full gate finds a fix, make a follow-up commit."
                 )
                 if generated_paths:
                     directive += (
@@ -1918,12 +2273,17 @@ def main(argv=None):
                                              cli_fn=run_cli)
                 return None
 
+            session_monitor.phase_start("session", issue=state["issue"], step=step,
+                                        remaining_minutes=remaining_minutes)
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options,
                                         log_hook=lambda path: captured.update(log=path))
             print(f"[{time.strftime('%X')}] Session finished (success={success}, id={info})")
             note_session(step, state["issue"], success, info, captured.get("log"), state)
             published_pr = publish_step_work() or published_pr
+            pending["entry"] = {"step": step, "success": success, "info": info,
+                                "published": published_pr,
+                                "worktree": worktree_status(state["issue"], cwd=options.get("cwd"))}
             if not success:
                 print(f"[{time.strftime('%X')}] Session failed, retrying once in fresh session...")
                 prior_actions = recent_session_actions(captured.get("log"))
@@ -1935,16 +2295,22 @@ def main(argv=None):
                                             log_hook=lambda path: captured.update(log=path))
                 note_session(step, state["issue"], success, info, captured.get("log"), state)
                 published_pr = publish_step_work() or published_pr
+                pending["entry"] = {"step": step, "success": success, "info": info,
+                                    "published": published_pr,
+                                    "worktree": worktree_status(state["issue"], cwd=options.get("cwd"))}
                 if not success:
                     pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
                     break
         if args.once:
             break
 
     toil_report = None
+    toil_res = None
     try:
         from audit_toil import audit_toil, format_markdown_report
         toil_res, _ = audit_toil(dirs=[str(notes_dir)], min_strikes=3)
@@ -1955,8 +2321,20 @@ def main(argv=None):
     except Exception as e:
         print(f"[{time.strftime('%X')}] Toil audit skipped: {e}", flush=True)
 
-    print(format_run_summary(delivery_records, park_failures, notes_dir, start_time, options.get("cwd")), flush=True)
+    budget = {"hours": args.hours, "floor_minutes": args.floor,
+              "elapsed_hours": round((time.time() - start_time) / 3600, 2),
+              "remaining_minutes": round((deadline_time - time.time()) / 60, 1)}
+    session_monitor.finish(records=delivery_records, selection=list(attempted),
+                           states=final_states, toil=toil_res,
+                           phase_throughput=throughput_marks, budget=budget)
+    session_monitor.write(force=True)
+    print(session_monitor.status_line(), flush=True)
+
+    print(format_run_summary(delivery_records, park_failures, notes_dir, start_time,
+                             options.get("cwd"), facts_refresh=facts_refresh,
+                             session_monitor=session_monitor), flush=True)
     notebook.finish(delivered, park_failures, toil_report=toil_report)
+    summary_rows = None
     if delivered and owner and project:
         summary_out, summary_code = run_cli("queue", "summary", *[str(d) for d in delivered],
                                             "--owner", owner, "--project", str(project))
@@ -1964,8 +2342,16 @@ def main(argv=None):
             print(summary_out["table"], flush=True)
         if summary_code != 0:
             print(f"[{time.strftime('%X')}] Queue summary exited {summary_code}: {summary_out.get('errors')}", flush=True)
+        else:
+            summary_rows = summary_out.get("rows")
     elif delivered:
         print(f"[{time.strftime('%X')}] Burndown complete. Delivered items: {', '.join(str(d) for d in delivered)}")
+    session_monitor.summary_coverage(summary_rows)
+    session_monitor.write(force=True)
+    print(session_monitor.status_line(), flush=True)
+    if session_monitor.stopped:
+        print(f"[{time.strftime('%X')}] Monitor stop: {session_monitor.stopped}", flush=True)
+        return 1
     if park_failures:
         print(f"[{time.strftime('%X')}] {len(park_failures)} park attempt(s) failed; these items were not recorded:")
         for entry in park_failures:

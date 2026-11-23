@@ -238,3 +238,20 @@ The [epic #1438 folder](2026-11-20-epic-1438) records an unattended queue run on
 ## 2026-11-21 to 2026-11-22: decafclaw janitorial weekend burndown
 
 The [janitorial weekend folder](2026-11-21-janitorial-weekend) records an unattended local-model run over 33 `triage:ready` + `impl:local` children in nine decafclaw janitorial epics. Skills: `065ae50`. The run delivered 27 done: 23 merged, 4 open ready, and 2 drafts with committed work. 3 issues parked, and 1 did not start. The checkpoint fix preserved the two drafts. The same-model reviews were clean, and hosted CI was green for the completed work. The run exposed a stacked-PR CI gap ([#220](https://github.com/lmorchard/ghflow/issues/220)), phase-boundary drafts ([#221](https://github.com/lmorchard/ghflow/issues/221)), a repeated gate sequence ([#222](https://github.com/lmorchard/ghflow/issues/222)), the missing facts refresh ([#223](https://github.com/lmorchard/ghflow/issues/223)), a late-run slowdown ([#224](https://github.com/lmorchard/ghflow/issues/224)), the need for a controlled compact-tags trial ([#225](https://github.com/lmorchard/ghflow/issues/225)), and the manual batch-merge load ([#226](https://github.com/lmorchard/ghflow/issues/226)). The `impl:strong` trial is [#219](https://github.com/lmorchard/ghflow/issues/219). Evidence limits: one run, same-model review, no coverage, and the wrap-up was pending.
+
+## 2026-11-23: late-run slowdown analysis
+
+The [late-run slowdown folder](2026-11-23-late-run-slowdown) analyzes the 2026-11-21 janitorial weekend data for [#224](https://github.com/lmorchard/gh-project-workflow/issues/224).
+Time per done issue rose from 1.15 h in phase A to 1.90 h in phase D, while phase D hit the 150-turn and 5400-second limits.
+The record decides that one uncontrolled run does not show a restart or a shorter phase recovers throughput, and it does not show a task-driven cause.
+No runner change is made. A future run must compare two matched phases with one model-server restart and record throughput, turns, input, and cached tokens.
+Limits: one run, changing task mix, no restart or cache event, unreported cached tokens, and a local log that is not committed.
+
+## 2026-11-23: compact tags on a symbol-navigation task
+
+The [compact-tags folder](2026-11-23-compact-tags-symbol-navigation) records the [#225](https://github.com/lmorchard/gh-project-workflow/issues/225) trial.
+The same read-only symbol-navigation task ran once without tags and once with `tags brief`, `tags find`, and `tags outline`, on `lmstudio/qwen3.8-27b-mlx@4bit` at checkout `129600a`.
+Input fell from 189,755 to 159,901 tokens (-15.7%) and final context from 29,837 to 24,348 (-18.4%), while turns rose from 8 to 9.
+Both arms reported zero cached tokens, so a cache effect was not measured.
+The compact arm still used two grep calls and four reads.
+Decision: keep the compact-tags guidance; one task and one run per arm support it, not a general saving.

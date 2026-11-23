@@ -1269,6 +1269,33 @@ def pr_ready(repo, number, body_file=None, expect_head=None, board=None, gh=run_
         fact("write", "refused")
         return fail("identity", error, 1)
 
+    if pr["isDraft"]:
+        # A ready PR whose required checks never ran cannot meet the merge policy.
+        # Refuse before the write so a stacked PR stays a draft until it can run.
+        try:
+            observed, observed_status = state(repo, number)
+        except read_errors as error:
+            fact("checks", "unknown")
+            return fail("checks", error, 2)
+        observed = observed if isinstance(observed, dict) else {}
+        checks_before = observed.get("checks")
+        ci = observed.get("ci")
+        result.update(ci_before=ci, checks_before=checks_before,
+                      required_checks_before=observed.get("required_checks"))
+        if observed_status == 1 or ci is None:
+            fact("checks", "unknown")
+            return fail("checks", "The check state on the current head could not be read; "
+                                  "the PR was not marked ready.", 2)
+        if ci == "missing":
+            missing = [check.get("name") for check in checks_before or [] if check.get("state") == "missing"]
+            names = f": {', '.join(name for name in missing if name)}" if missing else ""
+            fact("checks", "refused")
+            return fail("checks", (
+                f"A required check has no run on the current head {head}{names}. If the PR is stacked, keep it a "
+                "draft until its base merges and the PR targets the default branch. Otherwise, trigger the hosted "
+                "checks before marking the PR ready; nothing was written."), 3)
+        fact("checks", "confirmed")
+
     if body_file is not None:
         write_failed = False
         try:
@@ -2700,6 +2727,150 @@ def pr_merge(repo, number, method, expect_head, gh=run_gh, gh_text=run_gh_text,
     return result, 2 if result["errors"] else 0
 
 
+def merge_block_reason(observed, expected_head):
+    """Return why one PR cannot enter an authorized batch merge, or None.
+
+    The checks mirror the merge policy: exact reviewed head, open and
+    mergeable, green required checks, a base that contains its tip, and an
+    affirmative review at that head. A ghflow comment verdict of ``clean``
+    counts as the agent-PR review evidence.
+    """
+    if not isinstance(observed, dict) or not observed.get("head"):
+        return "The PR state could not be read."
+    head = observed["head"]
+    if not (head == expected_head or (len(expected_head) >= 7 and head.startswith(expected_head))):
+        return f"The current head {head} is not the expected {expected_head}."
+    if observed.get("state") != "OPEN":
+        return f"The PR is {observed.get('state')}, not OPEN."
+    if observed.get("is_draft"):
+        return "The PR is a draft."
+    if observed.get("mergeable") != "MERGEABLE":
+        return f"The PR is {observed.get('mergeable') or 'not read as mergeable'}."
+    if observed.get("ci") != "green":
+        return f"The required checks are {observed.get('ci') or 'unread'}, not green."
+    if observed.get("base_behind_by") != 0:
+        return f"The head is behind the base by {observed.get('base_behind_by')!r}, not 0."
+    summary = observed.get("review_summary") or {}
+    if summary.get("state") in (None, "incomplete"):
+        return "The review state is incomplete."
+    if summary.get("changes_requested"):
+        return "A current-head review requests changes."
+    if summary.get("state") == "approved":
+        return None
+    verdicts = observed.get("review_verdicts")
+    if verdicts is None:
+        return "The review comments could not be read, so no clean verdict is available."
+    for verdict in reversed(verdicts):
+        if (verdict.get("verdict") == "clean" and verdict.get("head")
+                and head.startswith(verdict["head"])):
+            return None
+    return "No approved review or clean ghflow verdict covers the current head."
+
+
+def merge_batch_board(repo, number, owner, project, gh=run_gh, board_write=board_set_status):
+    """Move the issues a merged PR closes to Done, reporting each board result."""
+    try:
+        data = response_type(gh(["pr", "view", str(number), "--repo", repo,
+                                 "--json", "closingIssuesReferences"]), dict, "The PR response")
+        refs = response_type(data.get("closingIssuesReferences"), list, "The closing issues")
+    except READ_ERRORS as error:
+        return {"part": "board", "error": str(error), "items": []}
+    items = []
+    for ref in refs:
+        response_type(ref, dict, "A closing issue")
+        url = ref.get("url")
+        if not url:
+            repository = (ref.get("repository") or {}).get("nameWithOwner")
+            if not repository or ref.get("number") is None:
+                items.append({"issue": None, "status": "unread"})
+                continue
+            url = f"https://github.com/{repository}/issues/{ref['number']}"
+        try:
+            issue_repo, issue_number = parse_issue(url, None)
+        except (SystemExit, ValueError, TypeError):
+            items.append({"issue": url, "status": "unread"})
+            continue
+        result, status = board_write(issue_repo, issue_number, owner, project, "Done")
+        items.append({"issue": url, "status": "done" if status == 0 else "failed", "result": result})
+    return {"items": items, "linked": len(items)}
+
+
+def pr_merge_batch(repo, items, method, authorization, owner=None, project=None,
+                   gh=run_gh, gh_text=run_gh_text, confirm=confirm_write_identity,
+                   state=pr_state, merge_fn=pr_merge, board_write=board_set_status,
+                   gh_paginated=run_gh_paginated, identity=None):
+    """Merge a reviewed list of PRs under one user authorization, in order.
+
+    Every item is parsed before the first write. Each PR is then checked at its
+    expected head, and the command stops at the first failure. The board move
+    runs after each merge and does not fail the batch.
+    """
+    result = {"repo": repo, "method": method, "authorization": authorization,
+              "items": [], "merged": [], "stopped_at": None, "remaining": [],
+              "errors": []}
+    if not isinstance(authorization, str) or not authorization.strip():
+        result["errors"].append({"part": "authorization",
+                                 "error": "A batch merge needs the user authorization that covers it; nothing was written."})
+        return result, 1
+    if method not in ("merge", "squash", "rebase"):
+        result["errors"].append({"part": "method", "error": f"Unknown merge method {method!r}."})
+        return result, 1
+    if not items:
+        result["errors"].append({"part": "items", "error": "The batch has no pull requests."})
+        return result, 1
+
+    parsed = []
+    for item in items:
+        ref = str(item.get("pr") or "").strip()
+        expected = str(item.get("head") or "").strip()
+        if len(expected) < 7:
+            result["errors"].append({"part": "item",
+                                     "error": f"{ref or 'An item'} needs a head of at least 7 characters; nothing was written."})
+            return result, 1
+        try:
+            item_repo, number = parse_pr(ref, repo)
+        except SystemExit as error:
+            result["errors"].append({"part": "item", "error": f"{ref!r}: {error}"})
+            return result, 1
+        parsed.append({"repo": item_repo, "number": number, "head": expected})
+
+    for index, item in enumerate(parsed):
+        record = {"pr": f"{item['repo']}#{item['number']}", "expected_head": item["head"]}
+        observed, read_status = state(item["repo"], item["number"], gh=gh,
+                                      gh_paginated=gh_paginated, identity=identity)
+        head = observed.get("head") if isinstance(observed, dict) else None
+        record.update({"head": head,
+                       "ci": (observed or {}).get("ci") if isinstance(observed, dict) else None,
+                       "base_behind_by": (observed or {}).get("base_behind_by") if isinstance(observed, dict) else None,
+                       "review": (observed or {}).get("review_summary") if isinstance(observed, dict) else None})
+        reason = merge_block_reason(observed, item["head"])
+        if reason:
+            record.update(result="refused", reason=reason)
+            result["items"].append(record)
+            result["stopped_at"] = record["pr"]
+            result["remaining"] = [f"{entry['repo']}#{entry['number']}" for entry in parsed[index + 1:]]
+            return result, 1 if read_status == 1 else 3
+
+        merge_result, merge_status = merge_fn(item["repo"], item["number"], method, head,
+                                              gh=gh, gh_text=gh_text, confirm=confirm)
+        record["merge"] = merge_result
+        if merge_status != 0:
+            record.update(result="merge-failed", reason=(merge_result or {}).get("errors"))
+            result["items"].append(record)
+            result["stopped_at"] = record["pr"]
+            result["remaining"] = [f"{entry['repo']}#{entry['number']}" for entry in parsed[index + 1:]]
+            return result, merge_status
+        record.update(result="merged", merge_commit=(merge_result or {}).get("merge_commit"),
+                      merged_at=(merge_result or {}).get("merged_at"))
+        result["merged"].append({"pr": record["pr"], "merge_commit": record["merge_commit"]})
+        if owner and project:
+            record["board"] = merge_batch_board(item["repo"], item["number"], owner, project,
+                                                gh=gh, board_write=board_write)
+        result["items"].append(record)
+
+    return result, 0
+
+
 HANDOFF_SCOPE = {
     "implement-issue": "Implement the issue, then publish it as a draft through submit-pr in the same session. "
                        "Publish the first significant committed checkpoint as a draft and keep working on the same branch. "
@@ -3382,51 +3553,79 @@ def build_publish(issue=None, cwd=None, repo=None, draft=False, title=None, body
 def run_gate(command="make check", cwd=None, timeout=300, shell=None):
     """Run local project test gates with compact, bounded output.
 
-    Executes the gate command in cwd, capturing and bounding stdout/stderr. Parses test counts
-    and failure summaries to protect agent context windows from multi-thousand-line test dumps.
+    ``command`` is one command or a list. A list runs in order and stops at the
+    first failure; the remaining commands are named as not run. One command
+    returns the earlier result fields unchanged. Parses test counts and failure
+    summaries to protect agent context windows from multi-thousand-line dumps.
     """
+    commands = [command] if isinstance(command, str) else list(command)
+    if not commands:
+        commands = ["make check"]
     shell = shell or (lambda cmd, where, t: subprocess.run(cmd, shell=True, cwd=where,
                                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                                            text=True, timeout=t))
     target = Path.cwd() if cwd is None else Path(cwd)
-    result = {"command": command, "path": str(target), "errors": []}
+    result = {"command": " && ".join(commands), "commands": [], "path": str(target), "errors": []}
     start = time.time()
-    try:
-        proc = shell(command, target, timeout)
-    except subprocess.TimeoutExpired:
-        result.update(success=False, exit_code=124, summary=f"{command} timed out after {timeout}s",
-                      duration_seconds=round(time.time() - start, 2))
-        return result, 2
-    except OSError as error:
-        result["errors"].append({"part": "gate", "error": str(error)})
-        result.update(success=False, exit_code=1, summary=f"{command} failed to execute: {error}",
-                      duration_seconds=round(time.time() - start, 2))
-        return result, 1
+    failed = None
+    timed_out = False
+    for name in commands:
+        entry = {"command": name}
+        if failed is not None:
+            entry.update(skipped=True,
+                         summary=f"{name} not run after {failed.get('command')} failed")
+            result["commands"].append(entry)
+            continue
+        try:
+            proc = shell(name, target, timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            entry.update(success=False, exit_code=124, summary=f"{name} timed out after {timeout}s")
+            failed = entry
+            result["commands"].append(entry)
+            continue
+        except OSError as error:
+            result["errors"].append({"part": "gate", "error": str(error)})
+            entry.update(success=False, exit_code=1, summary=f"{name} failed to execute: {error}")
+            failed = entry
+            result["commands"].append(entry)
+            continue
 
-    duration = round(time.time() - start, 2)
-    output = proc.stdout or ""
-    exit_code = proc.returncode
+        output = proc.stdout or ""
+        exit_code = proc.returncode
+        test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?(?:,\s+\d+\s+failed)?)", output)
+        test_info = f", {test_match.group(1)}" if test_match else ""
+        lines = output.splitlines()
+        failures = [line.strip() for line in lines if re.search(r"\b(FAILED|ERROR|FAIL)\b", line)][:10]
+        tail = "\n".join(lines[-25:])
+        success = exit_code == 0
+        entry.update(
+            success=success,
+            exit_code=exit_code,
+            summary=f"{name} {'passed' if success else 'failed'} (exit {exit_code}{test_info})",
+            test_counts=test_match.group(1) if test_match else None,
+            failures=failures if not success else [],
+            output_tail=tail if not success else "",
+        )
+        result["commands"].append(entry)
+        if not success:
+            failed = entry
 
-    test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?(?:,\s+\d+\s+failed)?)", output)
-    test_info = f", {test_match.group(1)}" if test_match else ""
-
-    lines = output.splitlines()
-    failures = [l.strip() for l in lines if re.search(r"\b(FAILED|ERROR|FAIL)\b", l)][:10]
-    tail = "\n".join(lines[-25:])
-
-    success = (exit_code == 0)
-    summary = f"{command} {'passed' if success else 'failed'} (exit {exit_code}{test_info})"
-
-    result.update(
-        success=success,
-        exit_code=exit_code,
-        summary=summary,
-        test_counts=test_match.group(1) if test_match else None,
-        failures=failures if not success else [],
-        output_tail=tail if not success else "",
-        duration_seconds=duration,
-    )
-    return result, (0 if success else 1)
+    executed = [entry for entry in result["commands"] if not entry.get("skipped")]
+    result["success"] = bool(executed) and all(entry.get("success") for entry in executed)
+    result["exit_code"] = next((entry["exit_code"] for entry in executed if entry.get("exit_code")), 0)
+    result["summary"] = "; ".join(entry.get("summary", "") for entry in result["commands"])
+    result["duration_seconds"] = round(time.time() - start, 2)
+    if failed is not None:
+        result["failures"] = failed.get("failures") or []
+        result["output_tail"] = failed.get("output_tail") or ""
+    if len(commands) == 1:
+        entry = result["commands"][0]
+        result.update(test_counts=entry.get("test_counts"),
+                      failures=entry.get("failures") or [],
+                      output_tail=entry.get("output_tail") or "")
+    status = 0 if result["success"] else (2 if timed_out else 1)
+    return result, status
 
 
 PARK_MARKER = "## Parked"
@@ -4297,6 +4496,18 @@ def main(argv=None):
     pr_merge_cmd.add_argument("--repo", help="OWNER/NAME when giving a PR number")
     pr_merge_cmd.add_argument("--method", required=True, choices=("merge", "squash", "rebase"), help="merge method to use")
     pr_merge_cmd.add_argument("--expect-head", required=True, metavar="SHA", help="refuse to merge unless the current head is this commit")
+    pr_batch_cmd = pr_commands.add_parser(
+        "merge-batch",
+        help="Merge green, clean PRs under one user authorization, in order, stopping at the first failure.")
+    pr_batch_cmd.add_argument("--repo", required=True, help="OWNER/NAME for bare PR numbers")
+    pr_batch_cmd.add_argument("--method", required=True, choices=("merge", "squash", "rebase"),
+                              help="merge method to use")
+    pr_batch_cmd.add_argument("--item", action="append", required=True, metavar="PR=HEAD",
+                              help="PR URL or number and its reviewed head; repeat in merge order")
+    pr_batch_cmd.add_argument("--authorization", required=True,
+                              help="the user authorization that covers this batch")
+    pr_batch_cmd.add_argument("--owner", help="project board owner for post-merge Done moves")
+    pr_batch_cmd.add_argument("--project", type=int, help="project board number for post-merge Done moves")
     discussion_group = commands.add_parser("discussion", help="Discussion notebook writes with read-backs.")
     discussion_commands = discussion_group.add_subparsers(dest="discussion_command", required=True)
     disc_post = discussion_commands.add_parser("post", help="Append a note to a titled discussion in a category, creating it once, and read the write back.")
@@ -4431,7 +4642,8 @@ def main(argv=None):
     tags_brief.add_argument("--ref-limit", type=int, default=5, help="maximum references per symbol (default 5)")
     tags_brief.add_argument("--json", action="store_true", help="print the detailed JSON result instead of compact lines")
     gate_cmd = commands.add_parser("gate", help="Run local project test gates with compact, bounded output.")
-    gate_cmd.add_argument("--cmd", dest="gate_command", default="make check", help="test gate command to execute (default: make check)")
+    gate_cmd.add_argument("--cmd", dest="gate_command", action="append", metavar="COMMAND",
+                          help="gate command to execute; repeat to run a sequence in order (default: make check)")
     gate_cmd.add_argument("--path", help="directory to run gate in (default: current directory)")
     gate_cmd.add_argument("--timeout", type=int, default=300, help="timeout in seconds (default: 300)")
     gate_cmd.add_argument("--summary", action="store_true", help="output only the compact summary string")
@@ -4485,7 +4697,8 @@ def main(argv=None):
                     sys.stdout.write(result["tool_table"] + "\n")
                 return status
     elif args.command == "gate":
-        result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
+        result, status = run_gate(command=args.gate_command or ["make check"],
+                                  cwd=args.path, timeout=args.timeout)
         if args.summary:
             summary = result.get("summary") or ""
             sys.stdout.write(summary + "\n")
@@ -4603,6 +4816,18 @@ def main(argv=None):
     elif args.command == "pr" and args.pr_command == "merge":
         repo, number = parse_pr(args.pr, args.repo)
         result, status = pr_merge(repo, number, args.method, args.expect_head)
+    elif args.command == "pr" and args.pr_command == "merge-batch":
+        if bool(args.owner) != (args.project is not None):
+            parser.error("--owner and --project are required together for board updates.")
+        items = []
+        for raw in args.item:
+            if "=" not in raw:
+                parser.error("--item takes PR=HEAD.")
+            ref, head = raw.rsplit("=", 1)
+            items.append({"pr": ref, "head": head})
+        result, status = pr_merge_batch(args.repo, items, args.method, args.authorization,
+                                        owner=args.owner, project=args.project,
+                                        identity=resolve_identity_or_none())
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
         board = None

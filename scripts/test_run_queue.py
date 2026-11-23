@@ -460,6 +460,19 @@ class ComposePromptTests(unittest.TestCase):
             self.assertIn("tags brief", prompt)
             self.assertIn("Follow the handoff.", prompt)
 
+    def test_prepare_project_facts_inlines_its_task_procedure(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            skill_dir = Path(tmp)
+            tasks_dir = skill_dir / "references" / "tasks"
+            tasks_dir.mkdir(parents=True)
+            (tasks_dir / "prepare-project-facts.md").write_text(
+                "# Prepare the project facts\nRefresh `.ghflow/project.md`.\n", encoding="utf-8")
+            prompt = run_queue.compose_prompt(skill_dir, "Follow the handoff.",
+                                              step="prepare-project-facts")
+            self.assertIn("# Prepare the project facts", prompt)
+            self.assertIn("Refresh `.ghflow/project.md`.", prompt)
+            self.assertIn("Follow the handoff.", prompt)
+
     def test_step_inlines_slim_skill_body_when_available(self):
         with tempfile.TemporaryDirectory() as tmp:
             skill_dir = Path(tmp)
@@ -532,6 +545,35 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             delete_calls = [c for c in subproc_calls if "delete" in c]
             self.assertEqual(len(delete_calls), 1)
             self.assertEqual(delete_calls[0][-1], "ses_test123")
+
+    def test_run_session_sends_an_issue_less_handoff_with_the_facts_path(self):
+        cli_calls = []
+        mock_proc = MagicMock()
+        mock_proc.stdout = ['{"type": "step_start", "sessionID": "ses_test123"}\n', '{"type": "step_finish"}\n']
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = 0
+
+        def fake_cli(*args, cwd=None):
+            cli_calls.append(args)
+            return {"dispatch_prompt": "Refresh the facts"}, 0
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            skill_dir = notes_dir / "skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text("# Skill", encoding="utf-8")
+            options = {"skill_dir": str(skill_dir), "opencode_cmd": "fake_opencode",
+                       "facts_path": "/wt/.ghflow/project.md"}
+            with patch("subprocess.Popen", return_value=mock_proc), \
+                 patch("subprocess.run"):
+                ok, _ = run_queue.run_session("prepare-project-facts", None, notes_dir,
+                                              options, cli_fn=fake_cli)
+            self.assertTrue(ok)
+            handoff = cli_calls[0]
+            self.assertEqual(handoff[:2], ("handoff", "prepare-project-facts"))
+            self.assertFalse(any(arg is None for arg in handoff))
+            self.assertIn("--facts-path", handoff)
+            self.assertIn("/wt/.ghflow/project.md", handoff)
 
     def test_run_session_uses_worktree_cwd_and_sets_cli_env(self):
         mock_proc = MagicMock()
@@ -690,6 +732,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
         review_opt = captured_options[0][1]
         self.assertIn("Inspect the commit diff", review_opt.get("extra_text", ""))
         self.assertIn("Do not write new end-to-end integration test suites", review_opt.get("extra_text", ""))
+        self.assertIn("gate --summary", review_opt.get("extra_text", ""))
     def test_end_to_end_reconciliation_flow(self):
         """An issue goes through implement -> review -> submit-pr to DONE."""
         states = [
@@ -1259,6 +1302,138 @@ class ParentSubIssueTests(unittest.TestCase):
             {"project_facts": {"origin": {"stale_sources": []}}}))
         self.assertIsNone(run_queue.stale_facts_warning({}))
 
+    def test_dispatch_facts_refresh_points_handoffs_at_the_refreshed_copy(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            calls = []
+            sessions = []
+
+            def fake_cli(*args, cwd=None):
+                calls.append(args)
+                if args[:3] == ("exec", "--", "git") and "worktree" in args:
+                    path = Path(args[args.index("add") + 3])
+                    (path / ".ghflow").mkdir(parents=True)
+                    (path / ".ghflow" / "project.md").write_text("---\n---\n", encoding="utf-8")
+                    return {}, 0
+                if args[:1] == ("facts",):
+                    return {"project_facts": {"present": True, "stale_sources": []}}, 0
+                if args[:3] == ("exec", "--", "gh"):
+                    return [{"url": "https://github.com/o/r/pull/9", "number": 9,
+                             "headRefOid": "f" * 40, "baseRefName": "main"}], 0
+                return {}, 0
+
+            def fake_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+                sessions.append((step, issue_url, options))
+                return True, "ses_1"
+
+            def fake_git(args, cwd=None):
+                if args and args[0] == "diff":
+                    return ".ghflow/project.md"
+                if args and args[0] == "ls-remote":
+                    return "abc\trefs/heads/facts-refresh"
+                if args and args[0] == "rev-parse":
+                    return "f" * 40
+                return None
+
+            facts = {
+                "project_facts": {"origin": {"present": True,
+                                             "stale_sources": [{"path": "Makefile"}]}},
+                "repository": {"remote": "o/r", "default_branch": "main"},
+                "checkout": {"primary_root": tmp},
+            }
+            with patch("run_queue.git_output", side_effect=fake_git):
+                record, path = run_queue.dispatch_facts_refresh(
+                    facts, {"cwd": tmp}, Path(tmp), cli_fn=fake_cli, session_fn=fake_session)
+
+            self.assertEqual(record["status"], "refreshed", record)
+            self.assertEqual(record["pr"], "https://github.com/o/r/pull/9")
+            self.assertEqual(record["stale_sources"], ["Makefile"])
+            self.assertEqual(path, str(Path(record["path"]) / ".ghflow" / "project.md"))
+            self.assertTrue(Path(path).is_file())
+            self.assertEqual(sessions[0][0], "prepare-project-facts")
+            self.assertIsNone(sessions[0][1])
+            self.assertEqual(sessions[0][2]["branch"], record["branch"])
+
+    def test_dispatch_facts_refresh_records_a_failed_session(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_cli(*args, cwd=None):
+                if args[:3] == ("exec", "--", "git") and "worktree" in args:
+                    path = Path(args[args.index("add") + 3])
+                    (path / ".ghflow").mkdir(parents=True)
+                    (path / ".ghflow" / "project.md").write_text("old\n", encoding="utf-8")
+                    return {}, 0
+                return {}, 0
+
+            facts = {
+                "project_facts": {"origin": {"present": True,
+                                             "stale_sources": [{"path": "AGENTS.md"}]}},
+                "repository": {"remote": "o/r", "default_branch": "main"},
+                "checkout": {"primary_root": tmp},
+            }
+            record, path = run_queue.dispatch_facts_refresh(
+                facts, {"cwd": tmp}, Path(tmp), cli_fn=fake_cli,
+                session_fn=lambda *a, **k: (False, "Session exceeded timeout (5400s)"))
+
+            self.assertEqual(record["status"], "failed")
+            self.assertIsNone(path)
+            self.assertIn("5400", record["reason"])
+            self.assertEqual(record["stale_sources"], ["AGENTS.md"])
+
+    def test_dispatch_facts_refresh_requires_an_open_pr(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            def fake_cli(*args, cwd=None):
+                if args[:3] == ("exec", "--", "git") and "worktree" in args:
+                    path = Path(args[args.index("add") + 3])
+                    (path / ".ghflow").mkdir(parents=True)
+                    (path / ".ghflow" / "project.md").write_text("new\n", encoding="utf-8")
+                    return {}, 0
+                if args[:1] == ("facts",):
+                    return {"project_facts": {"present": True, "stale_sources": []}}, 0
+                if args[:3] == ("exec", "--", "gh"):
+                    return [], 0
+                return {}, 0
+
+            def fake_git(args, cwd=None):
+                if args and args[0] == "diff":
+                    return ".ghflow/project.md"
+                if args and args[0] == "ls-remote":
+                    return "abc\trefs/heads/facts-refresh"
+                if args and args[0] == "rev-parse":
+                    return "f" * 40
+                return None
+
+            facts = {
+                "project_facts": {"origin": {"present": True,
+                                             "stale_sources": [{"path": "Makefile"}]}},
+                "repository": {"remote": "o/r", "default_branch": "main"},
+                "checkout": {"primary_root": tmp},
+            }
+            with patch("run_queue.git_output", side_effect=fake_git), \
+                 patch("run_queue.time.sleep"):
+                record, path = run_queue.dispatch_facts_refresh(
+                    facts, {"cwd": tmp}, Path(tmp), cli_fn=fake_cli,
+                    session_fn=lambda *a, **k: (True, "ses_1"))
+            self.assertEqual(record["status"], "failed")
+            self.assertIsNone(path)
+            self.assertIn("no open PR", record["reason"])
+
+    def test_dispatch_facts_refresh_skips_a_missing_facts_file(self):
+        facts = {"project_facts": {"origin": {"present": False,
+                                              "stale_sources": [{"path": "Makefile"}]}}}
+        record, path = run_queue.dispatch_facts_refresh(
+            facts, {"cwd": "/repo"}, Path("."), cli_fn=lambda *a, **k: ({}, 0),
+            session_fn=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no session")))
+        self.assertIsNone(record)
+        self.assertIsNone(path)
+
+    def test_run_summary_lists_the_facts_refresh(self):
+        refresh = {"status": "refreshed", "pr": "https://github.com/o/r/pull/9",
+                   "branch": "facts-refresh-x", "path": "/tmp/facts.md",
+                   "stale_sources": ["Makefile"]}
+        summary = run_queue.format_run_summary([], [], Path("."), 0, facts_refresh=refresh)
+        self.assertIn("## Project facts refresh", summary)
+        self.assertIn("https://github.com/o/r/pull/9", summary)
+        self.assertIn("/tmp/facts.md", summary)
+
     def test_run_summary_lists_followups(self):
         with tempfile.TemporaryDirectory() as tmp:
             Path(tmp, "followups.md").write_text("- #1600 filed for agent.py:185.\n", encoding="utf-8")
@@ -1635,10 +1810,13 @@ class ParentSubIssueTests(unittest.TestCase):
                 return facts, 0
             return {}, 0
 
+        refresh = {"status": "failed", "reason": "session failed", "stale_sources": ["Makefile"],
+                   "pr": None, "branch": None, "path": None}
         with tempfile.TemporaryDirectory() as tmp, \
              patch("run_queue.discover_project", return_value=("o", 12)), \
              patch("run_queue.acquire_run_lock"), \
              patch("run_queue.check_active_runs"), \
+             patch("run_queue.dispatch_facts_refresh", return_value=(refresh, None)), \
              patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}), \
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
@@ -1648,6 +1826,73 @@ class ParentSubIssueTests(unittest.TestCase):
 
         self.assertEqual(ret, 0)
         self.assertIn("stale on origin", out.getvalue())
+        self.assertIn("Project facts refresh failed", out.getvalue())
+
+    def test_main_stops_when_required_facts_refresh_fails(self):
+        facts = {"project_facts": {"origin": {"stale_sources": [{"path": "Makefile"}]}}}
+        refresh = {"status": "failed", "reason": "session failed", "stale_sources": ["Makefile"],
+                   "pr": None, "branch": None, "path": None}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.dispatch_facts_refresh", return_value=(refresh, None)), \
+             patch("run_queue.observe_board") as board, \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--require-facts-refresh", "--notes-dir", tmp])
+
+        self.assertEqual(ret, 1)
+        self.assertIn("Stopping: --require-facts-refresh", out.getvalue())
+        board.assert_not_called()
+
+    def test_main_points_sessions_at_the_refreshed_facts(self):
+        facts = {"project_facts": {"origin": {"stale_sources": [{"path": "Makefile"}]}}}
+        refresh = {"status": "refreshed", "reason": None, "stale_sources": ["Makefile"],
+                   "pr": "https://github.com/o/r/pull/9", "branch": "facts-refresh-x",
+                   "path": "/tmp/refreshed/project.md"}
+        issue = {"issue": "https://github.com/o/r/issues/7", "number": 7, "title": "Fix it",
+                 "labels": ["triage:ready"], "pr": None}
+        captured = []
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            return {}, 0
+
+        def fake_session(step, issue_url, notes_dir, options, cli_fn=None, log_hook=None):
+            captured.append((step, options))
+            return True, "ses_1"
+
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": issue["issue"]}]}
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.dispatch_facts_refresh", return_value=(refresh, refresh["path"])), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=issue), \
+             patch("run_queue.publish_committed", return_value=None), \
+             patch("run_queue.park_issue", return_value=({}, 0)), \
+             patch("run_queue.run_session", side_effect=fake_session), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        implement = [options for step, options in captured if step == "implement-issue"]
+        self.assertTrue(implement)
+        self.assertEqual(implement[0]["facts_path"], refresh["path"])
+        self.assertIn("Project facts refreshed", out.getvalue())
 
     def test_main_processes_multiple_parents_sequentially(self):
         parents = {
@@ -1724,6 +1969,8 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("reused from an earlier attempt", extra)
         self.assertIn("continue that work", extra)
         self.assertIn("not overwritten", extra)
+        self.assertIn("gate --summary", extra)
+        self.assertIn("do not repeat a command", extra)
 
 
 class NotebookPublishingTests(unittest.TestCase):
@@ -2098,6 +2345,51 @@ class FloorDecisionTests(unittest.TestCase):
             run_queue.should_stop_for_floor("submit-pr", 14.3, 30, deterministic_pr=False)
         )
 
+    def test_phase_boundary_park_names_the_draft_and_remaining_steps(self):
+        state = {"pr": {"url": "https://github.com/o/r/pull/8", "head": "a" * 40, "is_draft": True}}
+        text = run_queue.phase_boundary_park(state, "review-changes", 14.3, 30)
+        self.assertIn("https://github.com/o/r/pull/8", text)
+        self.assertIn("review-changes", text)
+        self.assertIn("submit-pr", text)
+        self.assertIn("14.3", text)
+
+    def test_phase_boundary_park_skips_a_ready_pr_or_no_pr(self):
+        ready = {"pr": {"url": "u", "head": "a" * 40, "is_draft": False}}
+        self.assertIsNone(run_queue.phase_boundary_park(ready, "review-changes", 5, 30))
+        self.assertIsNone(run_queue.phase_boundary_park({}, "review-changes", 5, 30))
+
+    def test_main_parks_a_draft_at_the_floor(self):
+        issue_url = "https://github.com/o/r/issues/7"
+        state = {"issue": issue_url, "number": 7, "title": "Fix it", "labels": ["triage:ready"],
+                 "pr": {"url": "https://github.com/o/r/pull/8", "head": "a" * 40, "is_draft": True}}
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": issue_url}]}
+        parks = []
+
+        def fake_park(issue_url, pr_url, kind, text, notes_dir, cli_fn=None, cwd=None):
+            parks.append((issue_url, pr_url, kind, text))
+            return {"readback": True}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.should_stop_for_floor", return_value=True), \
+             patch("run_queue.park_issue", side_effect=fake_park), \
+             patch("run_queue.run_cli", return_value=({}, 0)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(len(parks), 1)
+        self.assertEqual(parks[0][1], "https://github.com/o/r/pull/8")
+        self.assertEqual(parks[0][2], "time")
+        self.assertIn("https://github.com/o/r/pull/8", parks[0][3])
+        self.assertIn("review-changes", parks[0][3])
+
 
 class RestoreGeneratedPathsTests(unittest.TestCase):
     """Gate-generated tracked files are restored after the gate."""
@@ -2278,6 +2570,60 @@ class StaleFactsDirectiveTests(unittest.TestCase):
         extra = captured.get("extra_text", "")
         self.assertIn("Makefile", extra)
         self.assertIn("do not rely on the stale facts sections", extra)
+
+
+class MonitorIntegrationTests(unittest.TestCase):
+    def test_main_writes_monitor_reports_and_status_line(self):
+        facts = {
+            "identity": {"login": "MokaGnome", "ready": True},
+            "checkout": {"branch": "main", "head": "a", "dirty": False},
+            "repository": {"local_default_head": "a", "origin_default_head": "a"},
+            "skill_source": {"head": "a", "up_to_date": True},
+            "base_ci": {"commit": "a", "summary": "green",
+                        "checks": [{"name": "check", "state": "passed"}]},
+            "project_facts": {"present": True, "origin": {"present": True, "stale_sources": []}},
+        }
+        state = {"issue": "https://github.com/o/r/issues/7", "number": 7,
+                 "labels": ["triage:ready"],
+                 "pr": {"url": "https://github.com/o/r/pull/8", "head": "abc",
+                        "is_draft": False},
+                 "ci": "green", "pending_review_requests": []}
+        board = {"in_flight": [], "parked": [],
+                 "selection": [{"number": 7, "issue": state["issue"]}]}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            if args and args[0] == "identity":
+                return {"login": "MokaGnome", "ready": True}, 0
+            if args and args[0] == "exec":
+                return {"login": "MokaGnome"}, 0
+            if args and args[0] == "queue":
+                return {"rows": [{"issue": "o/r#7"}]}, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.set_board_status"), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+            self.assertEqual(ret, 0)
+            report_path = Path(tmp) / "monitor.json"
+            self.assertTrue(report_path.is_file())
+            self.assertTrue((Path(tmp) / "monitor.md").is_file())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["schema"], "ghflow-monitor/1")
+            self.assertTrue(report["checks"])
+            self.assertIn("Monitor:", out.getvalue())
+            self.assertIn("monitor.md", out.getvalue())
 
 
 if __name__ == "__main__":

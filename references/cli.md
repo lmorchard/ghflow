@@ -63,7 +63,12 @@ An invalid primary commit response also exits 1. An invalid expectation response
 When a draft PR meets the readiness conditions, run `python3 "$GHFLOW_CLI" pr ready PR_URL --body-file FILE --expect-head REVIEWED_SHA --issue ISSUE_URL --owner OWNER --project NUMBER` from the target project directory. One command does the ready submission's writes in order, each with its own read-back. It updates the description from the file and reads the body back. It marks the draft ready and reads back the ready state and head. It moves the issue to the Status option, `In review` by default, with the same procedure as `board set-status`. It ends with a `pr-state` read of the current head. It confirms the write identity before the first write.
 Omit `--body-file` to keep the current description, and omit the three board options when no board move is wanted.
 
-It writes nothing and exits 3 when the PR is not open or when the current head is not the commit in `--expect-head`. Give the reviewed head, so that a commit pushed after review cannot be marked ready unseen. It stops before the next write when a read-back fails or does not match, and exits 2. `description_matches` compares the file with the live body without trailing-whitespace and line-ending differences, which `gh` introduces. `facts` records each step as `confirmed`, `unchanged`, `mismatch`, `unknown`, or `refused`. `action` is `ready`, `unchanged` for a PR that was already ready, or `reconciled` when the ready command reported an error but the read-back shows the PR ready.
+It writes nothing and exits 3 when the PR is not open or when the current head is not the commit in `--expect-head`.
+It also writes nothing and exits 3 when a draft PR's current head has a required check with no run (`ci` is `missing`).
+A stacked PR stays a draft until its base merges and the PR targets the default branch, or until the hosted checks run.
+`pending`, `green`, and `none` do not stop readiness.
+Give the reviewed head, so that a commit pushed after review cannot be marked ready unseen.
+It stops before the next write when a read-back fails or does not match, and exits 2. `description_matches` compares the file with the live body without trailing-whitespace and line-ending differences, which `gh` introduces. `facts` records each step as `confirmed`, `unchanged`, `mismatch`, `unknown`, or `refused`. `action` is `ready`, `unchanged` for a PR that was already ready, or `reconciled` when the ready command reported an error but the read-back shows the PR ready.
 A head that moves during the command is reported under `errors` with the part `head`; the review may not cover the new head. The `board` and `pr_state` parts carry those commands' results. Report `before`, `after`, `action`, `description_matches`, the board values, and the final `ci` from the output.
 
 ## Posting a review or comment
@@ -81,6 +86,13 @@ The queue runner uses both. It starts or reuses the day's `Run notebook YYYY-MM-
 ## Merging a PR
 
 Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` with the method the project uses: `merge`, `squash`, or `rebase`. The command reads the PR first and writes nothing, with exit 3, when the PR is not open, is a draft, is not mergeable, or the current head is not the commit in `--expect-head`. It confirms the write identity, merges with the head match, and reads the merged state back. It reports `merge_commit`, and exits 2 when the read-back does not show a merged PR. Report the merge commit and time from the output.
+
+## Merging an authorized batch
+
+Run `python3 "$GHFLOW_CLI" pr merge-batch --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` after the user authorizes several merges at once. `TEXT` records that authorization; the command does not infer a new one. Each `--item` gives a PR URL or bare number and its reviewed head, in merge order.
+Every item is parsed before the first write. Each PR must be open, not a draft, mergeable, at the expected head, green on required checks, 0 commits behind its base, and covered by an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`. A pending, failing, missing, or incomplete check stops the batch, as does a moved head or a review that does not cover it.
+The command merges in order and stops at the first failure. It reports each `merge_commit`, `stopped_at`, and `remaining`. With the board options it moves each issue a merged PR closes to Done and reports each board result; a board failure does not fail the batch.
+The command does not compare `author` or `commit_authors`; check attribution before the batch, as [merge-pr](tasks/merge-pr.md) requires. The queue runner never calls this command. Use it only in a session where the user authorized the batch.
 
 ## Reading project facts
 
@@ -123,7 +135,9 @@ Without `--copy` and `--setup`, the command applies the `worktree:` declaration 
 
 `review prepare PR_URL` fetches the PR's base and head, creates a detached worktree at the current head in `.claude/worktrees/review-NUMBER` of the primary checkout, applies the project facts worktree declaration (`copy` and `setup`), and reports the merge base, the changed files with line counts, and the diff command. It exits 3 when the path exists. `review cleanup PR_URL` removes that worktree and exits 3 instead when it has local changes.
 
-`gate [--cmd "COMMAND"] [--path DIR] [--summary]` runs local project test gates (defaulting to `make check`), bounding output to protect agent context. With `--summary`, it outputs a 1-3 line text summary (exit code, test counts, and failing test names) instead of full output.
+`gate [--cmd "COMMAND" ...] [--path DIR] [--summary]` runs local project test gates (defaulting to `make check`), bounding output to protect agent context.
+Repeat `--cmd` to run a sequence in order; it stops at the first failure and names each command not run.
+With `--summary`, it outputs a 1-3 line text summary that names each command, its exit code, test counts, and failing test names instead of full output.
 
 `audit toil [--dir DIR] [--last N] [--min-strikes N] [--json]` scans runner session logs, normalizes variable arguments, and mines recurring tool operation sequences that repeat across distinct sessions (Three Strikes and You Automate). It outputs a Markdown or structured JSON report with strike counts, evidence session IDs, and repeated command sequences.
 

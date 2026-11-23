@@ -113,8 +113,11 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
             elif tp == "step_finish" or part_type == "step-finish":
                 if current_turn:
                     toks = part.get("tokens", {})
+                    cache = toks.get("cache") or {}
                     current_turn["tokens"] = {
                         "input": toks.get("input", 0),
+                        "cache_read": cache.get("read", 0) or 0,
+                        "cache_write": cache.get("write", 0) or 0,
                         "output": toks.get("output", 0),
                         "reasoning": toks.get("reasoning", 0),
                     }
@@ -150,8 +153,14 @@ def parse_session_log(log_path: Path | str) -> Dict[str, Any]:
             elif name == "grep":
                 tool_signals["grep"] += 1
 
-    finished_turns = [t for t in turns if t.get("stop") is not None or t["tokens"]["input"] > 0]
-    current_context = finished_turns[-1]["tokens"]["input"] if finished_turns else (turns[-1]["tokens"]["input"] if turns else 0)
+    def turn_context(tokens):
+        return (int(tokens.get("input") or 0)
+                + int(tokens.get("cache_read") or 0)
+                + int(tokens.get("cache_write") or 0))
+
+    finished_turns = [t for t in turns if t.get("stop") is not None or turn_context(t["tokens"]) > 0]
+    current_context = (turn_context(finished_turns[-1]["tokens"]) if finished_turns
+                       else turn_context(turns[-1]["tokens"]) if turns else 0)
 
     last_turn = turns[-1] if turns else None
     last_stop = last_turn.get("stop") if last_turn else None
@@ -226,7 +235,9 @@ def session_tail(log_path: Optional[Path | str] = None, count: int = 5) -> Tuple
         tool_strs = [f"{tool['tool']}: {tool['summary']}" for tool in t["tools"]]
         tools_desc = "; ".join(tool_strs) if tool_strs else "(no tool calls)"
         lines.append(f"[Turn {t['turn']}] {tools_desc}")
-        lines.append(f"         in={format_tokens(toks['input'])} out={format_tokens(toks['output'])} reasoning={format_tokens(toks['reasoning'])}")
+        lines.append(f"         in={format_tokens(toks['input'])} "
+                     f"cache={format_tokens(toks.get('cache_read', 0))}+{format_tokens(toks.get('cache_write', 0))} "
+                     f"out={format_tokens(toks['output'])} reasoning={format_tokens(toks['reasoning'])}")
         if t["text"]:
             first_line = t["text"].splitlines()[0][:90]
             lines.append(f"         thought: {first_line}")
