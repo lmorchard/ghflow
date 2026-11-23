@@ -33,6 +33,48 @@ def _write_session(directory, command):
     return log
 
 
+def _write_tokens_session(directory, turns, name="session.log"):
+    log = Path(directory) / name
+    events = []
+    for tokens in turns:
+        events.append({"type": "step_start", "part": {"type": "step-start"}})
+        events.append({
+            "type": "step_finish",
+            "part": {"type": "step-finish", "tokens": tokens, "stop": "stop"},
+        })
+    log.write_text("\n".join(json.dumps(event) for event in events) + "\n")
+    return log
+
+
+class CachedContextTests(unittest.TestCase):
+    """A provider's cached prompt tokens belong in the context reading."""
+
+    def test_context_includes_cache_read_and_write(self):
+        tokens = {"input": 100, "output": 10, "reasoning": 0,
+                  "cache": {"read": 115000, "write": 2000}}
+        with tempfile.TemporaryDirectory() as tmp:
+            log = _write_tokens_session(tmp, [tokens], name="session-cached.log")
+            parsed = session.parse_session_log(log)
+            self.assertEqual(parsed["current_context_tokens"], 117100)
+            summary, _ = session.session_summary(log)
+            self.assertIn("117.1k", summary["rendered"])
+            debrief, _ = session.session_debrief(tmp)
+            self.assertIn("117.1k", debrief["table"])
+
+    def test_last_turn_uses_its_own_cache(self):
+        first = {"input": 100, "output": 10, "reasoning": 0,
+                 "cache": {"read": 115000, "write": 0}}
+        last = {"input": 500, "output": 5, "reasoning": 0}
+        with tempfile.TemporaryDirectory() as tmp:
+            parsed = session.parse_session_log(_write_tokens_session(tmp, [first, last]))
+        self.assertEqual(parsed["current_context_tokens"], 500)
+
+    def test_missing_cache_is_zero(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            parsed = session.parse_session_log(_write_session(tmp, "true"))
+        self.assertEqual(parsed["current_context_tokens"], 100)
+
+
 class TagsSignalTests(unittest.TestCase):
     """The tags signal must see the command, not its truncated summary."""
 
