@@ -25,6 +25,7 @@ DEFAULT_SESSION_TIMEOUT = 5400
 DEFAULT_STEP_IDLE_TIMEOUT = 900
 DEFAULT_CONTEXT_WARN_TOKENS = 100000
 DEFAULT_MAX_CONTEXT_TOKENS = 0
+DEFAULT_MODEL_CONFIG = Path.home() / ".config" / "ghflow" / "runner.json"
 SLOW_STEP_WARN_SECONDS = 120
 MAX_DEGENERATE_REASONING = 10000
 PRIORITY_ORDER = ("P0", "P1")
@@ -91,6 +92,81 @@ def board_rank(number, board_index=None):
 def issue_turn_limit(explicit=None):
     """Return the session turn cap: explicit override, else the flat default."""
     return explicit or DEFAULT_MAX_TURNS
+
+
+def normalize_model(value, provider=None):
+    """Apply the run-wide provider prefix to a model ID without a slash."""
+    value = str(value).strip()
+    if provider and "/" not in value:
+        return f"{provider}/{value}"
+    return value
+
+
+def load_model_map(path):
+    """Read and validate the per-issue model map, or raise ValueError."""
+    target = Path(path).expanduser()
+    try:
+        data = json.loads(target.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        raise ValueError(f"Model map not found: {target}. Set --model to pin one model, or create the map.")
+    except OSError as error:
+        raise ValueError(f"Model map could not be read: {target}: {error}")
+    except json.JSONDecodeError as error:
+        raise ValueError(f"Model map is not valid JSON: {target}: {error}")
+    if not isinstance(data, dict):
+        raise ValueError(f"Model map {target} must be a JSON object.")
+    result = {"path": str(target)}
+    for key in ("models", "review"):
+        section = data.get(key)
+        if not isinstance(section, dict):
+            raise ValueError(f"Model map {target} needs a `{key}` object.")
+        for label, model in section.items():
+            if not isinstance(label, str) or not label.startswith("impl:"):
+                raise ValueError(f"Model map {target} has an invalid `{key}` label {label!r}; labels start with impl:.")
+            if not isinstance(model, str) or not model.strip():
+                raise ValueError(f"Model map {target} has no model for `{label}` in `{key}`.")
+        result[key] = dict(section)
+    return result
+
+
+def select_issue_models(state, model_map, pinned_model=None, provider=None):
+    """Select implementation and review models from the issue's fit label.
+
+    Returns ``(models, error)``. A pinned model applies to every step and
+    bypasses the map. The error names the label problem for a park.
+    """
+    if pinned_model:
+        pinned = normalize_model(pinned_model, provider)
+        return {"implementation": pinned, "review": pinned, "pinned": True}, None
+    if model_map is None:
+        return None, "No model map is loaded."
+    labels = sorted(label for label in (state.get("labels") or [])
+                    if isinstance(label, str) and label.startswith("impl:"))
+    if not labels:
+        return None, "No fit label (`impl:*`) is present."
+    if len(labels) > 1:
+        return None, f"Conflicting fit labels: {', '.join(labels)}."
+    label = labels[0]
+    models = model_map.get("models") or {}
+    review = model_map.get("review") or {}
+    if label not in models:
+        return None, f"Fit label `{label}` is not in the model map."
+    if label not in review:
+        return None, f"No review model for `{label}`."
+    return {"implementation": normalize_model(models[label], provider),
+            "review": normalize_model(review[label], provider),
+            "label": label, "pinned": False}, None
+
+
+def format_models(models):
+    """Render one issue's model choice for the run summary."""
+    if not models:
+        return "-"
+    if models.get("error"):
+        return f"parked: {models['error']}"
+    if models.get("pinned"):
+        return f"{models['implementation']} (pinned)"
+    return f"{models['implementation']} / {models['review']}"
 
 
 def verification_lines(body):
@@ -1627,9 +1703,11 @@ def worktree_status(issue_ref, cwd=None):
 
 
 def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None, facts_refresh=None,
-                       session_monitor=None):
+                       session_monitor=None, model_note=None):
     """Render the run's deliveries, parked items, worktree state, and token totals."""
     lines = ["", "## Run summary", ""]
+    if model_note:
+        lines += [f"- Model: {model_note}.", ""]
     if session_monitor is not None:
         snapshot = session_monitor.snapshot()
         lines += ["## Monitor", "",
@@ -1648,12 +1726,13 @@ def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None, 
             lines.append(f"- Failed: {facts_refresh.get('reason')} Stale sources: {stale}.")
         lines.append("")
     if records:
-        lines += ["| Issue | PR | Endpoint | Worktree dirty |", "| --- | --- | --- | --- |"]
+        lines += ["| Issue | PR | Endpoint | Models (impl / review) | Worktree dirty |",
+                  "| --- | --- | --- | --- | --- |"]
         for record in records:
             status = worktree_status(record.get("issue"), cwd)
             dirty = "n/a" if status.get("dirty") is None else str(status["dirty"])
             lines.append(f"| {record.get('issue')} | {record.get('pr') or 'none'} | "
-                         f"{record.get('endpoint')} | {dirty} |")
+                         f"{record.get('endpoint')} | {format_models(record.get('models'))} | {dirty} |")
     else:
         lines.append("No items reached an endpoint.")
     if park_failures:
@@ -1697,8 +1776,10 @@ def main(argv=None):
                         help="skip children carrying this label; repeat for several labels")
     parser.add_argument("--stack", action="store_true",
                         help="stack on the nearest preceding open PR even without a native blocked-by link")
-    parser.add_argument("--model", help="model override for worker sessions, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
-    parser.add_argument("--provider", help="provider prefix if not included in --model (e.g. lmstudio, ollama, google-vertex)")
+    parser.add_argument("--model", help="pin every worker session to this model, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
+    parser.add_argument("--provider", help="provider prefix for a model ID without a slash (e.g. lmstudio, ollama, google-vertex)")
+    parser.add_argument("--model-config", default=str(DEFAULT_MODEL_CONFIG),
+                        help="per-issue model map (default: ~/.config/ghflow/runner.json)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
     parser.add_argument("--floor", type=int, default=DEFAULT_FLOOR_MINUTES, help="minimum minutes required to start a new issue")
     parser.add_argument("--once", action="store_true", help="drive exactly one item to desired state and exit")
@@ -1774,9 +1855,17 @@ def main(argv=None):
         model = f"{args.provider}/{model}"
     elif args.provider and not model:
         model = args.provider
+    model_map = None
+    if not model:
+        try:
+            model_map = load_model_map(args.model_config)
+        except ValueError as error:
+            print(f"[{time.strftime('%X')}] {error}", flush=True)
+            return 1
 
     options = {
-        "model": model, "skill_dir": args.skill_dir, "notes_dir": notes_dir,
+        "model": model, "model_map": model_map, "model_config": args.model_config,
+        "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
         "step_idle_timeout": args.step_idle_timeout,
@@ -1829,6 +1918,7 @@ def main(argv=None):
     endpoint_ok = monitor_mod.probe_endpoint(endpoint_url) if endpoint_url else None
     session_monitor.preflight(facts_out, identity=identity_out, exec_login=exec_login,
                               lock=lock_info, model=model, model_available=model_available,
+                              model_map=model_map,
                               endpoint_configured=endpoint_url, endpoint_ok=endpoint_ok)
     session_monitor.budget.update({"hours": args.hours, "floor_minutes": args.floor,
                                    "remaining_minutes": round((deadline_time - time.time()) / 60, 1)})
@@ -1868,7 +1958,8 @@ def main(argv=None):
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
                                      enabled=not args.no_notebook)
-    notebook.start(target=target, model=model, hours=args.hours, notes_dir=notes_dir)
+    notebook.start(target=target, model=model or ("per-issue model map" if model_map else None),
+                   hours=args.hours, notes_dir=notes_dir)
 
     def note_session(step, issue_url, success, info, log_path, state):
         """Summarize one session attempt and append it to the run notebook."""
@@ -1978,6 +2069,7 @@ def main(argv=None):
         attempted.add(issue_ref)
         published_pr = None
         pending = {}
+        selected_models = None
 
         def flush_monitor(state, step, phase_end=False):
             entry = pending.pop("entry", None)
@@ -2019,7 +2111,8 @@ def main(argv=None):
                     code = record_park(state["issue"], pr_url, park_text, kind="time")
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url,
-                                             "endpoint": "time-park" if code == 0 else "park-failed"})
+                                             "endpoint": "time-park" if code == 0 else "park-failed",
+                                             "models": selected_models})
                 final_states.append(dict(state))
                 break
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
@@ -2027,7 +2120,8 @@ def main(argv=None):
                 print(f"[{time.strftime('%X')}] {issue_ref} reached endpoint state: {step}")
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref,
-                                         "pr": (state.get("pr") or {}).get("url"), "endpoint": step})
+                                         "pr": (state.get("pr") or {}).get("url"), "endpoint": step,
+                                         "models": selected_models})
                 final_states.append(dict(state))
                 if step == "DONE":
                     mark_throughput()
@@ -2037,7 +2131,7 @@ def main(argv=None):
                 pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "Exceeded correction limit.")
                 delivered.append(issue_ref)
-                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked", "models": selected_models})
                 final_states.append(dict(state))
                 flush_monitor(state, step, phase_end=True)
                 break
@@ -2051,7 +2145,7 @@ def main(argv=None):
                 pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                 record_park(state["issue"], pr_url, "No progress made in session.")
                 delivered.append(issue_ref)
-                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked", "models": selected_models})
                 break
             previous_states[issue_ref] = curr
 
@@ -2059,12 +2153,30 @@ def main(argv=None):
             if step == "implement-issue":
                 set_board_status(issue_ref, "In progress", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
 
+            model_error = None
+            if step in ("implement-issue", "address-pr-review", "review-changes", "submit-pr"):
+                if selected_models is None:
+                    selected_models, model_error = select_issue_models(
+                        state, model_map, pinned_model=model, provider=args.provider)
+                if model_error:
+                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
+                    record_park(state["issue"], pr_url, f"Model routing: {model_error}", kind="blocker")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url,
+                                             "endpoint": "parked", "models": {"error": model_error}})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
+                    break
+
             worktree = None
             preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli,
                                              cwd=options.get("cwd"), child_state=state,
                                              force=args.stack) if parent_children else None
             step_options = dict(options)
             step_options["max_turns"] = issue_turn_limit(args.max_turns)
+            if selected_models:
+                step_options["model"] = (selected_models["review"] if step == "review-changes"
+                                         else selected_models["implementation"])
             earlier_blocking = sum(1 for r in (state.get("reviews") or []) if r.get("state") == "CHANGES_REQUESTED") + \
                                sum(1 for v in (state.get("review_verdicts") or []) if is_verdict_blocking(v))
             verification = verification_lines(state.get("body"))
@@ -2096,7 +2208,7 @@ def main(argv=None):
                     pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Deterministic PR submission failed: {info}")
                     delivered.append(issue_ref)
-                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked", "models": selected_models})
                     final_states.append(dict(state))
                     flush_monitor(state, step, phase_end=True)
                     break
@@ -2105,7 +2217,7 @@ def main(argv=None):
                     delivered.append(issue_ref)
                     delivery_records.append({"issue": state.get("issue") or issue_ref,
                                              "pr": pr_url or (state.get("pr") or {}).get("url"),
-                                             "endpoint": "ready"})
+                                             "endpoint": "ready", "models": selected_models})
                     print(f"[{time.strftime('%X')}] {issue_ref} is ready; stopping below the floor before the CI wait.", flush=True)
                     final_states.append(dict(state))
                     flush_monitor(state, step, phase_end=True)
@@ -2158,8 +2270,8 @@ def main(argv=None):
                     " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
                     + (f" Worktree: {step_options['session_cwd']}." if step_options.get("session_cwd") else "")
                 )
-                model_note = (f" Post the verdict with `review verdict ... --model {options['model']}` or include `model={options['model']}` in a `pr comment` marker."
-                              if options.get("model") else "")
+                model_note = (f" Post the verdict with `review verdict ... --model {step_options['model']}` or include `model={step_options['model']}` in a `pr comment` marker."
+                              if step_options.get("model") else "")
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
@@ -2302,7 +2414,7 @@ def main(argv=None):
                     pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
                     record_park(state["issue"], pr_url, f"Session failed repeatedly: {info}")
                     delivered.append(issue_ref)
-                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked"})
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked", "models": selected_models})
                     final_states.append(dict(state))
                     flush_monitor(state, step, phase_end=True)
                     break
@@ -2330,9 +2442,11 @@ def main(argv=None):
     session_monitor.write(force=True)
     print(session_monitor.status_line(), flush=True)
 
+    model_note = (f"pinned to `{model}` for every step" if model
+                  else f"per-issue map `{model_map['path']}`" if model_map else None)
     print(format_run_summary(delivery_records, park_failures, notes_dir, start_time,
                              options.get("cwd"), facts_refresh=facts_refresh,
-                             session_monitor=session_monitor), flush=True)
+                             session_monitor=session_monitor, model_note=model_note), flush=True)
     notebook.finish(delivered, park_failures, toil_report=toil_report)
     summary_rows = None
     if delivered and owner and project:

@@ -50,6 +50,17 @@ class PreflightTests(unittest.TestCase):
         self.assertEqual(names["checkout"]["state"], monitor.FAIL)
         self.assertIsNone(running.stopped)
 
+    def test_reports_a_per_issue_model_map(self):
+        running = monitor.Monitor(".", write=False)
+        running.preflight(healthy_facts(), identity={"login": "MokaGnome", "ready": True},
+                          exec_login="MokaGnome", lock={"pid": 1},
+                          model_map={"path": "/tmp/runner.json",
+                                     "models": {"impl:local": "m"},
+                                     "review": {"impl:local": "r"}})
+        names = {entry["name"]: entry for entry in running.checks}
+        self.assertEqual(names["model"]["state"], monitor.PASS)
+        self.assertIn("runner.json", names["model"]["message"])
+
     def test_selection_flags_a_missing_required_label(self):
         running = monitor.Monitor(".", write=False)
         running.selection([{"number": 7, "labels": ["triage:ready"]},

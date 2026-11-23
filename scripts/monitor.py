@@ -158,7 +158,7 @@ class Monitor:
     # -- preflight -----------------------------------------------------
 
     def preflight(self, facts, identity=None, exec_login=None, lock=None, model=None,
-                  model_available=None, endpoint_configured=None, endpoint_ok=None):
+                  model_available=None, model_map=None, endpoint_configured=None, endpoint_ok=None):
         """Record the checks that run before the first issue."""
         self.phase = "preflight"
         facts = facts or {}
@@ -189,7 +189,13 @@ class Monitor:
                      "The `gh api user` login was not read.",
                      {"login": configured})
 
-        if model:
+        if model_map:
+            self.add("model", "preflight", ALERT, PASS,
+                     f"Per-issue model map loaded from {model_map.get('path')}.",
+                     {"path": model_map.get("path"),
+                      "models": sorted(model_map.get("models") or {}),
+                      "review": sorted(model_map.get("review") or {})})
+        elif model:
             if model_available is None:
                 self.add("model", "preflight", ALERT, UNKNOWN,
                          f"The requested model `{model}` was not checked.",
