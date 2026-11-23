@@ -87,6 +87,13 @@ The queue runner uses both. It starts or reuses the day's `Run notebook YYYY-MM-
 
 Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` with the method the project uses: `merge`, `squash`, or `rebase`. The command reads the PR first and writes nothing, with exit 3, when the PR is not open, is a draft, is not mergeable, or the current head is not the commit in `--expect-head`. It confirms the write identity, merges with the head match, and reads the merged state back. It reports `merge_commit`, and exits 2 when the read-back does not show a merged PR. Report the merge commit and time from the output.
 
+## Merging an authorized batch
+
+Run `python3 "$GHFLOW_CLI" pr merge-batch --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` after the user authorizes several merges at once. `TEXT` records that authorization; the command does not infer a new one. Each `--item` gives a PR URL or bare number and its reviewed head, in merge order.
+Every item is parsed before the first write. Each PR must be open, not a draft, mergeable, at the expected head, green on required checks, 0 commits behind its base, and covered by an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`. A pending, failing, missing, or incomplete check stops the batch, as does a moved head or a review that does not cover it.
+The command merges in order and stops at the first failure. It reports each `merge_commit`, `stopped_at`, and `remaining`. With the board options it moves each issue a merged PR closes to Done and reports each board result; a board failure does not fail the batch.
+The command does not compare `author` or `commit_authors`; check attribution before the batch, as [merge-pr](tasks/merge-pr.md) requires. The queue runner never calls this command. Use it only in a session where the user authorized the batch.
+
 ## Reading project facts
 
 Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live facts that a handoff would otherwise restate. It reports the checkout root, branch, head, dirty state, and worktrees; the remote, default branch, how far the local default branch is behind `origin`, recent commit subjects, and the age of the last fetch; the tracked instruction files, Makefile targets, `conftest.py` paths, CI workflows, PR template, environment example, and lockfiles; the identity's login and readiness without secrets; and the required checks for the default branch. Add `--issue` with an issue URL or a bare number from the checkout to include the issue's title, state, labels, board items with their status, and the branches, worktrees, and PRs that name its number.
