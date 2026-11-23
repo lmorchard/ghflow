@@ -1,7 +1,7 @@
 # Diff against the empty tree so whitespace checks cover all tracked files.
 EMPTY_TREE := $(shell git hash-object -t tree /dev/null)
 
-.PHONY: check test run-scenario scenario-index run-queue queue
+.PHONY: check test run-scenario scenario-index run-queue queue test-runner-integration
 
 check: test
 	python3 scripts/check.py
@@ -20,5 +20,8 @@ scenario-index:
 
 run-queue:
 	python3 scripts/run_queue.py $(ARGS)
+
+test-runner-integration:
+	python3 scripts/runner_integration.py -v
 
 queue: run-queue
