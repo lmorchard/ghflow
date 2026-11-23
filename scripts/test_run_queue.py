@@ -1768,7 +1768,7 @@ class ParentSubIssueTests(unittest.TestCase):
             def fake_cli(*args, cwd=None):
                 return {"dispatch_prompt": "do it"}, 0
 
-            with patch("run_queue.git_output", side_effect=["", " M changed"]), \
+            with patch("run_queue.git_output", side_effect=["", "", "", " M changed"]), \
                  patch("run_queue.subprocess.Popen", return_value=FakeProc(lines)), \
                  patch("run_queue.subprocess.run"):
                 out = io.StringIO()
@@ -2168,6 +2168,63 @@ class NotebookPublishingTests(unittest.TestCase):
         self.assertEqual(summarize.call_count, 0)
         self.assertEqual(len(bodies), 1)  # the start attempt only
         self.assertEqual(len(comments), 1)
+class SessionTrailerTests(unittest.TestCase):
+    """A runner session commit carries a trailer that names its session log."""
+
+    def make_repo(self, tmp):
+        repo = Path(tmp) / "repo"
+        repo.mkdir()
+        run = lambda *args: subprocess.run(["git", *args], cwd=repo, check=True,
+                                           capture_output=True, text=True)
+        run("init", "-q", "-b", "main")
+        run("config", "user.email", "t@example.com")
+        run("config", "user.name", "Test")
+        (repo / "file.txt").write_text("one\n", encoding="utf-8")
+        run("add", "file.txt")
+        run("commit", "-q", "-m", "one")
+        hooks = repo / ".git" / "hooks"
+        hooks.mkdir(exist_ok=True)
+        prepare = hooks / "prepare-commit-msg"
+        prepare.write_text("#!/bin/sh\necho 'Original: yes' >> \"$1\"\n", encoding="utf-8")
+        prepare.chmod(0o755)
+        pre_commit = hooks / "pre-commit"
+        pre_commit.write_text("#!/bin/sh\ntouch \"$(dirname \"$0\")/../pre-commit-ran\"\n",
+                              encoding="utf-8")
+        pre_commit.chmod(0o755)
+        return repo, run
+
+    def test_reference_is_relative_to_the_notes_root(self):
+        self.assertEqual(
+            run_queue.session_reference(Path("/n/runner-x"), Path("/n/runner-x/session-a.log")),
+            "runner-x/session-a")
+
+    def test_hook_adds_trailer_and_keeps_repository_hooks(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            repo, run = self.make_repo(tmp)
+            notes = Path(tmp) / "notes" / "runner-20261122-101500"
+            notes.mkdir(parents=True)
+            log = notes / "session-implement-issue-20261122-101733.log"
+            log.write_text("log\n", encoding="utf-8")
+            env = dict(os.environ)
+            env.update(run_queue.session_git_environment(notes, log, repo))
+            subprocess.run(["git", "commit", "--allow-empty", "-m", "trailer test"],
+                           cwd=repo, env=env, check=True, capture_output=True, text=True)
+            message = run("log", "-1", "--format=%B").stdout
+            self.assertIn("Original: yes", message)
+            reference = "runner-20261122-101500/session-implement-issue-20261122-101733"
+            self.assertIn(f"Ghflow-Session: {reference}", message)
+            self.assertTrue((repo / ".git" / "pre-commit-ran").exists())
+            trailer = run("log", "-1", "--format=%(trailers:key=Ghflow-Session)").stdout.strip()
+            self.assertIn(reference, trailer)
+            self.assertTrue((notes.parent / f"{reference}.log").is_file())
+
+            subprocess.run(["git", "commit", "--allow-empty", "-m", "plain"],
+                           cwd=repo, check=True, capture_output=True, text=True)
+            plain = run("log", "-1", "--format=%B").stdout
+            self.assertIn("Original: yes", plain)
+            self.assertNotIn("Ghflow-Session", plain)
+
+
 class PublishCommittedTests(unittest.TestCase):
     """The runner publishes committed work that an implementation session left unpublished."""
 
@@ -2336,6 +2393,28 @@ class PublishCommittedTests(unittest.TestCase):
             self.assertTrue(add_call)
             commit_call = next(c for c in calls if len(c) > 6 and c[5:7] == ("commit", "-m"))
             self.assertIn("Fix it", commit_call[-1])
+
+    def test_runner_commit_carries_the_session_trailer(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            wt_path = Path(tmp) / "wt"
+            wt_path.mkdir()
+            worktree = {"path": str(wt_path), "branch": "issue-9-fix", "base": "origin/main"}
+            counts = [0, 1]
+            with patch("run_queue.committed_count", side_effect=lambda *a: counts.pop(0)), \
+                 patch("run_queue.git_output", side_effect=[" M file.py", self.HEAD, "- `abc1234` Change"]):
+                run_queue.publish_committed("https://github.com/o/r/issues/9", "Fix it", worktree,
+                                            "o/r", Path(tmp), {},
+                                            session_ref="runner-x/session-y", cli_fn=fake_cli)
+            commit_call = next(c for c in calls if len(c) > 6 and c[5:7] == ("commit", "-m"))
+        self.assertIn("--trailer", commit_call)
+        self.assertIn("Ghflow-Session: runner-x/session-y", commit_call)
+
     def test_implementation_step_publishes_after_the_session(self):
         state = {"issue": "https://github.com/o/r/issues/1", "number": 1, "title": "Fix it", "repo": "o/r",
                  "labels": ["triage:ready"], "pr": None}
