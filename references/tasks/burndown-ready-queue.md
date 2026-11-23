@@ -35,6 +35,7 @@ After the traversal and before the first dispatch, run `git fetch origin` and th
 Every worker in the queue reads the facts file, so a stale section can send each of them to the wrong gate or setup command.
 
 The queue request authorizes the refresh and its PR. It is part of the delivery flow, not a change outside an issue under [Decisions](../shared/decisions.md#decide-in-an-unattended-flow). The refresh worker commits in its own worktree and publishes the file as a ready PR for the user's review; it does not merge. Workers branch from `origin/main`, where the refresh is not yet merged, so set the project facts path in every handoff to the refreshed file in the refresh worktree, as [Handoffs](../shared/coordination.md#handoffs) states. Record the refresh PR in the delivery summary.
+The deterministic runner performs this dispatch before the first issue. It creates the refresh worktree and branch, runs `prepare-project-facts`, verifies that the committed branch changes only `.ghflow/project.md`, and points every later handoff at that copy. `--require-facts-refresh` stops the run before the first issue when the refresh fails; without it, the runner continues with the stale-source note.
 If the refresh fails or returns no refreshed file, continue the queue: name the stale sources in each handoff, as [Handoffs](../shared/coordination.md#handoffs) states, and record the failure in the summary.
 
 If `project_facts.present` is false, continue without a facts file and say so in the summary; writing the first facts file is a separate task the user requests.
