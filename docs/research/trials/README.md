@@ -234,3 +234,11 @@ The [session diagnosis folder](2026-11-20-session-diagnosis) contains a syntheti
 ## 2026-11-20 to 2026-11-21: epic #1438 local-model burndown and compact-tags trial
 
 The [epic #1438 folder](2026-11-20-epic-1438) records an unattended queue run on the six `impl:local` children of [decafclaw#1438](https://github.com/lmorchard/decafclaw/issues/1438). It tested the compact tags from [#211](https://github.com/lmorchard/gh-project-workflow/pull/211) with `lmstudio/qwen3.8-27b-mlx@4bit`. Skills: `ab0d88d`. Three issues reached a ready PR ([#1610](https://github.com/lmorchard/decafclaw/pull/1610), [#1611](https://github.com/lmorchard/decafclaw/pull/1611), [#1614](https://github.com/lmorchard/decafclaw/pull/1614)). #1419 was parked. [#1619](https://github.com/lmorchard/decafclaw/pull/1619) stayed a draft with a clean verdict. #1422 did not start. Review was same-model; different-model review was waived. Endpoint: review follow-up, no merge. The model used `tags outline` three times in one session and no `tags brief` or `tags find`. The run shows no token saving. No skill or runner change was made. Evidence limits: one run, different issues from the baseline, and no cached-token or coverage data.
+
+## 2026-11-23: late-run slowdown analysis
+
+The [late-run slowdown folder](2026-11-23-late-run-slowdown) analyzes the 2026-11-21 janitorial weekend data for [#224](https://github.com/lmorchard/gh-project-workflow/issues/224).
+Time per done issue rose from 1.15 h in phase A to 1.90 h in phase D, while phase D hit the 150-turn and 5400-second limits.
+The record decides that one uncontrolled run does not show a restart or a shorter phase recovers throughput, and it does not show a task-driven cause.
+No runner change is made. A future run must compare two matched phases with one model-server restart and record throughput, turns, input, and cached tokens.
+Limits: one run, changing task mix, no restart or cache event, unreported cached tokens, and a local log that is not committed.
