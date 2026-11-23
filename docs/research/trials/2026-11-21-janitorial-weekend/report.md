@@ -90,3 +90,32 @@ The follow-up issues above are the candidate changes. The record does not decide
 - The user merged pull requests during the run.
 - The final wrap-up is pending. The record states the run-end state.
 - The run log is local and not committed.
+
+## Wrap-up
+
+On 2026-11-23 the user authorized one wrap-up session to finish the six loose items and to implement #1379. It ran directly, in single-session mode, with a strong model (`otari-mozilla/deepseek/deepseek-v4.1-flash-1017`), and routed every Git and GitHub write through ghflow as MokaGnome. Parked work and the #219 strong-issue trial stayed out of scope. The run-end state above is unchanged.
+
+| PR | Issue | Merged head | Merge commit | Note |
+| --- | --- | --- | --- | --- |
+| #1707 | #1370 | `ddb4ce83` | `2eb57244` | Rebased onto `main`; the push triggered the hosted checks that had never run |
+| #1756 | #1400 | `3dd7b86c` | `4c65afd1` | Base update, then green CI |
+| #1760 | #1422 | `7b237d9e` | `21e106e6` | Base update, then green CI |
+| #1758 | #1403 | `fbadf0bc` | `07d56e03` | Base update, then green CI |
+| #1755 | #1378 | `852ce525` | `2417ccea` | Draft reviewed, marked ready, base update, green CI |
+| #1759 | #1405 | `6d97c412` | `3d912363` | Draft reviewed, marked ready, base update, green CI |
+| #1761 | #1379 | `1b0cf241` | `f2c70749` | New PR: newsletter template moved to `template.html` |
+
+**#1707.** The branch was 47 commits behind `main` and conflicted with the merged public `Document` line API. The rebase moved `_sections_ops.py` to `Document.delete_lines` / `Document.insert_lines`; the three moved function bodies are otherwise identical. The rebased head was reviewed and merged. This closes the #220 evidence gap: the ready pull request now has green required checks.
+
+**The other six.** Each head was updated to the base tip with `update-branch`, hosted CI ran green on the updated head, and the merge used the exact-head check. #1755 and #1759 were drafts; each was reviewed against its issue, marked ready (issue moved In review), then merged. #1761 is the new pull request for #1379.
+
+**Final states.** All seven pull requests are merged, and all seven issues are closed and Done: #1370, #1378, #1379, #1400, #1403, #1405, #1422. No open ready pull request and no draft remain from the run.
+
+**Remaining decisions** (parked work was not implemented):
+
+- **#1337** — no branch or commit exists; the dispatch helpers are still in `tools/__init__.py` (512 lines). The park was an idle timeout, not bad code. Retry with a strong model is reasonable: the issue is S and mechanical, with an import-cycle constraint.
+- **#1408** — draft #1689 holds a complete refactor with regression tests, but it conflicts and is 50 commits behind. Rebase and review it with a strong model rather than discarding it.
+- **#1411** — no branch or commit exists, and the described dead `change` listener is absent at the run base `9c02ef43` and on current `main`; error surfacing runs through the WebSocket `message` listener. Recommend closing as already satisfied after a human confirms.
+- **#219** — the strong-issue trial did not start, as instructed. Follow-ups #220–#226 stay open.
+
+**Wrap-up evidence limits.** Review was in-session: #1761 is a same-model self-review, and the other six were reviewed by a different model than the local implementer but not in a fresh, independent context. No live Mattermost or web-UI exercise was run. Every merge needed a base update, so each merged head is a merge commit; hosted CI ran green on each merged head. The run log was not changed.

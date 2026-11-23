@@ -25,3 +25,5 @@ This record covers one unattended weekend run of the queue runner over the local
 ## Skill or runner changes
 
 No skill or runner change was made during the run. The run tested the five fixes merged before it. The follow-up issues are #219 to #226. [report.md](report.md) records the evidence for each.
+
+The 2026-11-23 wrap-up session finished the loose items; [report.md](report.md#wrap-up) records its merges, final states, and remaining decisions.
