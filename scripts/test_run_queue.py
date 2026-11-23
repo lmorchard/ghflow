@@ -2572,5 +2572,59 @@ class StaleFactsDirectiveTests(unittest.TestCase):
         self.assertIn("do not rely on the stale facts sections", extra)
 
 
+class MonitorIntegrationTests(unittest.TestCase):
+    def test_main_writes_monitor_reports_and_status_line(self):
+        facts = {
+            "identity": {"login": "MokaGnome", "ready": True},
+            "checkout": {"branch": "main", "head": "a", "dirty": False},
+            "repository": {"local_default_head": "a", "origin_default_head": "a"},
+            "skill_source": {"head": "a", "up_to_date": True},
+            "base_ci": {"commit": "a", "summary": "green",
+                        "checks": [{"name": "check", "state": "passed"}]},
+            "project_facts": {"present": True, "origin": {"present": True, "stale_sources": []}},
+        }
+        state = {"issue": "https://github.com/o/r/issues/7", "number": 7,
+                 "labels": ["triage:ready"],
+                 "pr": {"url": "https://github.com/o/r/pull/8", "head": "abc",
+                        "is_draft": False},
+                 "ci": "green", "pending_review_requests": []}
+        board = {"in_flight": [], "parked": [],
+                 "selection": [{"number": 7, "issue": state["issue"]}]}
+
+        def fake_cli(*args, cwd=None):
+            if args and args[0] == "facts":
+                return facts, 0
+            if args and args[0] == "identity":
+                return {"login": "MokaGnome", "ready": True}, 0
+            if args and args[0] == "exec":
+                return {"login": "MokaGnome"}, 0
+            if args and args[0] == "queue":
+                return {"rows": [{"issue": "o/r#7"}]}, 0
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.set_board_status"), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+            self.assertEqual(ret, 0)
+            report_path = Path(tmp) / "monitor.json"
+            self.assertTrue(report_path.is_file())
+            self.assertTrue((Path(tmp) / "monitor.md").is_file())
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            self.assertEqual(report["schema"], "ghflow-monitor/1")
+            self.assertTrue(report["checks"])
+            self.assertIn("Monitor:", out.getvalue())
+            self.assertIn("monitor.md", out.getvalue())
+
+
 if __name__ == "__main__":
     unittest.main()

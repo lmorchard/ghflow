@@ -153,9 +153,12 @@ The runner performs every mechanic that has one correct answer. A model session 
 | Detect no progress, failure, or a stall | Runner | Progress rule, session ceilings, reasoning-loop abort |
 | Park an issue, with or without a PR | Runner | `park_issue` and `park` |
 | Publish the run narrative and issue checkpoint | Runner | `scripts/narrative.py`: `RunNotebook`, `summarize_session`, `post_issue_checkpoint` |
+| Monitor the run and write the report | Runner | `scripts/monitor.py`: preflight, session samples, post-step checks, final counts |
 | Answer the issue: scope, design, code, tests | Session | The issue body and decisions |
 | Prepare the project's worktree setup | Runner | `worktree create` applies the facts file's `worktree:` declaration before the session starts |
 | Commit, push, and open the draft PR | Session for content and commits; Runner for push and draft creation | `publish_committed` after an implementation session, through `pr create` |
+
+The monitor records the coordinator's evidence collection: preflight identity, lock, checkout, base CI, facts, and selection; session health, context, turns, and age; post-step publication, checks, review coverage, and worktree cleanliness; and final issue coverage, throughput, and toil. It writes `monitor.json` and `monitor.md` in the run notes directory. A stop-level check stops the run; the rest record alerts.
 
 No row remains open. Issue #161 moved the last two into the runner after the epic #1434 trial showed their cost. Child #1380 spent 36 minutes and 42 turns without a worktree, branch, or PR, and child #1381 chose its own worktree path. The project facts file now supplies the setup as an executable declaration. The runner pushes committed work and opens the draft PR when a session leaves it unpublished.
 
