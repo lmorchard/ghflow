@@ -128,7 +128,9 @@ Without `--copy` and `--setup`, the command applies the `worktree:` declaration 
 
 `review prepare PR_URL` fetches the PR's base and head, creates a detached worktree at the current head in `.claude/worktrees/review-NUMBER` of the primary checkout, applies the project facts worktree declaration (`copy` and `setup`), and reports the merge base, the changed files with line counts, and the diff command. It exits 3 when the path exists. `review cleanup PR_URL` removes that worktree and exits 3 instead when it has local changes.
 
-`gate [--cmd "COMMAND"] [--path DIR] [--summary]` runs local project test gates (defaulting to `make check`), bounding output to protect agent context. With `--summary`, it outputs a 1-3 line text summary (exit code, test counts, and failing test names) instead of full output.
+`gate [--cmd "COMMAND" ...] [--path DIR] [--summary]` runs local project test gates (defaulting to `make check`), bounding output to protect agent context.
+Repeat `--cmd` to run a sequence in order; it stops at the first failure and names each command not run.
+With `--summary`, it outputs a 1-3 line text summary that names each command, its exit code, test counts, and failing test names instead of full output.
 
 `audit toil [--dir DIR] [--last N] [--min-strikes N] [--json]` scans runner session logs, normalizes variable arguments, and mines recurring tool operation sequences that repeat across distinct sessions (Three Strikes and You Automate). It outputs a Markdown or structured JSON report with strike counts, evidence session IDs, and repeated command sequences.
 

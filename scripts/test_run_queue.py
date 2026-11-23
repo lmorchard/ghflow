@@ -732,6 +732,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
         review_opt = captured_options[0][1]
         self.assertIn("Inspect the commit diff", review_opt.get("extra_text", ""))
         self.assertIn("Do not write new end-to-end integration test suites", review_opt.get("extra_text", ""))
+        self.assertIn("gate --summary", review_opt.get("extra_text", ""))
     def test_end_to_end_reconciliation_flow(self):
         """An issue goes through implement -> review -> submit-pr to DONE."""
         states = [
@@ -1968,6 +1969,8 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("reused from an earlier attempt", extra)
         self.assertIn("continue that work", extra)
         self.assertIn("not overwritten", extra)
+        self.assertIn("gate --summary", extra)
+        self.assertIn("do not repeat a command", extra)
 
 
 class NotebookPublishingTests(unittest.TestCase):

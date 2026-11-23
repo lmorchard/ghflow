@@ -3991,6 +3991,54 @@ class GateCommandTests(unittest.TestCase):
         self.assertTrue(len(result["failures"]) >= 1)
         self.assertIn("FAILED", result["failures"][-1])
 
+    def test_run_gate_sequence_runs_in_order(self):
+        calls = []
+
+        class MockProc:
+            returncode = 0
+            stdout = "12 passed\n"
+
+        def shell(cmd, where, timeout):
+            calls.append(cmd)
+            return MockProc()
+
+        result, status = run_gate(command=["make check", "make test"], shell=shell)
+        self.assertEqual(status, 0, result)
+        self.assertEqual(calls, ["make check", "make test"])
+        self.assertEqual([c["command"] for c in result["commands"]], ["make check", "make test"])
+        self.assertIn("make check passed", result["summary"])
+        self.assertIn("make test passed", result["summary"])
+
+    def test_run_gate_sequence_stops_at_the_first_failure(self):
+        calls = []
+
+        class Passed:
+            returncode = 0
+            stdout = "12 passed\n"
+
+        class Failed:
+            returncode = 1
+            stdout = "FAILED (failures=1)\n"
+
+        def shell(cmd, where, timeout):
+            calls.append(cmd)
+            return Failed() if cmd == "make test" else Passed()
+
+        result, status = run_gate(command=["make check", "make test", "make lint"], shell=shell)
+        self.assertEqual(status, 1)
+        self.assertFalse(result["success"])
+        self.assertEqual(calls, ["make check", "make test"])
+        self.assertTrue(result["commands"][2]["skipped"])
+        self.assertIn("make lint not run after make test failed", result["summary"])
+        self.assertIn("FAILED", result["failures"][-1])
+
+    def test_gate_cli_repeats_cmd(self):
+        with patch("ghflow.run_gate", return_value=({"success": True, "summary": "ok"}, 0)) as gate, \
+             patch("sys.stdout", new=io.StringIO()):
+            status = main(["gate", "--cmd", "make check", "--cmd", "make test", "--summary"])
+        self.assertEqual(status, 0)
+        self.assertEqual(gate.call_args.kwargs["command"], ["make check", "make test"])
+
 
 class AuditCommandTests(unittest.TestCase):
     def test_audit_toil_cli_json_and_markdown(self):

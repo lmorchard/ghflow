@@ -1906,7 +1906,9 @@ def main(argv=None):
             verification = verification_lines(state.get("body"))
             verification_note = (
                 " Issue verification: " + " ".join(verification) +
-                " Run these focused tests during iteration; run the full `make test` once before finishing."
+                " Run these focused tests during iteration; before finishing, run the project gates once with "
+                "`python3 \"$GHFLOW_CLI\" gate --summary --cmd \"make check\" --cmd \"make test\"` "
+                "(use the project facts gate commands)."
                 if verification else ""
             )
             if step == "submit-pr" and options.get("deterministic_pr", True):
@@ -1952,7 +1954,7 @@ def main(argv=None):
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
                 base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
-                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo, so rely exclusively on local worktree gate checks." if preceding_pr else ""
+                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo. Use local worktree gate checks for the review, and keep the PR a draft until hosted checks run." if preceding_pr else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
 
                 gate_note = ""
@@ -1969,10 +1971,12 @@ def main(argv=None):
                             narrative.post_issue_checkpoint(run_cli, state["issue"], checkpoint, cwd=options.get("cwd"))
 
                 gate_instruction = (
-                    "The runner already ran `make check` at this head; use `review inspect --no-gate` and do not repeat the full check. "
-                    "Run `make test` and the issue's focused verification tests."
+                    "The runner already ran `make check` at this head; use `review inspect --no-gate` and do not repeat that command. "
+                    "Run the remaining project gates and the issue's focused verification tests with one "
+                    "`gate --summary --cmd ...` call."
                     if gate_note else
-                    "Run `review inspect` and the project gates (`make check`, `make test`)."
+                    "Run `review inspect`; run the project gates once with "
+                    "`gate --summary --cmd \"make check\" --cmd \"make test\"` (use the project facts gate commands)."
                 )
                 workspace_note = (
                     " The OpenCode shell starts in the project checkout; cd to the task worktree or use absolute paths."
@@ -2004,7 +2008,9 @@ def main(argv=None):
                     "`GHFLOW_CLI` is already set in the environment; use `python3 \"$GHFLOW_CLI\"` and do not re-export it. "
                     "For symbol lookups, run `python3 \"$GHFLOW_CLI\" tags brief SYMBOL...` before `grep` or a full read. Use `tags outline FILE` to choose line ranges. "
                     "The task worktree is already prepared; do not run `worktree prepare`. "
-                    "Focus solely on editing files in the worktree and passing test gates (`make check`). "
+                    "Focus solely on editing files in the worktree and passing the project gates. "
+                    "Run the gate sequence once with `python3 \"$GHFLOW_CLI\" gate --summary --cmd \"make check\" --cmd \"make test\"` "
+                    "(use the project facts gate commands); do not repeat a command the helper already ran. "
                     "Do not push to remote or create pull requests; the runner publishes all worktree progress and handles PR creation automatically."
                 )
                 if worktree:
@@ -2063,7 +2069,7 @@ def main(argv=None):
                 directive += verification_note
                 directive += (
                     " Commit a checkpoint as soon as the change is coherent and the focused tests pass, "
-                    "before the full `make check`/`make test`. If the full gate finds a fix, make a follow-up commit."
+                    "before the full gate run. If the full gate finds a fix, make a follow-up commit."
                 )
                 if generated_paths:
                     directive += (
