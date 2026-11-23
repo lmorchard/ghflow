@@ -3409,51 +3409,79 @@ def build_publish(issue=None, cwd=None, repo=None, draft=False, title=None, body
 def run_gate(command="make check", cwd=None, timeout=300, shell=None):
     """Run local project test gates with compact, bounded output.
 
-    Executes the gate command in cwd, capturing and bounding stdout/stderr. Parses test counts
-    and failure summaries to protect agent context windows from multi-thousand-line test dumps.
+    ``command`` is one command or a list. A list runs in order and stops at the
+    first failure; the remaining commands are named as not run. One command
+    returns the earlier result fields unchanged. Parses test counts and failure
+    summaries to protect agent context windows from multi-thousand-line dumps.
     """
+    commands = [command] if isinstance(command, str) else list(command)
+    if not commands:
+        commands = ["make check"]
     shell = shell or (lambda cmd, where, t: subprocess.run(cmd, shell=True, cwd=where,
                                                            stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                                                            text=True, timeout=t))
     target = Path.cwd() if cwd is None else Path(cwd)
-    result = {"command": command, "path": str(target), "errors": []}
+    result = {"command": " && ".join(commands), "commands": [], "path": str(target), "errors": []}
     start = time.time()
-    try:
-        proc = shell(command, target, timeout)
-    except subprocess.TimeoutExpired:
-        result.update(success=False, exit_code=124, summary=f"{command} timed out after {timeout}s",
-                      duration_seconds=round(time.time() - start, 2))
-        return result, 2
-    except OSError as error:
-        result["errors"].append({"part": "gate", "error": str(error)})
-        result.update(success=False, exit_code=1, summary=f"{command} failed to execute: {error}",
-                      duration_seconds=round(time.time() - start, 2))
-        return result, 1
+    failed = None
+    timed_out = False
+    for name in commands:
+        entry = {"command": name}
+        if failed is not None:
+            entry.update(skipped=True,
+                         summary=f"{name} not run after {failed.get('command')} failed")
+            result["commands"].append(entry)
+            continue
+        try:
+            proc = shell(name, target, timeout)
+        except subprocess.TimeoutExpired:
+            timed_out = True
+            entry.update(success=False, exit_code=124, summary=f"{name} timed out after {timeout}s")
+            failed = entry
+            result["commands"].append(entry)
+            continue
+        except OSError as error:
+            result["errors"].append({"part": "gate", "error": str(error)})
+            entry.update(success=False, exit_code=1, summary=f"{name} failed to execute: {error}")
+            failed = entry
+            result["commands"].append(entry)
+            continue
 
-    duration = round(time.time() - start, 2)
-    output = proc.stdout or ""
-    exit_code = proc.returncode
+        output = proc.stdout or ""
+        exit_code = proc.returncode
+        test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?(?:,\s+\d+\s+failed)?)", output)
+        test_info = f", {test_match.group(1)}" if test_match else ""
+        lines = output.splitlines()
+        failures = [line.strip() for line in lines if re.search(r"\b(FAILED|ERROR|FAIL)\b", line)][:10]
+        tail = "\n".join(lines[-25:])
+        success = exit_code == 0
+        entry.update(
+            success=success,
+            exit_code=exit_code,
+            summary=f"{name} {'passed' if success else 'failed'} (exit {exit_code}{test_info})",
+            test_counts=test_match.group(1) if test_match else None,
+            failures=failures if not success else [],
+            output_tail=tail if not success else "",
+        )
+        result["commands"].append(entry)
+        if not success:
+            failed = entry
 
-    test_match = re.search(r"(\d+\s+passed(?:,\s+\d+\s+skipped)?(?:,\s+\d+\s+failed)?)", output)
-    test_info = f", {test_match.group(1)}" if test_match else ""
-
-    lines = output.splitlines()
-    failures = [l.strip() for l in lines if re.search(r"\b(FAILED|ERROR|FAIL)\b", l)][:10]
-    tail = "\n".join(lines[-25:])
-
-    success = (exit_code == 0)
-    summary = f"{command} {'passed' if success else 'failed'} (exit {exit_code}{test_info})"
-
-    result.update(
-        success=success,
-        exit_code=exit_code,
-        summary=summary,
-        test_counts=test_match.group(1) if test_match else None,
-        failures=failures if not success else [],
-        output_tail=tail if not success else "",
-        duration_seconds=duration,
-    )
-    return result, (0 if success else 1)
+    executed = [entry for entry in result["commands"] if not entry.get("skipped")]
+    result["success"] = bool(executed) and all(entry.get("success") for entry in executed)
+    result["exit_code"] = next((entry["exit_code"] for entry in executed if entry.get("exit_code")), 0)
+    result["summary"] = "; ".join(entry.get("summary", "") for entry in result["commands"])
+    result["duration_seconds"] = round(time.time() - start, 2)
+    if failed is not None:
+        result["failures"] = failed.get("failures") or []
+        result["output_tail"] = failed.get("output_tail") or ""
+    if len(commands) == 1:
+        entry = result["commands"][0]
+        result.update(test_counts=entry.get("test_counts"),
+                      failures=entry.get("failures") or [],
+                      output_tail=entry.get("output_tail") or "")
+    status = 0 if result["success"] else (2 if timed_out else 1)
+    return result, status
 
 
 PARK_MARKER = "## Parked"
@@ -4458,7 +4486,8 @@ def main(argv=None):
     tags_brief.add_argument("--ref-limit", type=int, default=5, help="maximum references per symbol (default 5)")
     tags_brief.add_argument("--json", action="store_true", help="print the detailed JSON result instead of compact lines")
     gate_cmd = commands.add_parser("gate", help="Run local project test gates with compact, bounded output.")
-    gate_cmd.add_argument("--cmd", dest="gate_command", default="make check", help="test gate command to execute (default: make check)")
+    gate_cmd.add_argument("--cmd", dest="gate_command", action="append", metavar="COMMAND",
+                          help="gate command to execute; repeat to run a sequence in order (default: make check)")
     gate_cmd.add_argument("--path", help="directory to run gate in (default: current directory)")
     gate_cmd.add_argument("--timeout", type=int, default=300, help="timeout in seconds (default: 300)")
     gate_cmd.add_argument("--summary", action="store_true", help="output only the compact summary string")
@@ -4512,7 +4541,8 @@ def main(argv=None):
                     sys.stdout.write(result["tool_table"] + "\n")
                 return status
     elif args.command == "gate":
-        result, status = run_gate(command=args.gate_command, cwd=args.path, timeout=args.timeout)
+        result, status = run_gate(command=args.gate_command or ["make check"],
+                                  cwd=args.path, timeout=args.timeout)
         if args.summary:
             summary = result.get("summary") or ""
             sys.stdout.write(summary + "\n")
