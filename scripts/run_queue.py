@@ -526,6 +526,7 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
             "url": pr.get("url"),
             "head": pr_st.get("head") or pr.get("head"),
             "head_branch": pr_st.get("head_branch") or pr.get("head_branch"),
+            "base": pr_st.get("base") or pr.get("base"),
             "is_draft": pr_st.get("is_draft", pr.get("is_draft", False)),
             "state": pr_st.get("state") or pr.get("state", "OPEN"),
         }
@@ -616,14 +617,17 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exc
             continue
         st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
         labels = st.get("labels") or []
-        if ("triage:needs-input" in labels or "triage:blocked" in labels
-                or "triage:needs-definition" in labels):
+        if "triage:needs-input" in labels or "triage:needs-definition" in labels:
             continue
         if require_labels and not all(label in labels for label in require_labels):
             continue
         if exclude_labels and any(label in labels for label in exclude_labels):
             continue
-        if any(blocker.get("state") == "OPEN" for blocker in st.get("blocked_by") or []):
+        blockers = [blocker for blocker in st.get("blocked_by") or []
+                    if blocker.get("state") == "OPEN"]
+        if len(blockers) > 1:
+            continue
+        if len(blockers) == 1 and not find_base_pr(ref, children, cli_fn=cli_fn, cwd=cwd, child_state=st):
             continue
         step = next_step(st)
         if step in ("DONE", "PARKED", "WAITING"):
@@ -639,42 +643,30 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exc
     return None
 
 
-def find_preceding_pr(child_ref, children, cli_fn=run_cli, cwd=None, child_state=None, force=False):
-    """Find the preceding child whose open PR this child depends on, for stacking.
+def find_base_pr(child_ref, children, cli_fn=run_cli, cwd=None, child_state=None):
+    """Find the open PR of the child's one open native blocker.
 
-    A stack is created only for a native blocked-by link, so independent children
-    branch from the default branch. ``force`` keeps the old "nearest open PR"
-    behavior for a user who explicitly asks for a stack.
+    The native blocked-by link is the only stack source. A child with no blocker,
+    more than one open blocker, or a blocker without an open PR has no base.
     """
     if not children:
         return None
-    target_num = child_ref if isinstance(child_ref, int) else None
-    if target_num is None:
-        try:
-            target_num = int(str(child_ref).rstrip("/").split("/")[-1].split("#")[-1])
-        except ValueError:
-            target_num = None
-
-    idx = None
-    for i, c in enumerate(children):
-        if c.get("number") == target_num or c.get("url") == str(child_ref):
-            idx = i
-            break
-    if idx is None or idx == 0:
+    state = child_state or observe_issue(child_ref, cli_fn=cli_fn, cwd=cwd)
+    blockers = [blocker for blocker in state.get("blocked_by") or []
+                if blocker.get("state") == "OPEN"]
+    if len(blockers) != 1:
         return None
-
-    blocked = {blocker.get("number") for blocker in (child_state or {}).get("blocked_by") or []
-               if blocker.get("number") is not None}
-    for c in reversed(children[:idx]):
-        if c.get("state") == "CLOSED":
-            continue
-        if not force and c.get("number") not in blocked:
-            continue
-        ref = c.get("url") or c.get("number")
-        st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
-        pr = st.get("pr") or {}
-        if pr.get("head_branch") and pr.get("state") == "OPEN":
-            return {"number": c.get("number"), "pr": pr.get("number"), "branch": pr.get("head_branch")}
+    number = blockers[0].get("number")
+    if number is None:
+        return None
+    child = next((candidate for candidate in children if candidate.get("number") == number), None)
+    if child is None or child.get("state") == "CLOSED":
+        return None
+    st = observe_issue(child.get("url") or child.get("number"), cli_fn=cli_fn, cwd=cwd)
+    pr = st.get("pr") or {}
+    if pr.get("head_branch") and pr.get("state") == "OPEN":
+        return {"number": number, "pr": pr.get("number"), "branch": pr.get("head_branch"),
+                "url": pr.get("url")}
     return None
 
 
@@ -1073,17 +1065,20 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     return success, session_id or ""
 
 
-def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli):
+def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli, base_branch=None):
     """Create the task worktree from origin before the session starts.
 
     The worktree and branch are a runner decision, not a model choice, so the session
-    cannot spend its budget surveying a stale checkout. Exit 3 means the branch or
-    path already exists, which is a resumption; reuse it.
+    cannot spend its budget surveying a stale checkout. ``base_branch`` starts a
+    stacked child from the base PR branch. Exit 3 means the branch or path already
+    exists, which is a resumption; reuse it.
     """
     number = str(issue_url).rstrip("/").split("/")[-1]
     slug = re.sub(r"[^a-z0-9]+", "-", str(title or "").lower()).strip("-")[:40].strip("-")
     branch = f"issue-{number}-{slug}" if slug else f"issue-{number}"
     args = ["worktree", "create", issue_url, "--branch", branch]
+    if base_branch:
+        args += ["--base", base_branch]
     if owner and project:
         args += ["--owner", owner, "--project", str(project)]
     out, code = cli_fn(*args, cwd=options.get("cwd"))
@@ -1120,7 +1115,8 @@ def committed_count(path, base):
         return None
 
 
-def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base_branch=None, cli_fn=run_cli):
+def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base_branch=None,
+                      stack=None, cli_fn=run_cli):
     """Push a session's committed work and open a draft PR when none exists.
 
     The session keeps the content and commit role. This closes the gap that the
@@ -1179,11 +1175,16 @@ def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base
     number = str(issue_url).rstrip("/").split("/")[-1]
     subjects = git_output(["log", "--format=- `%h` %s", f"{count_ref}..HEAD"], cwd=path) or ""
     body_file = notes_dir / f"draft-pr-{number}-{time.strftime('%Y%m%d-%H%M%S')}.md"
+    stack_lines = []
+    if base_branch and stack:
+        stack_lines = ["## Stack", "",
+                       f"Part of a stack on `{base_branch}` (PR #{stack.get('pr')}).", ""]
     body_file.write_text("\n".join([
         f"Draft checkpoint for {issue_url}.",
         "",
         "The queue runner published committed work that the implementation session left unpublished.",
         "",
+        *stack_lines,
         "## Commits",
         "",
         subjects,
@@ -1774,8 +1775,6 @@ def main(argv=None):
                         help="only select children carrying this label; repeat for several labels")
     parser.add_argument("--exclude-label", action="append", default=[],
                         help="skip children carrying this label; repeat for several labels")
-    parser.add_argument("--stack", action="store_true",
-                        help="stack on the nearest preceding open PR even without a native blocked-by link")
     parser.add_argument("--model", help="pin every worker session to this model, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
     parser.add_argument("--provider", help="provider prefix for a model ID without a slash (e.g. lmstudio, ollama, google-vertex)")
     parser.add_argument("--model-config", default=str(DEFAULT_MODEL_CONFIG),
@@ -2169,9 +2168,13 @@ def main(argv=None):
                     break
 
             worktree = None
-            preceding_pr = find_preceding_pr(issue_ref, parent_children, cli_fn=run_cli,
-                                             cwd=options.get("cwd"), child_state=state,
-                                             force=args.stack) if parent_children else None
+            base_pr = find_base_pr(issue_ref, parent_children, cli_fn=run_cli,
+                                   cwd=options.get("cwd"), child_state=state) if parent_children else None
+            pr_base = (state.get("pr") or {}).get("base")
+            stack_base = (base_pr if base_pr and (not pr_base or pr_base == base_pr["branch"])
+                          else None)
+            worktree_base = pr_base or (stack_base["branch"] if stack_base else None)
+            review_base = f"origin/{worktree_base}" if worktree_base else "origin/main"
             step_options = dict(options)
             step_options["max_turns"] = issue_turn_limit(args.max_turns)
             if selected_models:
@@ -2231,7 +2234,7 @@ def main(argv=None):
                 existing = worktree_status(state["issue"], cwd=options.get("cwd"))
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
-                target_base = f"Target base branch `{preceding_pr['branch']}`. " if preceding_pr else ""
+                target_base = f"Target base branch `{stack_base['branch']}`. " if stack_base else ""
                 step_options["extra_text"] = (
                     f"Direct submission: do not read shared reference files or re-verify code. {target_base}"
                     "Compose the final description with `pr body` and mark the PR ready with `pr ready --expect-head` immediately. "
@@ -2241,13 +2244,15 @@ def main(argv=None):
                 existing = worktree_status(state["issue"], cwd=options.get("cwd"))
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
-                base_ref = preceding_pr['branch'] if preceding_pr else 'origin/main'
-                stacked_note = f" This PR is stacked on base `{base_ref}`; hosted CI does not run for non-main targets on this repo. Use local worktree gate checks for the review, and keep the PR a draft until hosted checks run." if preceding_pr else ""
+                base_ref = review_base
+                stacked_note = f" This PR is stacked on base `{stack_base['branch']}`; hosted CI does not run for non-main targets on this repo. Use local worktree gate checks for the review, and keep the PR a draft until hosted checks run." if stack_base else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
 
                 gate_note = ""
                 if not options.get("no_precompute_gates", False):
-                    review_wt = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
+                    review_wt = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options,
+                                                 cli_fn=run_cli,
+                                                 base_branch=worktree_base)
                     if review_wt and review_wt.get("path"):
                         step_options["session_cwd"] = review_wt["path"]
                         gate_res = run_precomputed_gate(review_wt["path"], generated_paths=generated_paths)
@@ -2285,7 +2290,9 @@ def main(argv=None):
                         f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note}{verification_note}"
                     )
             elif step == "implement-issue":
-                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options, cli_fn=run_cli)
+                worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options,
+                                            cli_fn=run_cli,
+                                            base_branch=worktree_base)
                 if worktree:
                     step_options["session_cwd"] = worktree["path"]
                 directive = (
@@ -2332,13 +2339,14 @@ def main(argv=None):
                         " No worktree was prepared, so create it with `worktree create ISSUE_URL --branch BRANCH`, "
                         "which bases the branch on `origin/<default-branch>`."
                     )
-                if preceding_pr:
+                if stack_base:
                     directive += (
-                        f" Stacked PR: preceding child #{preceding_pr['number']} has an open PR #{preceding_pr['pr']} on branch "
-                        f"`{preceding_pr['branch']}`. Base the work on that branch rather than the default branch"
-                        + (f", for example `git reset --hard {preceding_pr['branch']}` inside the prepared worktree,"
-                           if worktree else "")
-                        + f" and set `--base {preceding_pr['branch']}` when the draft PR is created."
+                        f" Stacked PR: base child #{stack_base['number']} has an open PR #{stack_base['pr']} on branch "
+                        f"`{stack_base['branch']}`. "
+                        + ("The runner created this worktree from that branch. " if worktree else
+                           f"Create the worktree with `worktree create ISSUE_URL --branch BRANCH --base {stack_base['branch']}`. ")
+                        + f"Set `--base {stack_base['branch']}` when the draft PR is created. "
+                        + f"Name the stack and PR #{stack_base['pr']} in the PR body."
                     )
                 if not options.get("no_symbol_indexing", False):
                     symbols = extract_candidate_symbols(state.get("title"), state.get("body", ""))
@@ -2376,13 +2384,10 @@ def main(argv=None):
             def publish_step_work():
                 """Publish committed implementation work that the session left unpublished."""
                 if step == "implement-issue":
-                    live_preceding = find_preceding_pr(state["issue"], parent_children, cli_fn=run_cli,
-                                                       cwd=options.get("cwd"), child_state=state,
-                                                       force=args.stack) if parent_children else None
                     return publish_committed(state["issue"], state.get("title"), worktree, state.get("repo"),
                                              notes_dir, step_options,
-                                             base_branch=live_preceding["branch"] if live_preceding else None,
-                                             cli_fn=run_cli)
+                                             base_branch=stack_base["branch"] if stack_base else None,
+                                             stack=stack_base, cli_fn=run_cli)
                 return None
 
             session_monitor.phase_start("session", issue=state["issue"], step=step,

@@ -120,7 +120,7 @@ The normal case stays at or below about 400 tokens, estimated at four characters
 
 ## Delivery helpers
 
-`worktree create ISSUE_URL --branch BRANCH` creates `.claude/worktrees/BRANCH` in the primary checkout from `origin/<default>`, copies each `--copy` file from the primary checkout, runs each `--setup` command in the worktree, and with `--notes` writes `docs/dev-sessions/STAMP-BRANCH/notes.md` with a Resume here skeleton. With `--owner` and `--project` it moves the issue In progress through `board set-status`.
+`worktree create ISSUE_URL --branch BRANCH [--base BRANCH]` creates `.claude/worktrees/BRANCH` in the primary checkout from `origin/<default>` or `origin/<base>`. It copies each `--copy` file from the primary checkout, runs each `--setup` command in the worktree, and with `--notes` writes `docs/dev-sessions/STAMP-BRANCH/notes.md` with a Resume here skeleton. With `--owner` and `--project` it moves the issue In progress through `board set-status`. It reports the `base` it used.
 
 Without `--copy` and `--setup`, the command applies the `worktree:` declaration in the primary checkout's project facts file; an explicit argument replaces the whole declaration. It reports `worktree_setup` with the source, `project_facts`, `arguments`, or `none`, and the applied lists. It exits 3 and writes nothing when the branch or path already exists, 2 when the declaration is malformed, a setup command or the board move fails, and reports each setup command's exit status and output tail.
 

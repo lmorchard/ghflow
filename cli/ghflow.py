@@ -1884,8 +1884,8 @@ def default_branch(root, git=run_git):
 
 
 def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), notes=False, board=None,
-                    git=run_git, shell=None, board_write=None, now=None):
-    """Create an issue worktree from origin's default branch and prepare it.
+                    base=None, git=run_git, shell=None, board_write=None, now=None):
+    """Create an issue worktree from origin's default branch or ``base`` and prepare it.
 
     ``board`` is ``(owner, project)`` or ``None``. Refuses, writing nothing, when the
     branch or path already exists, so a resumed task reuses existing work. Without
@@ -1899,7 +1899,7 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
     result = {"issue": issue_url, "branch": branch, "errors": []}
     try:
         root = primary_checkout(start, git)
-        base_name = default_branch(root, git)
+        base_name = base or default_branch(root, git)
     except (GhError, OSError, ValueError) as error:
         result["errors"].append({"part": "checkout", "error": str(error)})
         return result, 1
@@ -4445,6 +4445,7 @@ def main(argv=None):
     wt_create = wt_commands.add_parser("create", help="Create an issue worktree from origin's default branch, apply the project facts worktree declaration, and optionally start notes and move the board.")
     wt_create.add_argument("issue", help="issue URL")
     wt_create.add_argument("--branch", required=True, help="new branch name")
+    wt_create.add_argument("--base", help="branch to start from (default: origin's default branch)")
     wt_create.add_argument("--path", help="worktree path (default .claude/worktrees/BRANCH in the primary checkout)")
     wt_create.add_argument("--copy", action="append", default=[], metavar="FILE", help="file to copy from the primary checkout; replaces the facts declaration")
     wt_create.add_argument("--setup", action="append", default=[], metavar="COMMAND", help="setup command to run in the worktree; replaces the facts declaration")
@@ -4726,7 +4727,7 @@ def main(argv=None):
             result, status = worktree_prepare(args.issue, branch=args.branch, path=args.path, board=board)
         else:
             result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
-                                             notes=args.notes, board=board)
+                                             notes=args.notes, board=board, base=args.base)
     elif args.command == "review":
         repo, number = parse_pr(args.pr, args.repo)
         if args.review_command == "prepare":
