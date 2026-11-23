@@ -242,3 +242,12 @@ Time per done issue rose from 1.15 h in phase A to 1.90 h in phase D, while phas
 The record decides that one uncontrolled run does not show a restart or a shorter phase recovers throughput, and it does not show a task-driven cause.
 No runner change is made. A future run must compare two matched phases with one model-server restart and record throughput, turns, input, and cached tokens.
 Limits: one run, changing task mix, no restart or cache event, unreported cached tokens, and a local log that is not committed.
+
+## 2026-11-23: compact tags on a symbol-navigation task
+
+The [compact-tags folder](2026-11-23-compact-tags-symbol-navigation) records the [#225](https://github.com/lmorchard/gh-project-workflow/issues/225) trial.
+The same read-only symbol-navigation task ran once without tags and once with `tags brief`, `tags find`, and `tags outline`, on `lmstudio/qwen3.8-27b-mlx@4bit` at checkout `129600a`.
+Input fell from 189,755 to 159,901 tokens (-15.7%) and final context from 29,837 to 24,348 (-18.4%), while turns rose from 8 to 9.
+Both arms reported zero cached tokens, so a cache effect was not measured.
+The compact arm still used two grep calls and four reads.
+Decision: keep the compact-tags guidance; one task and one run per arm support it, not a general saving.
