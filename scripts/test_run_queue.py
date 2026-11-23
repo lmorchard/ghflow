@@ -888,6 +888,21 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("--owner", calls[0])
         self.assertIn("--project", calls[0])
 
+    def test_prepare_worktree_passes_a_stacked_base(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return {"path": "/repo/.claude/worktrees/issue-42-add-a-thing",
+                    "base": "origin/issue-41-base"}, 0
+
+        res = run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing", "o", 12,
+                                         {"cwd": "/repo"}, cli_fn=fake_cli,
+                                         base_branch="issue-41-base")
+        self.assertEqual(res["base"], "origin/issue-41-base")
+        self.assertIn("--base", calls[0])
+        self.assertIn("issue-41-base", calls[0])
+
     def test_prepare_worktree_reuses_existing_branch(self):
         def fake_cli(*args, cwd=None):
             return {"path": "/repo/.claude/worktrees/issue-7-x", "action": "exists"}, 3
@@ -1056,14 +1071,36 @@ class ParentSubIssueTests(unittest.TestCase):
                                                     board_index=board, exclude={101})
             self.assertEqual(chosen["number"], 102)
 
-    def test_next_item_for_parent_skips_triage_blocked_label(self):
+    def test_next_item_for_parent_keeps_a_triage_blocked_child(self):
         children = [{"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"}]
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             return {"issue": str(ref), "number": 101, "labels": ["triage:ready", "triage:blocked"], "pr": None}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            self.assertIsNone(run_queue.next_item_for_parent(children))
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 101)
+
+    def test_next_item_for_parent_selects_a_child_with_an_open_base_pr(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            number = int(str(ref).rstrip("/").split("/")[-1])
+            if number == 101:
+                return {"issue": str(ref), "number": 101, "labels": ["triage:ready"],
+                        "pr": {"number": 51, "url": "https://github.com/o/r/pull/51",
+                               "head_branch": "issue-101-base", "state": "OPEN",
+                               "is_draft": False, "head": "h1"},
+                        "ci": "green", "pending_review_requests": []}
+            return {"issue": str(ref), "number": 102, "labels": ["triage:ready"], "pr": None,
+                    "blocked_by": [{"number": 101, "state": "OPEN"}]}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children)
+        self.assertEqual(chosen["number"], 102)
 
     def test_next_item_for_parent_skips_triage_needs_definition(self):
         children = [
@@ -1096,7 +1133,7 @@ class ParentSubIssueTests(unittest.TestCase):
             chosen = run_queue.next_item_for_parent(children, exclude_labels=["impl:strong"])
         self.assertEqual(chosen["number"], 102)
 
-    def test_find_preceding_pr_stacked_branch(self):
+    def test_find_base_pr_stacked_branch(self):
         children = [
             {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
             {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
@@ -1108,22 +1145,18 @@ class ParentSubIssueTests(unittest.TestCase):
             return {"issue": str(ref), "number": 102, "pr": None}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            # First child has no preceding PR
-            self.assertIsNone(run_queue.find_preceding_pr(101, children))
-            # An independent child does not stack by default
-            self.assertIsNone(run_queue.find_preceding_pr(102, children))
-            # A native blocked-by link stacks on the predecessor
-            prec = run_queue.find_preceding_pr(
+            # A child with no native blocker has no base PR.
+            self.assertIsNone(run_queue.find_base_pr(101, children))
+            self.assertIsNone(run_queue.find_base_pr(102, children))
+            # The one open native blocker supplies the base PR.
+            base = run_queue.find_base_pr(
                 102, children, child_state={"blocked_by": [{"number": 101, "state": "OPEN"}]})
-            self.assertIsNotNone(prec)
-            self.assertEqual(prec["number"], 101)
-            self.assertEqual(prec["pr"], 51)
-            self.assertEqual(prec["branch"], "issue-101-feat")
-            # --stack forces the old nearest-open-PR behavior
-            forced = run_queue.find_preceding_pr(102, children, force=True)
-            self.assertEqual(forced["number"], 101)
+            self.assertIsNotNone(base)
+            self.assertEqual(base["number"], 101)
+            self.assertEqual(base["pr"], 51)
+            self.assertEqual(base["branch"], "issue-101-feat")
 
-    def test_find_preceding_pr_skips_merged_prs(self):
+    def test_find_base_pr_skips_merged_prs(self):
         children = [
             {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
             {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
@@ -1133,9 +1166,28 @@ class ParentSubIssueTests(unittest.TestCase):
             return {"issue": str(ref), "number": 101, "pr": {"number": 51, "head_branch": "issue-101-feat", "state": "MERGED"}}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            self.assertIsNone(run_queue.find_preceding_pr(102, children))
+            self.assertIsNone(run_queue.find_base_pr(
+                102, children, child_state={"blocked_by": [{"number": 101, "state": "OPEN"}]}))
 
-    def test_find_preceding_pr_skips_a_closed_predecessor_without_a_read(self):
+    def test_find_base_pr_waits_for_no_pr_or_multiple_blockers(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+            {"number": 103, "state": "OPEN", "url": "https://github.com/o/r/issues/103"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            return {"issue": str(ref), "number": 101, "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            self.assertIsNone(run_queue.find_base_pr(
+                102, children, child_state={"blocked_by": [{"number": 101, "state": "OPEN"}]}))
+            self.assertIsNone(run_queue.find_base_pr(
+                102, children, child_state={"blocked_by": [
+                    {"number": 101, "state": "OPEN"},
+                    {"number": 103, "state": "OPEN"}]}))
+
+    def test_find_base_pr_skips_a_closed_blocker_without_a_read(self):
         children = [
             {"number": 101, "state": "CLOSED", "url": "https://github.com/o/r/issues/101"},
             {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
@@ -1147,7 +1199,8 @@ class ParentSubIssueTests(unittest.TestCase):
             return {"issue": str(ref), "number": 101, "pr": {"number": 51, "head_branch": "issue-101-feat", "state": "OPEN"}}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            self.assertIsNone(run_queue.find_preceding_pr(102, children, force=True))
+            self.assertIsNone(run_queue.find_base_pr(
+                102, children, child_state={"blocked_by": [{"number": 101, "state": "CLOSED"}]}))
         self.assertEqual(calls, [])
 
     def test_set_board_status(self):
@@ -1182,12 +1235,14 @@ class ParentSubIssueTests(unittest.TestCase):
             "ci": "green", "pending_review_requests": []
         }
         child2_start = {
-            "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"], "pr": None
+            "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"], "pr": None,
+            "blocked_by": [{"number": 101, "state": "OPEN"}]
         }
         child2_done = {
             "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"],
             "pr": {"number": 52, "url": "https://github.com/o/r/pull/52", "head": "c2", "head_branch": "issue-102-feat", "state": "OPEN", "is_draft": False},
-            "ci": "green", "pending_review_requests": []
+            "ci": "green", "pending_review_requests": [],
+            "blocked_by": [{"number": 101, "state": "OPEN"}]
         }
 
         session_called = False
@@ -1205,10 +1260,12 @@ class ParentSubIssueTests(unittest.TestCase):
             captured_sessions.append((step, issue_url, dict(options)))
             return True, "ses_id"
         board_moves = []
+        worktree_calls = []
         def fake_cli(*args, cwd=None):
             if args and args[0] == "board" and args[1] == "set-status":
                 board_moves.append(args)
             if args and args[0] == "worktree" and args[1] == "create":
+                worktree_calls.append(args)
                 branch = args[args.index("--branch") + 1]
                 return {"path": f"/tmp/wt/{branch}", "action": "created"}, 0
             return {}, 0
@@ -1220,7 +1277,7 @@ class ParentSubIssueTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir), "--stack"])
+                ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
 
         # Child 2 was implemented
@@ -1229,6 +1286,7 @@ class ParentSubIssueTests(unittest.TestCase):
         extra = child2_session[2].get("extra_text", "")
         self.assertIn("Stacked PR", extra)
         self.assertIn("issue-101-feat", extra)
+        self.assertTrue(any("--base" in call and "issue-101-feat" in call for call in worktree_calls))
 
         # Board status updates occurred
         self.assertTrue(any("In progress" in str(m) for m in board_moves))
@@ -1240,6 +1298,52 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("do not re-export", extra)
         self.assertIn("do not run `worktree prepare`", extra)
         self.assertIn("tags brief", extra)
+
+    def test_review_directive_uses_the_stacked_base(self):
+        parent_data = {
+            "parent": {"number": 100, "title": "Epic", "state": "OPEN", "url": "https://github.com/o/r/issues/100"},
+            "children": [
+                {"number": 101, "title": "Base", "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+                {"number": 102, "title": "Child", "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+            ],
+        }
+        base_done = {
+            "issue": "https://github.com/o/r/issues/101", "number": 101, "labels": ["triage:ready"],
+            "pr": {"number": 51, "url": "https://github.com/o/r/pull/51", "head": "h1",
+                   "head_branch": "issue-101-base", "state": "OPEN", "is_draft": False},
+            "ci": "green", "pending_review_requests": []
+        }
+        child_draft = {
+            "issue": "https://github.com/o/r/issues/102", "number": 102, "labels": ["triage:ready"],
+            "pr": {"number": 52, "url": "https://github.com/o/r/pull/52", "head": "c2",
+                   "head_branch": "issue-102-child", "base": "issue-101-base",
+                   "state": "OPEN", "is_draft": True},
+            "blocked_by": [{"number": 101, "state": "OPEN"}], "review_verdicts": []
+        }
+        captured = []
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            return dict(base_done) if "101" in str(ref) else dict(child_draft)
+
+        def fake_session(step, issue_url, notes_dir, options, **kwargs):
+            captured.append((step, options))
+            return True, "ses_1"
+
+        def fake_cli(*args, cwd=None):
+            return {}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.observe_parent", return_value=parent_data), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_issue", side_effect=fake_observe), \
+             patch("run_queue.run_session", side_effect=fake_session), \
+             patch("run_queue.run_cli", side_effect=fake_cli):
+            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12",
+                                  "--no-notebook", "--no-precompute-gates", "--notes-dir", tmp])
+        self.assertEqual(ret, 0)
+        review = next(options for step, options in captured if step == "review-changes")
+        self.assertIn("git diff origin/issue-101-base...HEAD", review["extra_text"])
+        self.assertIn("keep the PR a draft", review["extra_text"])
 
     def test_published_pr_state_builds_a_draft_view(self):
         seeded = run_queue.published_pr_state({
@@ -2161,6 +2265,33 @@ class PublishCommittedTests(unittest.TestCase):
                                                           "o/r", Path(tmp), {}, base_branch="issue-8", cli_fn=fake_cli))
         counted.assert_called_once_with("/repo/.claude/worktrees/issue-9-fix", "issue-8")
         self.assertEqual(calls[-1][calls[-1].index("--base") + 1], "issue-8")
+
+    def test_stacked_pr_body_names_the_base_pr(self):
+        calls = []
+
+        def fake_cli(*args, cwd=None):
+            calls.append(args)
+            return ({"url": "https://github.com/o/r/pull/9"}, 0) if args[0] == "pr" else ({}, 0)
+
+        def fake_git(args, cwd=None):
+            if args[0] == "rev-parse":
+                return self.HEAD
+            if args[0] == "ls-remote":
+                return "abc\trefs/heads/issue-8"
+            return "- `abc1234` Change"
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.committed_count", return_value=1), \
+             patch("run_queue.git_output", side_effect=fake_git):
+            run_queue.publish_committed(
+                "https://github.com/o/r/issues/9", "Fix it", self.worktree(), "o/r", Path(tmp), {},
+                base_branch="issue-8",
+                stack={"number": 8, "pr": 8, "branch": "issue-8"}, cli_fn=fake_cli)
+            create = next(c for c in calls if c[:2] == ("pr", "create"))
+            body = Path(create[create.index("--body-file") + 1]).read_text()
+        self.assertIn("## Stack", body)
+        self.assertIn("issue-8", body)
+        self.assertIn("PR #8", body)
 
     def test_falls_back_to_default_base_when_stacked_base_branch_deleted(self):
         calls = []

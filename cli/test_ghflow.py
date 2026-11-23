@@ -3561,6 +3561,20 @@ class WorktreeCreateTests(unittest.TestCase):
         self.assertEqual(self.moves, [("o/r", 5, "o", 6, "In progress")])
         self.assertEqual(result["base"], "origin/main")
 
+    def test_base_option_starts_from_the_named_branch(self):
+        git(["checkout", "-q", "-b", "base-feature"], self.clone)
+        git(["commit", "-q", "--allow-empty", "-m", "base"], self.clone)
+        git(["push", "-q", "-u", "origin", "base-feature"], self.clone)
+        base_head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=self.clone,
+                                   capture_output=True, text=True, check=True).stdout.strip()
+        git(["checkout", "-q", "main"], self.clone)
+        result, status = self.create(base="base-feature")
+        self.assertEqual(status, 0, result["errors"])
+        self.assertEqual(result["base"], "origin/base-feature")
+        head = subprocess.run(["git", "rev-parse", "HEAD"], cwd=result["path"],
+                              capture_output=True, text=True, check=True).stdout.strip()
+        self.assertEqual(head, base_head)
+
     def test_existing_branch_is_refused_without_changes(self):
         self.create()
         result, status = self.create(setup=["touch second.txt"])
