@@ -354,6 +354,24 @@ def should_stop_for_floor(step, remaining_minutes, floor, deterministic_pr=True)
     return True
 
 
+def phase_boundary_park(state, step, remaining_minutes, floor):
+    """Describe the time park for a draft that the floor leaves unfinished.
+
+    The floor ends a phase. When the issue has an open draft with committed
+    work, the park names the PR and the remaining steps, so the next run can
+    resume from the record instead of an In progress issue with no park.
+    """
+    pr = state.get("pr") or {}
+    if not pr.get("url") or not (pr.get("is_draft") or pr.get("draft")):
+        return None
+    head = pr.get("head") or "unknown"
+    return (
+        f"The time budget floor ({floor} min; {remaining_minutes:.1f} min remained) stopped the run before `{step}`. "
+        f"The pull request {pr['url']} is a draft with committed work at {head}. "
+        f"Remaining steps: `{step}`, then `submit-pr`."
+    )
+
+
 def next_item(board, attempted=None):
     """Pure function selecting the next item from board state (Decision 9)."""
     attempted = attempted or set()
@@ -1627,9 +1645,9 @@ def main(argv=None):
             if telemetry_str:
                 source_desc += f"; {telemetry_str}"
             print(f"[{time.strftime('%X')}] Notebook step note posted ({source_desc})", flush=True)
-    def record_park(issue_url, pr_url, text):
+    def record_park(issue_url, pr_url, text, kind="blocker"):
         """Park an issue and keep a failed park visible in the run result."""
-        out, code = park_issue(issue_url, pr_url, "blocker", text, notes_dir, cli_fn=run_cli)
+        out, code = park_issue(issue_url, pr_url, kind, text, notes_dir, cli_fn=run_cli)
         if code != 0:
             park_failures.append({"issue": issue_url, "reason": text, "output": out})
         return code
@@ -1688,6 +1706,13 @@ def main(argv=None):
             if should_stop_for_floor(step, remaining_minutes, args.floor,
                                      options.get("deterministic_pr", True)):
                 print(f"[{time.strftime('%X')}] Time budget floor reached ({remaining_minutes:.1f}m < {args.floor}m) before {step}. Stopping.")
+                park_text = phase_boundary_park(state, step, remaining_minutes, args.floor)
+                if park_text:
+                    pr_url = (state.get("pr") or {}).get("url")
+                    code = record_park(state["issue"], pr_url, park_text, kind="time")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url,
+                                             "endpoint": "time-park" if code == 0 else "park-failed"})
                 break
             print(f"[{time.strftime('%X')}] {issue_ref}: next step is {step}")
             if step in ("DONE", "PARKED", "WAITING"):

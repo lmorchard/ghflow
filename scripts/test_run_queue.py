@@ -2098,6 +2098,51 @@ class FloorDecisionTests(unittest.TestCase):
             run_queue.should_stop_for_floor("submit-pr", 14.3, 30, deterministic_pr=False)
         )
 
+    def test_phase_boundary_park_names_the_draft_and_remaining_steps(self):
+        state = {"pr": {"url": "https://github.com/o/r/pull/8", "head": "a" * 40, "is_draft": True}}
+        text = run_queue.phase_boundary_park(state, "review-changes", 14.3, 30)
+        self.assertIn("https://github.com/o/r/pull/8", text)
+        self.assertIn("review-changes", text)
+        self.assertIn("submit-pr", text)
+        self.assertIn("14.3", text)
+
+    def test_phase_boundary_park_skips_a_ready_pr_or_no_pr(self):
+        ready = {"pr": {"url": "u", "head": "a" * 40, "is_draft": False}}
+        self.assertIsNone(run_queue.phase_boundary_park(ready, "review-changes", 5, 30))
+        self.assertIsNone(run_queue.phase_boundary_park({}, "review-changes", 5, 30))
+
+    def test_main_parks_a_draft_at_the_floor(self):
+        issue_url = "https://github.com/o/r/issues/7"
+        state = {"issue": issue_url, "number": 7, "title": "Fix it", "labels": ["triage:ready"],
+                 "pr": {"url": "https://github.com/o/r/pull/8", "head": "a" * 40, "is_draft": True}}
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": issue_url}]}
+        parks = []
+
+        def fake_park(issue_url, pr_url, kind, text, notes_dir, cli_fn=None, cwd=None):
+            parks.append((issue_url, pr_url, kind, text))
+            return {"readback": True}, 0
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.acquire_run_lock"), \
+             patch("run_queue.check_active_runs"), \
+             patch("run_queue.observe_board", return_value=board), \
+             patch("run_queue.observe_issue", return_value=state), \
+             patch("run_queue.should_stop_for_floor", return_value=True), \
+             patch("run_queue.park_issue", side_effect=fake_park), \
+             patch("run_queue.run_cli", return_value=({}, 0)):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                ret = run_queue.main(["--once", "--no-notebook", "--no-symbol-indexing",
+                                      "--notes-dir", tmp])
+
+        self.assertEqual(ret, 0)
+        self.assertEqual(len(parks), 1)
+        self.assertEqual(parks[0][1], "https://github.com/o/r/pull/8")
+        self.assertEqual(parks[0][2], "time")
+        self.assertIn("https://github.com/o/r/pull/8", parks[0][3])
+        self.assertIn("review-changes", parks[0][3])
+
 
 class RestoreGeneratedPathsTests(unittest.TestCase):
     """Gate-generated tracked files are restored after the gate."""
