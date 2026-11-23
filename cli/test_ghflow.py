@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1947,6 +1947,141 @@ class PrWriteCommandTests(unittest.TestCase):
         result, status = self.merge(fake)
         self.assertEqual(status, 2)
         self.assertFalse(result["readback"]["merged"])
+
+
+class PrMergeBatchTests(unittest.TestCase):
+    HEAD = "a" * 40
+    AUTHORIZATION = "User authorized the green, clean batch on 2026-11-23."
+
+    def observed(self, **overrides):
+        data = {"head": self.HEAD, "state": "OPEN", "is_draft": False, "mergeable": "MERGEABLE",
+                "ci": "green", "base_behind_by": 0,
+                "review_summary": {"state": "approved", "changes_requested": [], "completed": []},
+                "review_verdicts": []}
+        data.update(overrides)
+        return data
+
+    def run_batch(self, states, items=None, authorization=None, **kwargs):
+        calls = []
+
+        def state(repo, number, **extra):
+            return dict(states[number]), 0
+
+        def merge(repo, number, method, head, **extra):
+            calls.append((repo, number, method, head))
+            return {"merge_commit": "f" * 40, "merged_at": "2026-11-23T12:00:00Z"}, 0
+
+        items = items or [{"pr": "7", "head": self.HEAD}, {"pr": "8", "head": self.HEAD}]
+        result, status = pr_merge_batch(
+            "o/r", items, "merge", self.AUTHORIZATION if authorization is None else authorization,
+            state=state, merge_fn=merge, **kwargs)
+        return result, status, calls
+
+    def test_merges_in_order_and_reports_each_board_move(self):
+        boards = []
+
+        def gh(args):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": [{"url": "https://github.com/o/r/issues/5"}]}
+            raise AssertionError(args)
+
+        def board_write(repo, number, owner, project, status):
+            boards.append((repo, number, owner, project, status))
+            return {"after": status}, 0
+
+        result, status, calls = self.run_batch(
+            {7: self.observed(), 8: self.observed()},
+            gh=gh, board_write=board_write, owner="o", project=12)
+        self.assertEqual(status, 0, result)
+        self.assertEqual([call[1] for call in calls], [7, 8])
+        self.assertEqual([item["merge_commit"] for item in result["merged"]], ["f" * 40, "f" * 40])
+        self.assertEqual(len(boards), 2)
+        self.assertEqual(result["items"][0]["board"]["items"][0]["status"], "done")
+        self.assertEqual(result["authorization"], self.AUTHORIZATION)
+
+    def test_stops_at_a_pending_check_without_merging_later_items(self):
+        result, status, calls = self.run_batch(
+            {7: self.observed(ci="pending"), 8: self.observed()})
+        self.assertEqual(status, 3)
+        self.assertEqual(calls, [])
+        self.assertEqual(result["stopped_at"], "o/r#7")
+        self.assertEqual(result["remaining"], ["o/r#8"])
+        self.assertIn("pending", result["items"][0]["reason"])
+
+    def test_refuses_a_moved_head_and_a_behind_base(self):
+        for observed, needle in (
+            (self.observed(head="b" * 40), "not the expected"),
+            (self.observed(base_behind_by=1), "behind the base"),
+        ):
+            with self.subTest(needle=needle):
+                result, status, calls = self.run_batch(
+                    {7: observed}, items=[{"pr": "7", "head": self.HEAD}])
+                self.assertEqual(status, 3)
+                self.assertEqual(calls, [])
+                self.assertIn(needle, result["items"][0]["reason"])
+
+    def test_requires_a_clean_review_at_the_current_head(self):
+        result, status, calls = self.run_batch(
+            {7: self.observed(review_summary={"state": "commented", "changes_requested": []})},
+            items=[{"pr": "7", "head": self.HEAD}])
+        self.assertEqual(status, 3)
+        self.assertEqual(calls, [])
+        self.assertIn("No approved review", result["items"][0]["reason"])
+
+        result, status, calls = self.run_batch(
+            {7: self.observed(review_summary={"state": "commented", "changes_requested": []},
+                              review_verdicts=[{"head": self.HEAD[:7], "verdict": "clean"}])},
+            items=[{"pr": "7", "head": self.HEAD}])
+        self.assertEqual(status, 0, result)
+        self.assertEqual(len(calls), 1)
+
+    def test_a_merge_failure_stops_later_items(self):
+        def state(repo, number, **extra):
+            return self.observed(), 0
+
+        def merge(repo, number, method, head, **extra):
+            return {"errors": [{"part": "write", "error": "HTTP 500"}]}, 2
+
+        result, status = pr_merge_batch(
+            "o/r", [{"pr": "7", "head": self.HEAD}, {"pr": "8", "head": self.HEAD}],
+            "merge", self.AUTHORIZATION, state=state, merge_fn=merge)
+        self.assertEqual(status, 2)
+        self.assertEqual(result["stopped_at"], "o/r#7")
+        self.assertEqual(result["remaining"], ["o/r#8"])
+
+    def test_requires_an_authorization_without_reading_any_pr(self):
+        result, status = pr_merge_batch(
+            "o/r", [{"pr": "7", "head": self.HEAD}], "merge", "   ",
+            state=lambda *a, **k: (_ for _ in ()).throw(AssertionError("no read")))
+        self.assertEqual(status, 1)
+        self.assertEqual(result["errors"][0]["part"], "authorization")
+
+    def test_board_failure_does_not_fail_the_batch(self):
+        def gh(args):
+            return {"closingIssuesReferences": [{"url": "https://github.com/o/r/issues/5"}]}
+
+        def board_write(repo, number, owner, project, status):
+            return {"errors": [{"part": "write", "error": "readback mismatch"}]}, 2
+
+        result, status, calls = self.run_batch(
+            {7: self.observed(), 8: self.observed()},
+            gh=gh, board_write=board_write, owner="o", project=12)
+        self.assertEqual(status, 0, result)
+        self.assertEqual(len(calls), 2)
+        self.assertEqual(result["items"][0]["board"]["items"][0]["status"], "failed")
+
+    def test_cli_parses_items_in_order(self):
+        with patch("ghflow.pr_merge_batch", return_value=({"merged": []}, 0)) as batch, \
+             patch("sys.stdout", new=io.StringIO()):
+            status = main(["pr", "merge-batch", "--repo", "o/r", "--method", "merge",
+                           "--authorization", self.AUTHORIZATION,
+                           "--item", f"https://github.com/o/r/pull/7={self.HEAD}",
+                           "--item", f"8={self.HEAD}"])
+        self.assertEqual(status, 0)
+        self.assertEqual(batch.call_args.args[1],
+                         [{"pr": "https://github.com/o/r/pull/7", "head": self.HEAD},
+                          {"pr": "8", "head": self.HEAD}])
+        self.assertEqual(batch.call_args.args[3], self.AUTHORIZATION)
 
 
 class FakePrCreateGitHub:
