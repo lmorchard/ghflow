@@ -206,6 +206,9 @@ Worker sessions inherit `GHFLOW_CLI`, so the CLI path is available and a worker 
 
 When the repository has Discussions and a `Lab Notebook` category (slug `lab-notebook`), the runner publishes a run notebook: it starts or reuses the day's `Run notebook YYYY-MM-DD` thread, appends one note for each session, and appends the run result. One short model call summarizes each session log; when that call fails, the note states the step and outcome. The runner also comments "Work started" on the issue when implementation begins. Use `--narrative-category SLUG` for another category, or `--no-notebook` to disable the thread and its model calls. When Discussions are disabled or the category is missing, the runner prints the reason once and continues with the local notes and the issue checkpoint.
 
+`make test-runner-integration` runs one real `opencode run` through `run_session` against `scripts/fake_model.py`, a scripted OpenAI-compatible server.
+It checks that the runner reads the session ID, counts a turn, writes the log, and deletes the session. It skips when `opencode` is absent or older than 2.x.
+It is not part of `make check`, because CI does not install OpenCode.
 In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
 
 The runner runs one session at a time and deletes each OpenCode session after its step. It holds `~/.local/state/ghflow/runner.lock` for the run and refuses to start while another runner holds it. `GHFLOW_RUNNER_LOCK` names a different lock file. The runner tests use it so that they never take a live runner's lock. It also refuses to start while an unattended OpenCode session was active in the last 30 minutes; pass `--allow-concurrent` only on purpose. It starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`.
