@@ -255,3 +255,13 @@ Input fell from 189,755 to 159,901 tokens (-15.7%) and final context from 29,837
 Both arms reported zero cached tokens, so a cache effect was not measured.
 The compact arm still used two grep calls and four reads.
 Decision: keep the compact-tags guidance; one task and one run per arm support it, not a general saving.
+
+## 2026-11-24: local sufficiency audit
+
+The [local sufficiency folder](2026-11-24-local-sufficiency) records the [#248](https://github.com/lmorchard/ghflow/issues/248) audit.
+It asks which well-defined issues need a strong model. The local model is the default and the strong model is the fallback.
+Local-labeled S tasks passed. Local-labeled M test splits and remote-command work failed, parked, or stayed a draft.
+The strong-labeled #1729 issues used Sonnet; the local model was not tried on them.
+Preparation was good in the sample. Task shape and size discriminated better than the label.
+Decision: keep the local default for S mechanical work, use a strong fallback for M test splits, remote-command work, and design, and test local on #1723 and #1731 before reclassifying labels.
+Limits: one retrospective sample, same-model review on some local results, no local attempts on strong labels, and environment confounds on #1727 and #1728.
