@@ -259,9 +259,9 @@ Decision: keep the compact-tags guidance; one task and one run per arm support i
 ## 2026-11-24: local sufficiency audit
 
 The [local sufficiency folder](2026-11-24-local-sufficiency) records the [#248](https://github.com/lmorchard/ghflow/issues/248) audit.
-It asks which well-defined issues need a strong model. The local model is the default and the strong model is the fallback.
-Local-labeled S tasks passed. Local-labeled M test splits and remote-command work failed, parked, or stayed a draft.
-The strong-labeled #1729 issues used Sonnet; the local model was not tried on them.
-Preparation was good in the sample. Task shape and size discriminated better than the label.
-Decision: keep the local default for S mechanical work, use a strong fallback for M test splits, remote-command work, and design, and test local on #1723 and #1731 before reclassifying labels.
-Limits: one retrospective sample, same-model review on some local results, no local attempts on strong labels, and environment confounds on #1727 and #1728.
+It asks which well-defined issues need a strong model.
+The #219 paired trial found no quality advantage for the strong model on #1723 and #1731. The local model did the strong-labeled #1729 issues.
+The local label is not a guarantee. Local M test splits and remote-command work stalled. The weekend S and XS issues #1337, #1408, and #1411 parked; #1411 was under-prepared. The M #1422 and #1409 succeeded.
+Task shape and preparation predict better than size.
+Decision: narrow the labels to routing for provider, cost, privacy, and environment. Remove quality expectations. Use local first; use strong on stall or for a manual environment. Do not run another label trial.
+Limits: #219 is an open PR, two issues per cell, one epic, retrospective strong arm; no live fleet; the closed epics lack per-issue data.

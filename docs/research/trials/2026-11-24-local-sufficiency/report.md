@@ -1,81 +1,94 @@
 # Local sufficiency audit
 
-This report gives the tables, findings, and candidate rubric for [index.md](index.md).
+This report gives the tables, findings, and rubric for [index.md](index.md).
 
-## Local attempts
+## The #219 paired trial
 
-The #1438 trial used the local model on all six `impl:local` children. The #1729 run used the local model on the three `impl:local` children.
+The #219 trial compared the local and strong implementations of #1723 and #1731. It also recorded the local-only #1725 and #1726. The #1729 run produced the local PRs for #1723, #1727, #1728, and #1731.
+
+| Issue | Label | Size | Local PR | Local result | Strong PR | Strong result | Local turns/context | Strong turns/context | Notes |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| #1725 | local | S | [#1781](https://github.com/lmorchard/decafclaw/pull/1781) | Minor, 0 blocking | Not run | — | 70; 107.7k | — | Local only |
+| #1726 | local | S | [#1782](https://github.com/lmorchard/decafclaw/pull/1782) | Minor, 0 blocking | Not run | — | 55; 117.7k | — | Local only |
+| #1723 | strong | M | [#1784](https://github.com/lmorchard/decafclaw/pull/1784) | Needs work, 1 blocking | [#1793](https://github.com/lmorchard/decafclaw/pull/1793) | Needs work, 2 blocking | 22; 100.0k | 23; 93.0k | Same main defect; the strong diff has one extra blocking finding |
+| #1731 | strong | M | [#1786](https://github.com/lmorchard/decafclaw/pull/1786) | Minor, 0 blocking | [#1794](https://github.com/lmorchard/decafclaw/pull/1794) | Minor, 0 blocking | 24; 98.6k | 26; 109.8k | Same themes |
+| #1727 | strong | S | [#1783](https://github.com/lmorchard/decafclaw/pull/1783) | Ready PR, open | Not run | — | 7; 40.3k | — | #1729 local; #219 did not pair it; manual Mac check |
+| #1728 | strong | M | [#1785](https://github.com/lmorchard/decafclaw/pull/1785) | Ready PR, open | Not run | — | 15; 77.6k | — | #1729 local; #219 did not pair it; real-host check unverified |
+| #1724 | local | M | None | Parked | Not run | — | 15; 44.8k | — | Remote-command quoting |
+
+All six #219 PRs are open and unmerged. The #1723 and #1731 pairs are the quality comparison. The #1725 and #1726 local-only results confirm the local label on S work. The #1727 and #1728 local PRs show that the local model did the strong-labeled work; the #219 trial did not pair them.
+
+## Other local attempts
+
+The #1438 trial used the local model on six `impl:local` children. The weekend run used the local model on the `impl:local` children across the janitorial epics.
 
 | Issue | Label | Size | Shape | Preparation | Local result | Turns and context | Notes |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| #1423 | local | S | Fixture gating | Partial: target removed before the run | DONE | 44 + 16 turns; 59.8k peak | Worker adapted to a stale target |
-| #1424 | local | S | OTel reset | Complete | DONE | 66 + 23 turns; 91.7k peak | Clean |
+| #1423 | local | S | Fixture gating | Partial: target removed | Ready PR | 44 + 16; 59.8k | Worker adapted |
+| #1424 | local | S | OTel reset | Complete | Ready PR | 66 + 23; 91.7k | Clean |
 | #1419 | local | M | Test split | Complete | Parked | 2 sessions, no edits | Idle timeout |
-| #1420 | local | M | Test split | Complete | DONE | 61 + 29 retry + 34 turns; 137.5k peak | Timeout and retry |
-| #1421 | local | M | Test split | Complete | Draft | 60 + 42 retry + 55 turns; 148.8k peak | Floor before ready |
-| #1725 | local | S | Network and process limits | Complete | DONE | 70 + 37 turns; 107.7k peak | Clean |
-| #1726 | local | S | Reaping | Complete | DONE | 55 + 14 turns; 117.7k peak | Clean |
-| #1724 | local | M | Remote command quoting | Complete | Parked | 15 turns; 44.8k peak | Idle timeout |
-| #1434 | local | mixed | Enum sweep | Complete | 10 of 10 done | Not per issue | Closed local-only epic |
-| #1432 | mixed | mixed | Context classification | Complete | 11 of 11 done | Not per issue | 9 local and 2 strong children |
-| #1425 | mixed | mixed | Security and paths | Complete | 6 of 6 done | Not per issue | 4 local and 2 strong children |
-| #1426 | local | mixed | Dead code cleanup | Complete | 11 of 11 done | Not per issue | Closed local-only epic |
+| #1420 | local | M | Test split | Complete | Ready PR | 61 + 29 retry + 34; 137.5k | Timeout and retry |
+| #1421 | local | M | Test split | Complete | Draft | 60 + 42 retry + 55; 148.8k | Floor before ready |
+| #1422 | local | M | Test refactor | Complete | Done, merged | 92 turns; 1.1 h | Weekend phase E; the M refactor succeeded |
+| #1409 | local | M | JS extraction | Complete | Done, merged | Not per issue | Weekend run; the M extraction succeeded |
+| #1337 | local | S | Dispatch helper | Complete | Parked | Not per issue | Two idle timeouts; strong retry is reasonable |
+| #1408 | local | S | Lazy imports | Complete | Parked | Not per issue | Draft #1689; 5400 s limit and idle timeout |
+| #1411 | local | XS | Dead listener | Missing: target absent | Parked | Not per issue | Under-prepared; recommend close |
+| #1434 | local | mixed | Enum sweep | Not audited per issue | 10 of 10 done | Not per issue | Closed local-only epic |
+| #1432 | mixed | mixed | Context classification | Not audited per issue | 11 of 11 done | Not per issue | 9 local and 2 strong children |
+| #1425 | mixed | mixed | Security and paths | Not audited per issue | 6 of 6 done | Not per issue | 4 local and 2 strong children |
+| #1426 | local | mixed | Dead code cleanup | Not audited per issue | 11 of 11 done | Not per issue | Closed local-only epic |
 
-The #1438 #1422 issue was not started. It is not in the table.
-
-## Strong baselines
-
-The #1729 strong labels used Sonnet and Opus. The local model was not tried on these issues.
-
-| Issue | Label | Size | Shape | Strong result | Turns and context | Local test |
-| --- | --- | --- | --- | --- | --- | --- |
-| #1723 | strong | M | Host record and cache | DONE | 22 + 15 turns; 100.0k peak | Not run |
-| #1727 | strong | S | Isolation docs and manual check | DONE | 7 + 10 turns; 40.3k peak | Not run; likely over-provisioned |
-| #1728 | strong | M | Selfcheck on a real host | DONE | 15 + 11 turns; 77.6k peak | Not run; needs a real host |
-| #1731 | strong | M | Engine outside decafclaw | DONE | 24 + 19 turns; 98.6k peak | Not run |
+The #1438 #1422 issue was not started in that trial. It ran in the weekend phase E.
 
 ## Findings
 
-**1. The local label is not a guarantee.** Local-labeled S tasks passed: #1423, #1424, #1725, and #1726. Local-labeled M tasks were mixed: #1419 parked, #1421 stayed a draft, #1724 parked, and #1420 needed a retry. The local label is useful for S mechanical work and weak for M test splits and remote-command work.
+**1. The labels do not predict implementation quality.** The #219 paired trial found local and strong comparable. On #1723, both need work; the local diff has one blocking finding and the strong diff has two. On #1731, both are minor. The strong arm was not faster. The strong label is a routing label, not a quality signal.
 
-**2. The strong label is mostly untested locally.** #1723, #1727, #1728, and #1731 used Sonnet. The audit cannot tell whether the local model would pass them. #1727 is an S documentation change with a manual check. It is a likely false strong label. #1728 needs a real enrolled host. Environment access confounds it.
+**2. The local model did the strong-labeled #1729 issues.** It produced #1723, #1727, #1728, and #1731. The strong label did not prevent local work. #1727 and #1728 are local PRs from the #1729 run. #1728 still needs a real-host check.
 
-**3. Preparation is good in this sample.** The issue bodies have Size, Triage, Problem, Result, Scope, Verify, Tests, and Deps sections. The local failures are not missing-definition failures. #1423 had a stale target, but the worker adapted. The M test splits and the remote-command task were well defined and still failed or stayed a draft.
+**3. The local label is not a guarantee.** Local M test splits #1419 and #1421 stalled or stayed a draft. Local remote-command work #1724 parked. The weekend S and XS issues #1337, #1408, and #1411 parked. The failures are stalls, limits, and task shape, not bad code. The M test refactor #1422 and the M extraction #1409 succeeded. The #1438 M test splits stalled. The weekend record says shape predicts better than size.
 
-**4. Task shape and size discriminate better than the label.** S mechanical work is local-friendly. M test splits, remote command quoting, and cross-module design are risky for the local model. The binary label puts S docs and M test splits in different groups, but it also puts S docs in the strong group and M test splits in the local group.
+**4. Preparation is mixed.** #1411 had no target at the run base. #1423 had a stale target. The well-defined M test splits and the remote-command issue still stalled. Preparation is necessary, not sufficient. The user hypothesis is partly supported: the local model does most well-defined work, but some shapes stall.
 
-**5. The strong label can encode environment access.** #1727 needs a person at an enrolled Mac. #1728 needs a real enrolled host. The label may mean "needs a manual environment," not "needs a stronger model." Separate environment access from model need.
+**5. The strong label can encode environment or manual access.** #1727 needs a person at an enrolled Mac. #1728 needs a real enrolled host. The label may mean "needs a manual environment," not "needs a stronger model." Separate environment access from model quality.
 
-**6. The user hypothesis is partly supported.** The local model can do most S grunt work. Preparation is necessary, but it is not sufficient. M test splits and remote-command work still need a strong fallback in this sample.
+**6. The closed epics do not isolate local success.** #1432 and #1425 have strong children. #1434 and #1426 are local-only. The audit has no per-issue session data for any of them. Use them as context, not as local-label evidence.
 
 ## Candidate rubric
 
-| Shape | Size | Local default | Evidence |
-| --- | --- | --- | --- |
-| Mechanical docs, dedupe, or small refactor with unit tests | S | Yes | #1423, #1424, #1725, #1726 |
-| Mechanical route extraction or dedupe with clear tests | M | Local first; strong on stall | #1434, #1426; mixed epics #1432 and #1425 |
-| Test split or large-file restructuring | M | Strong fallback | #1419 parked, #1421 draft, #1420 retries |
-| Remote command, quoting, or concurrency | M | Strong fallback | #1724 parked |
-| Cross-module design, new API, or contract work | M | Strong | #1723 and #1731 strong; local untested |
-| Manual or real-host check | Any | Human or strong, independent of model | #1727, #1728 |
+| Shape | Size | Local default | Strong fallback | Evidence |
+| --- | --- | --- | --- | --- |
+| Mechanical docs, dedupe, or small refactor with unit tests | S | Yes | On stall | #1423, #1424, #1725, #1726, #1727 |
+| Mechanical extraction or dedupe with clear tests | M | Yes | On stall | #1422, #1409, #1434, #1426; mixed epics #1432 and #1425 |
+| Test split or large-file restructuring | M | First, with checkpoint and extraction | On stall | #1420 retry, #1421 draft, #1419 parked; #1422 test refactor done |
+| Remote command, quoting, or concurrency | M | First, with focused tests | On stall | #1724 parked |
+| Cross-module design, new API, or contract work | M | First; review both | On stall or provider need | #1723 both need work; #1731 both minor |
+| Manual or real-host check | Any | No | Person or strong environment | #1727, #1728; environment, not quality |
+| Stall-prone S or XS | S, XS | First | On stall | #1337, #1408, #1411; #1411 under-prepared |
 
 ## Decision
 
-- Keep the local default for S mechanical work.
-- Use a strong fallback for M test splits, remote-command work, and design work until the local-on-strong test runs.
-- Do not reclassify the labels yet. The sample is small and the strong labels are mostly untested locally.
-- Run #219 on #1723 and #1731. Add #1727 as a false-strong candidate. Leave #1728 out because it needs a real host.
-- Run the #1435 S batch as the local-first test for strong-labeled S tasks.
-- After those results, replace or narrow the labels with a shape, size, and environment rubric.
+- **Narrow the labels.** Keep `impl:local` and `impl:strong` as routing labels for provider, cost, privacy, and environment. Remove quality expectations. The #219 record owns the trial. This audit adds the shape and preparation evidence.
+- Use the local model first for S and M mechanical work.
+- Use the local model first with a strong fallback on stall for M test splits, remote-command work, and design.
+- Use a person or a strong environment for manual and real-host checks.
+- Do not run another label trial. #219 is the decisive check. The #1435 S batch remains a local-first routing test.
+- The labels need a change: narrow them. Do not replace them with a global model swap.
+
+The answer to #248: no well-defined issue in this sample needed a strong model for implementation quality. The strong model was comparable, not better. A strong fallback helps with stalls, provider needs, and manual environments.
 
 ## Evidence limits
 
-- Retrospective sample, not a controlled experiment.
-- The strong labels were not tested with the local model.
-- Some local results used same-model review.
-- #1727 and #1728 need a real host. Environment access confounds their labels.
-- #1423 had a stale target. The worker adapted.
-- The closed epics #1434, #1432, #1425, and #1426 have no per-issue session data in this audit. #1432 and #1425 have strong children, so their completion does not prove local success on every child.
-- The strong model was not tested on the M test splits or remote-command tasks. The strong fallback is a practical default, not a proven result.
+- The #219 record is an open PR, not merged. Its result comment is on #219.
+- #219 used two issues per cell, one epic, and one run per arm.
+- The strong arm was retrospective and manual.
+- #1438 and #1729 used same-model review. #219 used an anonymized Opus review.
+- The weekend run had one run and a changing task mix.
+- #1422 and #1409 have no per-issue token data in the weekend record.
+- #1337, #1408, and #1411 parked. #1411 was under-prepared.
+- No diff ran against a live fleet. Manual checks are unverified.
+- The closed epics #1434, #1432, #1425, and #1426 have no per-issue data. #1432 and #1425 have strong children.
+- The #1727 and #1728 local PRs were not paired with strong implementations.
 - Token counts differ by tokenizer, reasoning style, and tool output.
 - Wall time is omitted because it measures hardware and infrastructure.
