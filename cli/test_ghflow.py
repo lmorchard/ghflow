@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -5561,3 +5561,70 @@ class PrimaryCheckoutGuardTests(unittest.TestCase):
             status = main(["worktree", "ensure", "https://github.com/o/r/issues/5"])
         self.assertEqual(status, 0)
         prepare.assert_called_once()
+
+
+class AuditIssueTests(unittest.TestCase):
+    def test_cited_paths_filters_refs_urls_and_commands(self):
+        body = "`origin/main` `src/a.py` `https://x/y.py` `foo.py` `ghflow audit` `express-issue`"
+        self.assertEqual(cited_paths(body), ["src/a.py", "foo.py"])
+
+    def test_audit_reports_cited_paths_and_last_commit(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo = Path(temp)
+            subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True)
+            subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+            (repo / "src").mkdir()
+            (repo / "src" / "a.py").write_text("x\n")
+            subprocess.run(["git", "add", "."], cwd=repo, check=True)
+            subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+            subprocess.run(["git", "update-ref", "refs/remotes/origin/main", "HEAD"], cwd=repo, check=True)
+            subprocess.run(
+                ["git", "symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main"],
+                cwd=repo,
+                check=True,
+            )
+            head = subprocess.run(
+                ["git", "rev-parse", "HEAD"], cwd=repo, capture_output=True, text=True, check=True
+            ).stdout.strip()
+
+            def fake_facts(cwd=None, issue=None, gh=None, git=None):
+                return {
+                    "checkout": {"primary_root": str(repo), "root": str(repo), "head": head},
+                    "issue": {
+                        "url": "https://github.com/o/r/issues/1",
+                        "title": "T",
+                        "state": "OPEN",
+                        "labels": ["triage:ready"],
+                        "body": "`src/a.py` `missing.py`",
+                        "blocked_by": [],
+                        "blocking": [],
+                        "board_items": [],
+                        "branches": [],
+                        "worktrees": [],
+                        "prs": [],
+                    },
+                    "errors": [],
+                }, 0
+
+            result = audit_issue("https://github.com/o/r/issues/1", cwd=repo, facts_reader=fake_facts)
+
+            paths = {entry["path"]: entry for entry in result["cited_paths"]}
+            self.assertTrue(paths["src/a.py"]["exists"])
+            self.assertIn("init", paths["src/a.py"]["last_commit"])
+            self.assertFalse(paths["missing.py"]["exists"])
+            self.assertEqual(result["head"], head)
+            self.assertEqual(result["default_branch"], "main")
+            self.assertIn("proceed", result["verdicts"])
+
+    def test_audit_cli_writes_out(self):
+        with tempfile.TemporaryDirectory() as temp:
+            out = Path(temp) / "audit.json"
+            with patch(
+                "ghflow.audit_issue",
+                return_value={"issue": {"url": "https://github.com/o/r/issues/1"}, "cited_paths": []},
+            ), patch("sys.stdout", new_callable=io.StringIO):
+                status = main(["audit-issue", "https://github.com/o/r/issues/1", "--out", str(out)])
+            self.assertEqual(status, 0)
+            self.assertTrue(out.exists())
+            self.assertEqual(json.loads(out.read_text())["issue"]["url"], "https://github.com/o/r/issues/1")

@@ -1933,6 +1933,86 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
 DELIVERY_STAMP_FORMAT = "%Y-%m-%d-%H%M"
 
 
+CITED_PATH_RE = re.compile(r"`([^`\n]+)`")
+CITED_PATH_SUFFIX_RE = re.compile(r":\d+(?:-\d+)?$")
+CITED_FILE_RE = re.compile(r"\.(?:py|md|json|yaml|yml|toml|js|ts|tsx|jsx|css|html|sh)$")
+
+
+def cited_paths(body):
+    """Return plausible file paths mentioned in backticked spans of an issue body."""
+    paths = []
+    for token in CITED_PATH_RE.findall(body or ""):
+        token = token.strip()
+        if not token or token.startswith(("http://", "https://", "git ", "ghflow ", "make ", "$")):
+            continue
+        if token.startswith(("origin/", "refs/", "remotes/", "HEAD")):
+            continue
+        candidate = CITED_PATH_SUFFIX_RE.sub("", token)
+        if "/" not in candidate and not CITED_FILE_RE.search(candidate):
+            continue
+        if candidate not in paths:
+            paths.append(candidate)
+    return paths
+
+
+def audit_issue(issue_url, *, repo=None, cwd=None, gh=run_gh, git=run_git, facts_reader=project_facts):
+    """Collect live facts for a per-issue premise audit (#253).
+
+    Reads only: issue state/labels/blockers/PRs/branches/worktrees, the current
+    head, and the cited paths' existence plus their last-touching commit. The
+    agent still reproduces the behavior and records a verdict.
+    """
+    issue_repo, issue_number = parse_issue(issue_url, repo, cwd=cwd, git=git)
+    facts, _status = facts_reader(cwd=cwd, issue=(issue_repo, issue_number), gh=gh, git=git)
+    issue = facts.get("issue") or {}
+    checkout = facts.get("checkout") or {}
+    primary = Path(checkout.get("primary_root") or checkout.get("root") or ".")
+    head = checkout.get("head") or ""
+    try:
+        base = default_branch(primary, git)
+    except (GhError, OSError, ValueError):
+        base = ""
+
+    cited = []
+    for rel in cited_paths(issue.get("body") or ""):
+        path = primary / rel
+        exists = path.exists()
+        last = ""
+        if exists:
+            try:
+                last = git(["log", "-1", "--format=%h %ad %s", "--date=short", "--", rel], primary).strip()
+            except (GhError, OSError):
+                last = ""
+        cited.append({"path": rel, "exists": exists, "last_commit": last})
+
+    return {
+        "issue": {
+            "url": issue.get("url") or issue_url,
+            "title": issue.get("title") or "",
+            "state": issue.get("state") or "",
+            "labels": issue.get("labels") or [],
+            "blocked_by": issue.get("blocked_by") or [],
+            "blocking": issue.get("blocking") or [],
+            "board_items": issue.get("board_items") or [],
+            "branches": issue.get("branches") or [],
+            "worktrees": issue.get("worktrees") or [],
+            "prs": issue.get("prs") or [],
+        },
+        "head": head,
+        "default_branch": base,
+        "cited_paths": cited,
+        "checklist": [
+            "Reproduce the reported behavior on the current head, or confirm the premise.",
+            "Confirm the cited files/lines still exist and the issue is not already fixed.",
+            "Check triage labels, blockers, and existing branch/PR/worktree.",
+            "Confirm the acceptance test is writable; note the blast radius.",
+            "Choose a verdict: proceed, reconsider, park, define, or close-fixed.",
+        ],
+        "verdicts": ["proceed", "reconsider", "park", "define", "close-fixed"],
+        "errors": facts.get("errors") or [],
+    }
+
+
 def primary_checkout(start, git=run_git):
     """Return the primary (non-bare, first) worktree of the repository containing start."""
     listing = git(["worktree", "list", "--porcelain"], start)
@@ -4731,6 +4811,10 @@ def main(argv=None):
     audit_toil_cmd.add_argument("--min-strikes", type=int, default=3, help="minimum distinct sessions required (default: 3)")
     audit_toil_cmd.add_argument("--min-length", type=int, default=2, help="minimum sequence length (default: 2)")
     audit_toil_cmd.add_argument("--json", action="store_true", help="output structured JSON instead of Markdown")
+    audit_issue_cmd = commands.add_parser("audit-issue", help="Collect live facts for a per-issue premise audit before implementation.")
+    audit_issue_cmd.add_argument("issue", help="issue URL, or issue number from the subject checkout")
+    audit_issue_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    audit_issue_cmd.add_argument("--out", metavar="FILE", help="write the audit JSON to this file")
     session_parser = commands.add_parser("session", help="OpenCode worker session inspection, tailing, summary, and debriefing.")
     session_commands = session_parser.add_subparsers(dest="session_command", required=True)
     sess_tail = session_commands.add_parser("tail", help="Tail the latest turns of a session log.")
@@ -4914,6 +4998,18 @@ def main(argv=None):
             board = (issue_repo, issue_number, args.owner, args.project, args.status)
         result, status = pr_ready(repo, number, args.body_file, args.expect_head, board)
 
+    elif args.command == "audit-issue":
+        try:
+            result = audit_issue(args.issue, repo=args.repo)
+            status = 0
+        except (GhError, OSError, ValueError) as error:
+            result, status = {"errors": [{"part": "audit", "error": str(error)}]}, 1
+        if args.out:
+            out = Path(args.out)
+            out.parent.mkdir(parents=True, exist_ok=True)
+            out.write_text(json.dumps(result, indent=2) + "\n", encoding="utf-8")
+            result = {"out": str(out), "issue": result.get("issue", {}).get("url", args.issue)}
+        text_output = None
     elif args.command == "facts":
         issue = parse_issue(args.issue, args.repo) if args.issue else None
         result, status = project_facts(issue=issue, bare_login=bare_gh_login)
