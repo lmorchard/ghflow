@@ -31,3 +31,5 @@ Park an issue only on the user's decision or when it is a parent whose open chil
 
 An unattended delivery that cannot settle a question, that hits a blocker it cannot clear, or that is in progress when its time budget ends, replaces `triage:ready` with `triage:needs-input`, posts the question, blocker, or remaining steps as a comment on the issue, and leaves its draft PR and the In progress board status in place. The label puts the issue in the same view as other issues that need the user. [sweep-needs-input](../tasks/sweep-needs-input.md) resolves a question or blocker. A park for time has nothing to resolve. When the delivery resumes from the PR with no open question, it replaces `triage:needs-input` with `triage:ready` before it continues.
 This use of `triage:needs-input` is distinct from `triage:parked`, which marks an issue nobody intends to work on.
+
+The park comment names the next step. For a well-defined issue, suggest a retry with a different local model or a person. For a partial or missing preparation, suggest a preparation fix first. For a time park, resume with the local model. Do not suggest a cloud model.

@@ -158,7 +158,8 @@ class Monitor:
     # -- preflight -----------------------------------------------------
 
     def preflight(self, facts, identity=None, exec_login=None, lock=None, model=None,
-                  model_available=None, model_map=None, endpoint_configured=None, endpoint_ok=None):
+                  model_available=None, review_model=None, review_available=None,
+                  endpoint_configured=None, endpoint_ok=None):
         """Record the checks that run before the first issue."""
         self.phase = "preflight"
         facts = facts or {}
@@ -189,13 +190,7 @@ class Monitor:
                      "The `gh api user` login was not read.",
                      {"login": configured})
 
-        if model_map:
-            self.add("model", "preflight", ALERT, PASS,
-                     f"Per-issue model map loaded from {model_map.get('path')}.",
-                     {"path": model_map.get("path"),
-                      "models": sorted(model_map.get("models") or {}),
-                      "review": sorted(model_map.get("review") or {})})
-        elif model:
+        if model:
             if model_available is None:
                 self.add("model", "preflight", ALERT, UNKNOWN,
                          f"The requested model `{model}` was not checked.",
@@ -211,6 +206,20 @@ class Monitor:
         else:
             self.add("model", "preflight", ALERT, SKIP,
                      "No model was requested; the runtime default applies.")
+
+        if review_model:
+            if review_available is None:
+                self.add("review_model", "preflight", ALERT, UNKNOWN,
+                         f"The review model `{review_model}` was not checked.",
+                         {"review_model": review_model})
+            elif review_available:
+                self.add("review_model", "preflight", ALERT, PASS,
+                         f"The review model `{review_model}` is installed.",
+                         {"review_model": review_model})
+            else:
+                self.add("review_model", "preflight", ALERT, FAIL,
+                         f"The review model `{review_model}` is not listed by opencode.",
+                         {"review_model": review_model})
 
         if lock is None:
             self.add("runner_lock", "preflight", STOP, UNKNOWN,

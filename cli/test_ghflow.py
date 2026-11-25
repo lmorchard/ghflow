@@ -4545,14 +4545,14 @@ class QueueSelectTests(unittest.TestCase):
 class QueueItemsTests(unittest.TestCase):
     def test_lists_issue_status_priority_size_and_labels(self):
         item = board_item(1293, "Ready", "P0", "S")
-        item["content"]["labels"] = {"nodes": [{"name": "triage:ready"}, {"name": "impl:local"}]}
+        item["content"]["labels"] = {"nodes": [{"name": "triage:ready"}]}
         board = FakeQueueBoard([{"nodes": [item]}])
         result, status = queue_items("o", 6, gh=board)
         self.assertEqual(status, 0, result["errors"])
         self.assertEqual(result["items"], [{
             "issue": "o/r#1293", "url": "https://github.com/o/r/issues/1293", "repo": "o/r",
             "number": 1293, "title": "Issue 1293", "state": "OPEN", "status": "Ready",
-            "priority": "P0", "size": "S", "labels": ["triage:ready", "impl:local"],
+            "priority": "P0", "size": "S", "labels": ["triage:ready"],
         }])
 
 

@@ -8,9 +8,12 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import run_queue
+
+os.environ.setdefault("GHFLOW_NO_MODEL_UNLOAD", "1")
 
 _LOCK_DIR = None
 _SAVED_LOCK_ENV = None
@@ -254,7 +257,7 @@ class NextStepTableTests(unittest.TestCase):
 
     def test_negative_context_limits_are_rejected(self):
         with self.assertRaises(SystemExit):
-            run_queue.main(["--model", "test/model", "--context-warn-tokens", "-1", "--no-notebook"])
+            run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--context-warn-tokens", "-1", "--no-notebook"])
 
     def test_verification_lines_extracts_verify_clause(self):
         body = "**Size:** S\n\n**Verify.** `make test` — `tests/test_x.py`.\n\n**Tests.** Add a case."
@@ -330,7 +333,7 @@ class ProjectDiscoveryTests(unittest.TestCase):
              patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [], "selection": []}):
             # When both --provider and --model given without slash
             with patch("run_queue.run_session") as mock_session:
-                run_queue.main(["--provider", "lmstudio", "--model", "qwen3.8-27b", "--once", "--no-notebook"])
+                run_queue.main(["--provider", "lmstudio", "--model", "qwen3.8-27b", "--review-model", "qwen3.8-27b-review", "--once", "--no-notebook"])
             # Check options dict passed to run_session if it ran, or test arg parsing
             parser = argparse.ArgumentParser()
             # Test direct argument resolution in main logic
@@ -732,7 +735,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)):
-                run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
+                run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
 
         steps = [s for s, _ in captured_options]
         self.assertEqual(steps, ["review-changes", "submit-pr"])
@@ -780,7 +783,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-deterministic-pr", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes", "submit-pr"])
                 # queue summary was called
@@ -830,7 +833,7 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", return_value=({}, 0)) as mock_cli:
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
                 self.assertEqual(step_calls, ["implement-issue", "review-changes"])
                 ready_calls = [c for c in mock_cli.call_args_list if c[0][:2] == ("pr", "ready")]
@@ -951,7 +954,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_run_cli):
-            status = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", tmp])
+            status = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(status, 1)
 
     def test_parse_issue_ref(self):
@@ -1051,23 +1054,23 @@ class ParentSubIssueTests(unittest.TestCase):
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
-            labels = {"101": ["triage:ready", "impl:strong"],
-                      "102": ["triage:ready", "impl:local"],
-                      "103": ["triage:ready", "impl:local"],
-                      "104": ["triage:ready", "impl:local"]}[str(number)]
+            labels = {"101": ["triage:blocked"],
+                      "102": ["triage:ready"],
+                      "103": ["triage:ready"],
+                      "104": ["triage:ready"]}[str(number)]
             blocked = blocked_for_102 if number == 102 else []
             return {"issue": str(ref), "number": number, "labels": labels, "pr": None, "blocked_by": blocked}
 
         board = {101: {"priority": "P1", "size": "S"}, 102: {"priority": "P0", "size": "S"},
                  103: {"priority": "P1", "size": "S"}, 104: {"priority": "P1", "size": "XS"}}
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            # The strong child is out of scope; 102 is blocked by the still-open 101.
-            chosen = run_queue.next_item_for_parent(children, require_labels=["impl:local"],
+            # The blocked child is out of scope; 102 is blocked by the still-open 101.
+            chosen = run_queue.next_item_for_parent(children, require_labels=["triage:ready"],
                                                     board_index=board)
             self.assertEqual(chosen["number"], 104)  # XS before the P1/S child 103
             # Priority beats size: the now-unblocked P0 child 102 wins over 104.
             blocked_for_102 = []
-            chosen = run_queue.next_item_for_parent(children, require_labels=["impl:local"],
+            chosen = run_queue.next_item_for_parent(children, require_labels=["triage:ready"],
                                                     board_index=board, exclude={101})
             self.assertEqual(chosen["number"], 102)
 
@@ -1111,7 +1114,7 @@ class ParentSubIssueTests(unittest.TestCase):
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
             labels = (["triage:needs-definition"] if number == 101
-                      else ["triage:ready", "impl:local"])
+                      else ["triage:ready"])
             return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
@@ -1126,11 +1129,11 @@ class ParentSubIssueTests(unittest.TestCase):
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
-            label = "impl:strong" if number == 101 else "impl:local"
-            return {"issue": str(ref), "number": number, "labels": ["triage:ready", label], "pr": None}
+            labels = ["triage:blocked"] if number == 101 else ["triage:ready"]
+            return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            chosen = run_queue.next_item_for_parent(children, exclude_labels=["impl:strong"])
+            chosen = run_queue.next_item_for_parent(children, exclude_labels=["triage:blocked"])
         self.assertEqual(chosen["number"], 102)
 
     def test_find_base_pr_stacked_branch(self):
@@ -1277,7 +1280,7 @@ class ParentSubIssueTests(unittest.TestCase):
                  patch("run_queue.observe_issue", side_effect=fake_observe), \
                  patch("run_queue.run_session", side_effect=fake_run_session), \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir)])
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "100", "--project", "o/12", "--no-notebook", "--notes-dir", str(notes_dir)])
                 self.assertEqual(ret, 0)
 
         # Child 2 was implemented
@@ -1338,7 +1341,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12",
+            ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "100", "--project", "o/12",
                                   "--no-notebook", "--no-precompute-gates", "--notes-dir", tmp])
         self.assertEqual(ret, 0)
         review = next(options for step, options in captured if step == "review-changes")
@@ -1608,7 +1611,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.publish_committed", side_effect=fake_publish), \
              patch("run_queue.run_cli", side_effect=fake_cli):
             ret = run_queue.main(["--parent", "100", "--project", "o/12", "--no-notebook",
-                                  "--no-symbol-indexing", "--model", "lmstudio/test",
+                                  "--no-symbol-indexing", "--model", "lmstudio/test", "--review-model", "lmstudio/review",
                                   "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1616,7 +1619,7 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIn("implement-issue", steps)
         self.assertIn("review-changes", steps)
         review = next(options for step, options in sessions if step == "review-changes")
-        self.assertIn("model=lmstudio/test", review.get("extra_text", ""))
+        self.assertIn("model=lmstudio/review", review.get("extra_text", ""))
         self.assertFalse([args for args in cli_calls if args and args[0] == "park"],
                          "a successful publish must not be parked")
 
@@ -1670,7 +1673,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook",
+            ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "100", "--project", "o/12", "--no-notebook",
                                   "--no-symbol-indexing", "--step-idle-timeout", "1200",
                                   "--context-warn-tokens", "50000",
                                   "--max-context-tokens", "90000",
@@ -1715,7 +1718,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_session", return_value=(False, "boom")), \
              patch("run_queue.publish_committed", side_effect=fake_publish), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--project", "o/12", "--no-notebook",
+            ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "100", "--project", "o/12", "--no-notebook",
                                   "--no-symbol-indexing", "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1932,7 +1935,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -1957,7 +1960,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--require-facts-refresh", "--notes-dir", tmp])
 
         self.assertEqual(ret, 1)
@@ -1996,7 +1999,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -2046,7 +2049,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.observe_issue", side_effect=fake_observe), \
              patch("run_queue.run_session", side_effect=lambda *a, **k: (sessions.append(a[1]), fake_run_session(*a, **k))[1]), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            ret = run_queue.main(["--model", "test/model", "--parent", "100", "--parent", "200", "--project", "o/12",
+            ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "100", "--parent", "200", "--project", "o/12",
                                   "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(ret, 0)
         self.assertEqual([int(url.rsplit("/", 1)[-1]) for url in sessions], [101, 201])
@@ -2075,7 +2078,7 @@ class ParentSubIssueTests(unittest.TestCase):
              patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--notes-dir", tmp])
+            run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--notes-dir", tmp])
         extra = captured.get("extra_text", "")
         self.assertIn("reused from an earlier attempt", extra)
         self.assertIn("continue that work", extra)
@@ -2136,7 +2139,7 @@ class NotebookPublishingTests(unittest.TestCase):
                  patch("run_queue.narrative.summarize_session",
                        return_value=("- Model bullet.", "model")) as summarize, \
                  patch("run_queue.run_cli", side_effect=fake_cli):
-                status = run_queue.main(["--model", "test/model", "--once", "--notes-dir", tmp])
+                status = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--notes-dir", tmp])
         self.assertEqual(status, 0)
         return calls, bodies, comments, summarize, discussion_code
 
@@ -2441,7 +2444,7 @@ class PublishCommittedTests(unittest.TestCase):
              patch("run_queue.publish_committed", side_effect=lambda *a, **k: published.append((a, k))), \
              patch("run_queue.park_issue", return_value=({}, 0)), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--model", "test/model", "--once", "--notes-dir", tmp])
+            run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--notes-dir", tmp])
         self.assertEqual(len(published), 1)
         self.assertEqual(published[0][0][3], "o/r")
         self.assertIsNone(published[0][1].get("base_branch"))
@@ -2597,7 +2600,7 @@ class FloorDecisionTests(unittest.TestCase):
              patch("run_queue.run_cli", return_value=({}, 0)):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
         self.assertEqual(ret, 0)
@@ -2608,93 +2611,146 @@ class FloorDecisionTests(unittest.TestCase):
         self.assertIn("review-changes", parks[0][3])
 
 
-class ModelRoutingTests(unittest.TestCase):
-    """The per-issue model map selects implementation and review models."""
+class ModelUnloadTests(unittest.TestCase):
+    """LM Studio models unload before a different model starts."""
 
-    def write_map(self, tmp, models=None, review=None):
-        path = Path(tmp) / "runner.json"
-        path.write_text(json.dumps({
-            "models": models or {"impl:local": "local/impl", "impl:strong": "strong/impl"},
-            "review": review or {"impl:local": "local/review", "impl:strong": "strong/review"},
-        }), encoding="utf-8")
-        return path
+    def test_unloads_lmstudio_models(self):
+        calls = []
 
-    def test_load_model_map_accepts_labels_and_review_entries(self):
+        def runner(args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(returncode=0, stdout="unloaded", stderr="")
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "unloaded")
+        self.assertEqual(calls[0][0], ["/bin/lms", "unload", "--all"])
+        self.assertEqual(calls[0][1]["timeout"], 60)
+
+    def test_skips_other_providers(self):
+        runner = MagicMock()
+        which = MagicMock()
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "ollama/qwen", runner=runner, which=which)
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("not lmstudio", result["reason"])
+        runner.assert_not_called()
+        which.assert_not_called()
+
+    def test_skips_when_disabled(self):
+        runner = MagicMock()
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": "1"}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=MagicMock())
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("disabled", result["reason"])
+        runner.assert_not_called()
+
+    def test_skips_without_lms(self):
+        runner = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: None, home=tmp)
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("lms not found", result["reason"])
+        runner.assert_not_called()
+
+    def test_reports_an_unload_failure(self):
+        def runner(args, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="busy")
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "busy")
+
+    def test_reports_a_timeout(self):
+        def runner(args, **kwargs):
+            raise subprocess.TimeoutExpired("lms", 60)
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("timed out", result["reason"])
+
+
+class ParkSuggestionTests(unittest.TestCase):
+    """A park comment names the local next step."""
+
+    def park_text(self, kind):
         with tempfile.TemporaryDirectory() as tmp:
-            loaded = run_queue.load_model_map(self.write_map(tmp))
-        self.assertEqual(loaded["models"]["impl:local"], "local/impl")
-        self.assertEqual(loaded["review"]["impl:strong"], "strong/review")
+            calls = []
 
-    def test_load_model_map_reports_missing_and_invalid_files(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            with self.assertRaises(ValueError):
-                run_queue.load_model_map(Path(tmp) / "missing.json")
-            invalid = Path(tmp) / "invalid.json"
-            invalid.write_text("{", encoding="utf-8")
-            with self.assertRaises(ValueError):
-                run_queue.load_model_map(invalid)
-            no_review = Path(tmp) / "no-review.json"
-            no_review.write_text(json.dumps({"models": {"impl:local": "m"}}), encoding="utf-8")
-            with self.assertRaises(ValueError):
-                run_queue.load_model_map(no_review)
+            def fake_cli(*args, cwd=None):
+                calls.append(args)
+                return {}, 0
 
-    def test_selects_the_label_models(self):
-        model_map = {"models": {"impl:local": "local/impl", "impl:strong": "strong/impl"},
-                     "review": {"impl:local": "local/review", "impl:strong": "strong/review"}}
-        local, error = run_queue.select_issue_models(
-            {"labels": ["triage:ready", "impl:local"]}, model_map)
-        self.assertIsNone(error)
-        self.assertEqual(local, {"implementation": "local/impl", "review": "local/review",
-                                 "label": "impl:local", "pinned": False})
-        strong, error = run_queue.select_issue_models(
-            {"labels": ["impl:strong"]}, model_map)
-        self.assertIsNone(error)
-        self.assertEqual(strong["implementation"], "strong/impl")
+            run_queue.park_issue("https://github.com/o/r/issues/7", None, kind,
+                                 "Session failed repeatedly.", Path(tmp), cli_fn=fake_cli)
+            text_path = Path(calls[0][calls[0].index("--text") + 1])
+            return text_path.read_text(encoding="utf-8")
 
-    def test_missing_or_conflicting_labels_return_a_reason(self):
-        model_map = {"models": {"impl:local": "m"}, "review": {"impl:local": "r"}}
-        for labels, needle in (
-            (["triage:ready"], "No fit label"),
-            (["impl:local", "impl:strong"], "Conflicting fit labels"),
-            (["impl:unknown"], "not in the model map"),
-        ):
-            with self.subTest(labels=labels):
-                models, error = run_queue.select_issue_models({"labels": labels}, model_map)
+    def test_blocker_names_a_local_retry(self):
+        text = self.park_text("blocker")
+        self.assertIn("different local model or a person", text)
+        self.assertIn("fix the preparation", text)
+        self.assertIn("Do not use a cloud model", text)
+
+    def test_time_park_resumes_with_the_local_model(self):
+        text = self.park_text("time")
+        self.assertIn("Resume with the local model", text)
+
+
+class LocalModelTests(unittest.TestCase):
+    """The local models select implementation and review."""
+
+    def test_accepts_local_providers(self):
+        for model in ("lmstudio/qwen3.8-27b-mlx@4bit", "ollama/qwen3.8:27b",
+                      "mlx/mlx-community/Qwen3.8-27B-4bit", "rec/flint", "llama.cpp/llama"):
+            with self.subTest(model=model):
+                models, error = run_queue.select_models(model, model)
+                self.assertIsNone(error)
+                self.assertEqual(models, {"implementation": model, "review": model})
+
+    def test_rejects_cloud_providers(self):
+        for model in ("otari/qwen3.8-27b", "google-vertex/gemini-3.5-flash",
+                      "opencode/flint-40b-free", "anthropic/claude-sonnet-5.5"):
+            with self.subTest(model=model):
+                models, error = run_queue.select_models(model, "lmstudio/review")
                 self.assertIsNone(models)
-                self.assertIn(needle, error)
-        models, error = run_queue.select_issue_models(
-            {"labels": ["impl:local"]}, {"models": {"impl:local": "m"}, "review": {}})
-        self.assertIsNone(models)
-        self.assertIn("No review model", error)
+                self.assertIn("is not local", error)
 
-    def test_a_pinned_model_bypasses_the_map_and_labels(self):
-        models, error = run_queue.select_issue_models(
-            {"labels": []}, {"models": {}, "review": {}}, pinned_model="pinned/model")
+    def test_applies_the_provider_to_both_models(self):
+        models, error = run_queue.select_models("qwen", "flint", provider="lmstudio")
         self.assertIsNone(error)
-        self.assertEqual(models, {"implementation": "pinned/model", "review": "pinned/model",
-                                  "pinned": True})
+        self.assertEqual(models, {"implementation": "lmstudio/qwen",
+                                  "review": "lmstudio/flint"})
 
     def test_summary_names_both_models(self):
         records = [{"issue": "https://github.com/o/r/issues/7", "pr": "none", "endpoint": "DONE",
-                    "models": {"implementation": "local/impl", "review": "local/review"}}]
+                    "models": {"implementation": "lmstudio/impl", "review": "lmstudio/review"}}]
         summary = run_queue.format_run_summary(
             records, [], Path("."), 0, cwd="/nonexistent",
-            model_note="per-issue map `/tmp/runner.json`")
-        self.assertIn("local/impl / local/review", summary)
-        self.assertIn("Model: per-issue map", summary)
+            model_note="implementation `lmstudio/impl`, review `lmstudio/review`")
+        self.assertIn("lmstudio/impl / lmstudio/review", summary)
+        self.assertIn("Model: implementation", summary)
 
 
-class ModelRoutingMainTests(unittest.TestCase):
-    """main applies the map, parks label errors, and stops without a map."""
+class LocalModelMainTests(unittest.TestCase):
+    """main uses the local implementation and review models."""
 
-    def issue(self, labels):
+    def issue(self, labels=None):
         return {"issue": "https://github.com/o/r/issues/7", "number": 7, "title": "Fix it",
-                "labels": labels, "pr": None}
+                "labels": labels or ["triage:ready"], "pr": None}
 
-    def run_main(self, tmp, issue, extra_args, run_session=None, park_issue=None):
+    def run_main(self, tmp, issue, extra_args, run_session=None):
         board = {"in_flight": [], "parked": [], "selection": [{"number": 7, "issue": issue["issue"]}]}
         session = run_session or (lambda *a, **k: (True, "ses_1"))
-        park = park_issue or (lambda *a, **k: ({}, 0))
 
         def fake_cli(*args, cwd=None):
             return {}, 0
@@ -2706,7 +2762,6 @@ class ModelRoutingMainTests(unittest.TestCase):
              patch("run_queue.observe_issue", return_value=issue), \
              patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=session), \
-             patch("run_queue.park_issue", side_effect=park), \
              patch("run_queue.monitor_mod.probe_model", return_value=True), \
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
@@ -2715,72 +2770,41 @@ class ModelRoutingMainTests(unittest.TestCase):
                                       "--notes-dir", tmp] + extra_args)
         return ret, out.getvalue()
 
-    def test_uses_the_map_model_for_implementation(self):
+    def test_uses_local_implementation_and_review_models(self):
         with tempfile.TemporaryDirectory() as tmp:
-            map_path = Path(tmp) / "runner.json"
-            map_path.write_text(json.dumps({
-                "models": {"impl:local": "local/impl"},
-                "review": {"impl:local": "local/review"},
-            }), encoding="utf-8")
             captured = []
 
             def session(step, issue_url, notes_dir, options, **kwargs):
                 captured.append((step, options))
                 return True, "ses_1"
 
-            ret, _ = self.run_main(tmp, self.issue(["triage:ready", "impl:local"]),
-                                   ["--model-config", str(map_path)], run_session=session)
+            ret, _ = self.run_main(tmp, self.issue(),
+                                   ["--model", "lmstudio/qwen", "--review-model", "lmstudio/flint"],
+                                   run_session=session)
         self.assertEqual(ret, 0)
         implement = [options for step, options in captured if step == "implement-issue"]
         self.assertTrue(implement)
-        self.assertEqual(implement[0]["model"], "local/impl")
+        self.assertEqual(implement[0]["model"], "lmstudio/qwen")
+        self.assertEqual(implement[0]["review_model"], "lmstudio/flint")
 
-    def test_parks_an_issue_without_a_fit_label(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            map_path = Path(tmp) / "runner.json"
-            map_path.write_text(json.dumps({
-                "models": {"impl:local": "local/impl"},
-                "review": {"impl:local": "local/review"},
-            }), encoding="utf-8")
-            parks = []
-
-            def park(issue_url, pr_url, kind, text, notes_dir, **kwargs):
-                parks.append((issue_url, pr_url, kind, text))
-                return {}, 0
-
-            ret, _ = self.run_main(tmp, self.issue(["triage:ready"]),
-                                   ["--model-config", str(map_path)], park_issue=park)
-        self.assertEqual(ret, 0)
-        self.assertEqual(parks[0][2], "blocker")
-        self.assertIn("No fit label", parks[0][3])
-
-    def test_stops_before_selection_without_a_model_or_map(self):
+    def test_rejects_a_cloud_model_before_selection(self):
         with tempfile.TemporaryDirectory() as tmp, \
              patch("run_queue.discover_project", return_value=("o", 12)), \
              patch("run_queue.observe_board") as board:
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--once", "--no-notebook",
-                                      "--model-config", str(Path(tmp) / "missing.json"),
-                                      "--notes-dir", tmp])
+                ret = run_queue.main(["--model", "otari/qwen3.8-27b",
+                                      "--review-model", "lmstudio/flint",
+                                      "--once", "--no-notebook", "--notes-dir", tmp])
         self.assertEqual(ret, 1)
         board.assert_not_called()
-        self.assertIn("Model map not found", out.getvalue())
+        self.assertIn("is not local", out.getvalue())
 
-    def test_pinned_model_bypasses_the_map(self):
-        with tempfile.TemporaryDirectory() as tmp:
-            captured = []
-
-            def session(step, issue_url, notes_dir, options, **kwargs):
-                captured.append((step, options))
-                return True, "ses_1"
-
-            ret, _ = self.run_main(tmp, self.issue(["triage:ready"]),
-                                   ["--model", "pinned/model"], run_session=session)
-        self.assertEqual(ret, 0)
-        implement = [options for step, options in captured if step == "implement-issue"]
-        self.assertTrue(implement)
-        self.assertEqual(implement[0]["model"], "pinned/model")
+    def test_requires_both_models(self):
+        with self.assertRaises(SystemExit):
+            run_queue.main(["--model", "lmstudio/qwen", "--once", "--no-notebook"])
+        with self.assertRaises(SystemExit):
+            run_queue.main(["--review-model", "lmstudio/flint", "--once", "--no-notebook"])
 
 
 class RestoreGeneratedPathsTests(unittest.TestCase):
@@ -2874,7 +2898,7 @@ class FloorReplayTests(unittest.TestCase):
              patch("run_queue.check_active_runs"), \
              patch("run_queue.acquire_run_lock"), \
              patch("run_queue.narrative.post_issue_checkpoint"):
-            ret = run_queue.main(["--model", "test/model", "--parent", "1438", "--project", "o/6",
+            ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "1438", "--project", "o/6",
                                   "--hours", "0.2", "--floor", "30", "--once",
                                   "--no-notebook", "--no-symbol-indexing",
                                   "--notes-dir", tmp])
@@ -2917,7 +2941,7 @@ class FloorReplayTests(unittest.TestCase):
              patch("run_queue.narrative.post_issue_checkpoint"):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--parent", "1438", "--project", "o/6",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--parent", "1438", "--project", "o/6",
                                       "--hours", "0.2", "--floor", "30", "--once",
                                       "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
@@ -2957,7 +2981,7 @@ class StaleFactsDirectiveTests(unittest.TestCase):
              patch("run_queue.publish_committed", return_value=None), \
              patch("run_queue.run_session", side_effect=fake_run_session), \
              patch("run_queue.run_cli", side_effect=fake_cli):
-            run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing", "--notes-dir", tmp])
+            run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing", "--notes-dir", tmp])
 
         extra = captured.get("extra_text", "")
         self.assertIn("Makefile", extra)
@@ -3004,7 +3028,7 @@ class MonitorIntegrationTests(unittest.TestCase):
              patch("run_queue.run_cli", side_effect=fake_cli):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "test/model", "--once", "--no-notebook", "--no-symbol-indexing",
+                ret = run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--once", "--no-notebook", "--no-symbol-indexing",
                                       "--notes-dir", tmp])
 
             self.assertEqual(ret, 0)
