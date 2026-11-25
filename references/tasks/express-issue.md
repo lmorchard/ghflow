@@ -16,6 +16,24 @@ Use the endpoint agreed in the conversation. If none was given, state the defaul
 
 Confirm the paths of the linked task references before dispatch. Do not read a worker's procedure: the handoff names it, and the worker reads it. A handoff names the task reference and supplies the facts, decisions, and authorization that the worker cannot read itself, as [Handoffs](../shared/coordination.md#handoffs) lists. It does not restate the procedure. The handoff subject is the issue: give its URL, or a bare number resolved through the subject checkout, not a PR URL.
 
+## Audit the issue first
+
+Before implementation, run the live per-issue audit against the current checkout:
+
+```bash
+python3 "$GHFLOW_CLI" audit-issue ISSUE --out FILE
+```
+
+Read the result, then reproduce the reported behavior (or confirm the premise) on the current head. Confirm the cited paths still exist, check the labels/blockers and any existing branch/PR/worktree, and confirm the acceptance test is writable. Record the audit evidence and a verdict in the task notes and the PR body:
+
+- **proceed** — the premise holds and the acceptance test is writable.
+- **reconsider** — the issue is stale or contradicts current code.
+- **park** — a blocker or open decision prevents delivery.
+- **define** — the scope is unclear or the acceptance is missing.
+- **close-fixed** — an earlier merge already fixed it; add a regression test and close with evidence.
+
+The audit is per issue and must use the current `origin/main`, not the burndown's selection snapshot. A premise-changed verdict parks or reconsiders that issue and continues the queue; do not implement a stale issue.
+
 ## Resume from evidence
 
 Read existing [Task notes](../shared/task-notes.md), then inspect existing branches, worktrees, PRs, review records, and check results for the issue. If the issue was parked by an unattended delivery and no question remains open, restore its label under [Parked deliveries](../shared/triage-labels.md#parked-deliveries) before the next dispatch. Reuse completed work when it still applies to the current revision. Do not create another branch or PR because this invocation is new. Keep evidence of implementation, tests, independent review, publication, and merge distinct.
