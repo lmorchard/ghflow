@@ -34,6 +34,15 @@ Read the result, then reproduce the reported behavior (or confirm the premise) o
 
 The audit is per issue and must use the current `origin/main`, not the burndown's selection snapshot. A premise-changed verdict parks or reconsiders that issue and continues the queue; do not implement a stale issue.
 
+### Execution labels
+
+An issue's `execution:*` label changes the delivery path; `triage:*` remains the refinement state.
+
+- `execution:ops` — a production config/data change. No PR. Capture evidence, back up, apply, verify, and comment; move the board to In review or Done.
+- `execution:spike` — a read-only investigation. The deliverable is a findings comment; no PR.
+- `merge:hold` — the PR may be ready, but do not merge or enqueue it.
+- `needs:host-access` — the task requires a specific host or credential. Do not attempt it without that access; park it instead.
+
 ## Resume from evidence
 
 Read existing [Task notes](../shared/task-notes.md), then inspect existing branches, worktrees, PRs, review records, and check results for the issue. If the issue was parked by an unattended delivery and no question remains open, restore its label under [Parked deliveries](../shared/triage-labels.md#parked-deliveries) before the next dispatch. Reuse completed work when it still applies to the current revision. Do not create another branch or PR because this invocation is new. Keep evidence of implementation, tests, independent review, publication, and merge distinct.

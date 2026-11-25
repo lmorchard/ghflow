@@ -28,6 +28,10 @@ Read `author` and `commit_authors` with `pr-state`, and read the configured logi
 
 Report a PR whose author differs from the configured login. Report a commit author outside the expected accounts. A mixed-author PR needs an explicit decision from the user before merge; do not merge it silently. A `null` author field is unread, not a match. A `null` `commit_authors` is an incomplete read; report it and do not present the attribution check as passed.
 
+## Respect merge:hold
+
+A PR linked to an issue labeled `merge:hold` is not merged or enqueued, even when CI is green and review is affirmative. Return the hold to the user. The label is the veto; do not remove it yourself.
+
 ## Require review evidence or permission
 
 Apply the review-source policy in [Review](../shared/review.md). Read the review body, inline discussions, and relevant top-level comments, including all result pages.
