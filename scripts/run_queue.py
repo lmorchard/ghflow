@@ -26,7 +26,7 @@ DEFAULT_SESSION_TIMEOUT = 5400
 DEFAULT_STEP_IDLE_TIMEOUT = 900
 DEFAULT_CONTEXT_WARN_TOKENS = 100000
 DEFAULT_MAX_CONTEXT_TOKENS = 0
-DEFAULT_MODEL_CONFIG = Path.home() / ".config" / "ghflow" / "runner.json"
+LOCAL_MODEL_PROVIDERS = ("lmstudio", "ollama", "mlx", "rec", "llama.cpp")
 SLOW_STEP_WARN_SECONDS = 120
 MAX_DEGENERATE_REASONING = 10000
 PRIORITY_ORDER = ("P0", "P1")
@@ -103,71 +103,32 @@ def normalize_model(value, provider=None):
     return value
 
 
-def load_model_map(path):
-    """Read and validate the per-issue model map, or raise ValueError."""
-    target = Path(path).expanduser()
-    try:
-        data = json.loads(target.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        raise ValueError(f"Model map not found: {target}. Set --model to pin one model, or create the map.")
-    except OSError as error:
-        raise ValueError(f"Model map could not be read: {target}: {error}")
-    except json.JSONDecodeError as error:
-        raise ValueError(f"Model map is not valid JSON: {target}: {error}")
-    if not isinstance(data, dict):
-        raise ValueError(f"Model map {target} must be a JSON object.")
-    result = {"path": str(target)}
-    for key in ("models", "review"):
-        section = data.get(key)
-        if not isinstance(section, dict):
-            raise ValueError(f"Model map {target} needs a `{key}` object.")
-        for label, model in section.items():
-            if not isinstance(label, str) or not label.startswith("impl:"):
-                raise ValueError(f"Model map {target} has an invalid `{key}` label {label!r}; labels start with impl:.")
-            if not isinstance(model, str) or not model.strip():
-                raise ValueError(f"Model map {target} has no model for `{label}` in `{key}`.")
-        result[key] = dict(section)
-    return result
+def is_local_model(model):
+    """Return whether a model ID uses a local provider."""
+    value = str(model)
+    provider = value.split("/", 1)[0] if "/" in value else ""
+    return provider in LOCAL_MODEL_PROVIDERS
 
 
-def select_issue_models(state, model_map, pinned_model=None, provider=None):
-    """Select implementation and review models from the issue's fit label.
+def select_models(implementation, review, provider=None):
+    """Normalize and validate the local implementation and review models.
 
-    Returns ``(models, error)``. A pinned model applies to every step and
-    bypasses the map. The error names the label problem for a park.
+    Returns ``(models, error)``. Both models must use a local provider.
     """
-    if pinned_model:
-        pinned = normalize_model(pinned_model, provider)
-        return {"implementation": pinned, "review": pinned, "pinned": True}, None
-    if model_map is None:
-        return None, "No model map is loaded."
-    labels = sorted(label for label in (state.get("labels") or [])
-                    if isinstance(label, str) and label.startswith("impl:"))
-    if not labels:
-        return None, "No fit label (`impl:*`) is present."
-    if len(labels) > 1:
-        return None, f"Conflicting fit labels: {', '.join(labels)}."
-    label = labels[0]
-    models = model_map.get("models") or {}
-    review = model_map.get("review") or {}
-    if label not in models:
-        return None, f"Fit label `{label}` is not in the model map."
-    if label not in review:
-        return None, f"No review model for `{label}`."
-    return {"implementation": normalize_model(models[label], provider),
-            "review": normalize_model(review[label], provider),
-            "label": label, "pinned": False}, None
+    models = {"implementation": normalize_model(implementation, provider),
+              "review": normalize_model(review, provider)}
+    for role, model in models.items():
+        if not is_local_model(model):
+            return None, (f"{role} model `{model}` is not local. "
+                          f"Use a local provider: {', '.join(LOCAL_MODEL_PROVIDERS)}.")
+    return models, None
 
 
 def format_models(models):
     """Render one issue's model choice for the run summary."""
     if not models:
         return "-"
-    if models.get("error"):
-        return f"parked: {models['error']}"
-    if models.get("pinned"):
-        return f"{models['implementation']} (pinned)"
-    return f"{models['implementation']} / {models['review']}"
+    return f"{models.get('implementation', '-')} / {models.get('review', '-')}"
 
 
 def verification_lines(body):
@@ -1700,8 +1661,13 @@ def format_symbol_index(symbol_results):
 
 def park_issue(issue_url, pr_url, kind, text_or_reason, notes_dir, cli_fn=run_cli, cwd=None):
     """Park an issue with ghflow park, naming the PR only when one exists."""
+    if kind == "time":
+        next_step = "Resume with the local model after the time budget resets."
+    else:
+        next_step = ("Make sure that the issue is well-defined. If it is, retry with a different "
+                     "local model or a person. If not, fix the preparation first. Do not use a cloud model.")
     text_file = notes_dir / f"park-{kind}-{time.strftime('%Y%m%d-%H%M%S')}.md"
-    text_file.write_text(f"## Parked ({kind})\n\n{text_or_reason}\n", encoding="utf-8")
+    text_file.write_text(f"## Parked ({kind})\n\n{text_or_reason}\n\nNext step: {next_step}\n", encoding="utf-8")
     args = ["park", issue_url]
     if pr_url:
         args += ["--pr", pr_url]
@@ -1863,10 +1829,11 @@ def main(argv=None):
                         help="only select children carrying this label; repeat for several labels")
     parser.add_argument("--exclude-label", action="append", default=[],
                         help="skip children carrying this label; repeat for several labels")
-    parser.add_argument("--model", help="pin every worker session to this model, in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
-    parser.add_argument("--provider", help="provider prefix for a model ID without a slash (e.g. lmstudio, ollama, google-vertex)")
-    parser.add_argument("--model-config", default=str(DEFAULT_MODEL_CONFIG),
-                        help="per-issue model map (default: ~/.config/ghflow/runner.json)")
+    parser.add_argument("--model", required=True,
+                        help="local implementation model in OpenCode's provider/model format (e.g. lmstudio/qwen3.8-27b-mlx@4bit)")
+    parser.add_argument("--review-model", required=True,
+                        help="local review model in OpenCode's provider/model format (e.g. lmstudio/recursivesi/flint)")
+    parser.add_argument("--provider", help="local provider prefix for a model ID without a slash (e.g. lmstudio, ollama)")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
     parser.add_argument("--floor", type=int, default=DEFAULT_FLOOR_MINUTES, help="minimum minutes required to start a new issue")
     parser.add_argument("--once", action="store_true", help="drive exactly one item to desired state and exit")
@@ -1937,21 +1904,15 @@ def main(argv=None):
     notes_dir = Path(args.notes_dir) if args.notes_dir else Path.home() / ".local/state/ghflow/notes" / f"runner-{time.strftime('%Y%m%d-%H%M%S')}"
     notes_dir.mkdir(parents=True, exist_ok=True)
 
-    model = args.model
-    if args.provider and model and "/" not in model:
-        model = f"{args.provider}/{model}"
-    elif args.provider and not model:
-        model = args.provider
-    model_map = None
-    if not model:
-        try:
-            model_map = load_model_map(args.model_config)
-        except ValueError as error:
-            print(f"[{time.strftime('%X')}] {error}", flush=True)
-            return 1
+    selected_models, model_error = select_models(args.model, args.review_model, args.provider)
+    if model_error:
+        print(f"[{time.strftime('%X')}] {model_error}", flush=True)
+        return 1
+    model = selected_models["implementation"]
+    review_model = selected_models["review"]
 
     options = {
-        "model": model, "model_map": model_map, "model_config": args.model_config,
+        "model": model, "review_model": review_model,
         "skill_dir": args.skill_dir, "notes_dir": notes_dir,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
@@ -1999,13 +1960,13 @@ def main(argv=None):
     identity_out, _ = run_cli("identity", cwd=options.get("cwd"))
     exec_user, _ = run_cli("exec", "--", "gh", "api", "user", cwd=options.get("cwd"))
     exec_login = exec_user.get("login") if isinstance(exec_user, dict) else None
-    model_available = (monitor_mod.probe_model(model, options.get("opencode_cmd", "opencode"))
-                       if model else None)
+    model_available = monitor_mod.probe_model(model, options.get("opencode_cmd", "opencode"))
+    review_available = monitor_mod.probe_model(review_model, options.get("opencode_cmd", "opencode"))
     endpoint_url = os.environ.get("LLAMA_CPP_BASE_URL") if args.monitor_endpoint else None
     endpoint_ok = monitor_mod.probe_endpoint(endpoint_url) if endpoint_url else None
     session_monitor.preflight(facts_out, identity=identity_out, exec_login=exec_login,
                               lock=lock_info, model=model, model_available=model_available,
-                              model_map=model_map,
+                              review_model=review_model, review_available=review_available,
                               endpoint_configured=endpoint_url, endpoint_ok=endpoint_ok)
     session_monitor.budget.update({"hours": args.hours, "floor_minutes": args.floor,
                                    "remaining_minutes": round((deadline_time - time.time()) / 60, 1)})
@@ -2045,7 +2006,7 @@ def main(argv=None):
     notebook = narrative.RunNotebook(cli_fn=run_cli, cwd=options.get("cwd"),
                                      category=args.narrative_category,
                                      enabled=not args.no_notebook)
-    notebook.start(target=target, model=model or ("per-issue model map" if model_map else None),
+    notebook.start(target=target, model=model,
                    hours=args.hours, notes_dir=notes_dir)
 
     def note_session(step, issue_url, success, info, log_path, state):
@@ -2156,7 +2117,6 @@ def main(argv=None):
         attempted.add(issue_ref)
         published_pr = None
         pending = {}
-        selected_models = None
 
         def flush_monitor(state, step, phase_end=False):
             entry = pending.pop("entry", None)
@@ -2239,21 +2199,6 @@ def main(argv=None):
             # Update board status to In progress on start of implementation
             if step == "implement-issue":
                 set_board_status(issue_ref, "In progress", owner, project, cli_fn=run_cli, cwd=options.get("cwd"))
-
-            model_error = None
-            if step in ("implement-issue", "address-pr-review", "review-changes", "submit-pr"):
-                if selected_models is None:
-                    selected_models, model_error = select_issue_models(
-                        state, model_map, pinned_model=model, provider=args.provider)
-                if model_error:
-                    pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
-                    record_park(state["issue"], pr_url, f"Model routing: {model_error}", kind="blocker")
-                    delivered.append(issue_ref)
-                    delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url,
-                                             "endpoint": "parked", "models": {"error": model_error}})
-                    final_states.append(dict(state))
-                    flush_monitor(state, step, phase_end=True)
-                    break
 
             worktree = None
             base_pr = find_base_pr(issue_ref, parent_children, cli_fn=run_cli,
@@ -2538,8 +2483,7 @@ def main(argv=None):
     session_monitor.write(force=True)
     print(session_monitor.status_line(), flush=True)
 
-    model_note = (f"pinned to `{model}` for every step" if model
-                  else f"per-issue map `{model_map['path']}`" if model_map else None)
+    model_note = f"implementation `{model}`, review `{review_model}`"
     print(format_run_summary(delivery_records, park_failures, notes_dir, start_time,
                              options.get("cwd"), facts_refresh=facts_refresh,
                              session_monitor=session_monitor, model_note=model_note), flush=True)

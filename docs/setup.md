@@ -190,25 +190,19 @@ See [OpenCode permissions](https://opencode.ai/docs/permissions/#external-direct
 `scripts/run_queue.py` drives unattended delivery from the project board with a deterministic reconciliation loop, starting a fresh session for each operation. Run it from the target project checkout:
 
 ```sh
-python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 --model llama.cpp/llama
+python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 \
+  --model lmstudio/qwen3.8-27b-mlx@4bit --review-model lmstudio/recursivesi/flint
 ```
 
 `--project OWNER/NUMBER` selects the project board. If omitted, the runner automatically discovers the single open project linked to the repository. `--hours` sets the time budget (default 8). `--once` drives the single next item to its desired state and exits.
 When the remaining time is below `--floor` minutes, the runner stops before a long step. If that phase boundary leaves an open draft with committed work, the runner parks the issue with kind `time` and names the PR and remaining steps, so the next run resumes from the record.
-`--model` pins every worker session to one model and bypasses the per-issue map. Without `--model`, the runner reads `~/.config/ghflow/runner.json` (or `--model-config FILE`) before issue selection. The file has `models` and `review` objects keyed by `impl:*` labels. The implement and correction steps use `models`; the review step uses `review`. A missing, conflicting, or unknown fit label parks the issue with the reason. A missing or invalid map, with no `--model`, stops the run before issue selection.
-Example `runner.json`:
+`--model` names the local implementation model. `--review-model` names the local review model. Both flags are required. The implement and correction steps use `--model`; the review step uses `--review-model`. Both models must use a local provider: `lmstudio/`, `ollama/`, `mlx/`, `rec/`, or `llama.cpp/`. The runner refuses a cloud provider such as `otari/` or `google-vertex/`.
+The runner loads one model at a time. It loads `--model` for implementation, then loads `--review-model` for review. The swap takes time. If both flags name the same local model, the review is a fresh same-model session; record the waiver in the run summary.
+Check the installed local models with `lms ls` and the OpenCode names with `opencode models`. Use `--provider lmstudio` with a bare model ID. For example:
 
-```json
-{
-  "models": {
-    "impl:local": "lmstudio/qwen3.8-27b-mlx@4bit",
-    "impl:strong": "anthropic/claude-sonnet-5.5"
-  },
-  "review": {
-    "impl:local": "anthropic/claude-opus-5.5",
-    "impl:strong": "anthropic/claude-opus-5.5"
-  }
-}
+```sh
+python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 \
+  --model lmstudio/qwen3.8-27b-mlx@4bit --review-model lmstudio/recursivesi/flint
 ```
 
 A local model can take minutes to process a large context. The runner logs a warning after 120 seconds without events. It stops a step after `--step-idle-timeout` seconds (default 900). Raise the value for large contexts. On macOS it runs under `caffeinate` so the machine does not sleep.
@@ -221,7 +215,7 @@ Parent selection skips children labeled `triage:needs-input` or `triage:needs-de
 A child with one open native blocker starts when that blocker has an open PR. A child with more than one open blocker waits.
 It orders the rest by board Priority, then Size, then issue number.
 It creates a stack only for a native blocked-by link. A stacked PR stays a draft until the base merges and the operator retargets it.
-Use `--require-label impl:local` to keep a local-model run to local-fit children, and `--exclude 1294,1295` for one-off exclusions. The session turn cap is 150 unless `--max-turns` is set. The runner warns when a step reaches `--context-warn-tokens` tokens, including cached prompt tokens (default 100000). `--max-context-tokens N` stops a session at a step boundary at that token count (default 0, off). The runner refreshes the ctags index for the subject checkout when it is missing or stale, so symbol lookups use definitions rather than a git-grep fallback.
+Use `--require-label triage:ready` to keep a run to ready children, and `--exclude 1294,1295` for one-off exclusions. Do not use an `impl:*` label; the model-fit labels are retired. The session turn cap is 150 unless `--max-turns` is set. The runner warns when a step reaches `--context-warn-tokens` tokens, including cached prompt tokens (default 100000). `--max-context-tokens N` stops a session at a step boundary at that token count (default 0, off). The runner refreshes the ctags index for the subject checkout when it is missing or stale, so symbol lookups use definitions rather than a git-grep fallback.
 
 Worker sessions inherit `GHFLOW_CLI`, so the CLI path is available and a worker does not need to re-export it. OpenCode shell commands can start in the project checkout rather than the task worktree. The runner tells workers to `cd` to the worktree or use absolute paths, and it warns when the primary checkout changes during a session. When the project facts declare `generated` paths, the runner leaves them out of the automatic commit and restores their tracked files in the worktree after publishing. `tags brief SYMBOL...` returns compact definitions and file outlines. `tags find SYMBOL --refs` returns definitions and references. `tags outline FILE` returns compact line ranges. `review inspect` includes the PR checks, reviews, and verdicts; use `--no-gate` when the runner already ran `make check` at the head.
 
@@ -234,7 +228,7 @@ When the repository has Discussions and a `Lab Notebook` category (slug `lab-not
 `make test-runner-integration` runs one real `opencode run` through `run_session` against `scripts/fake_model.py`, a scripted OpenAI-compatible server.
 It checks that the runner reads the session ID, counts a turn, writes the log, and deletes the session. It skips when `opencode` is absent or older than 2.x.
 It is not part of `make check`, because CI does not install OpenCode.
-In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments.
+In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments. The park comment names the next step: fix the preparation, or retry with a different local model or a person. Do not use a cloud model.
 
 The runner runs one session at a time and deletes each OpenCode session after its step. It holds `~/.local/state/ghflow/runner.lock` for the run and refuses to start while another runner holds it. `GHFLOW_RUNNER_LOCK` names a different lock file. The runner tests use it so that they never take a live runner's lock. It also refuses to start while an unattended OpenCode session was active in the last 30 minutes; pass `--allow-concurrent` only on purpose. It starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`.
 
