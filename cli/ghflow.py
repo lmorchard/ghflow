@@ -203,10 +203,37 @@ def confirm_authenticated_login(identity, env):
         raise IdentityError("The authenticated login does not match the selected GitHub login.")
 
 
-def is_git_commit_command(command):
-    """Recognize a direct Git commit invocation without inspecting scripts."""
+GIT_WRITE_SUBCOMMANDS = frozenset(
+    {
+        "add",
+        "am",
+        "apply",
+        "checkout",
+        "cherry-pick",
+        "clean",
+        "commit",
+        "merge",
+        "mv",
+        "pull",
+        "rebase",
+        "reset",
+        "restore",
+        "revert",
+        "rm",
+        "stash",
+        "switch",
+    }
+)
+
+
+def git_subcommand(command):
+    """Return the Git subcommand of a direct invocation, or None.
+
+    Skips Git's global options and their values (``-C path``, ``-c key=value``,
+    ``--git-dir``, …) so ``git -C work commit`` is recognized as ``commit``.
+    """
     if not command or os.path.basename(command[0]) not in {"git", "git.exe"}:
-        return False
+        return None
     index = 1
     takes_value = {"-C", "-c", "--git-dir", "--work-tree", "--namespace", "--super-prefix", "--config-env"}
     while index < len(command):
@@ -220,8 +247,45 @@ def is_git_commit_command(command):
         if token.startswith("-"):
             index += 1
             continue
-        return token == "commit"
-    return index < len(command) and command[index] == "commit"
+        return token
+    return command[index] if index < len(command) else None
+
+
+def is_git_commit_command(command):
+    """Recognize a direct Git commit invocation without inspecting scripts."""
+    return git_subcommand(command) == "commit"
+
+
+def is_git_write_command(command):
+    """Recognize a direct Git write (commit, add, reset, merge, …)."""
+    return git_subcommand(command) in GIT_WRITE_SUBCOMMANDS
+
+
+def guard_primary_checkout(command, *, allow_primary=False, cwd=None, git=None):
+    """Refuse a Git write in the primary checkout on the default branch.
+
+    Returns an error message, or None when the command may run. A linked
+    worktree, a non-default branch, an unrecognized command, or a repository
+    with no resolvable origin default branch is left to the caller.
+    """
+    if allow_primary or not is_git_write_command(command):
+        return None
+    git = git or run_git
+    start = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        top = Path(git(["rev-parse", "--show-toplevel"], start).strip()).resolve()
+        primary = primary_checkout(start, git).resolve()
+        branch = git(["rev-parse", "--abbrev-ref", "HEAD"], start).strip()
+        base = default_branch(primary, git)
+    except (GhError, OSError, ValueError):
+        return None
+    if top == primary and branch == base:
+        return (
+            f"Refusing to run `git {git_subcommand(command)}` in the primary checkout on '{base}'. "
+            "Create an issue worktree with `ghflow worktree ensure ISSUE` and run the command there, "
+            "or pass --allow-primary for a deliberate primary-checkout change."
+        )
+    return None
 
 
 def git_config_parameter_tokens(parameters):
@@ -4458,6 +4522,12 @@ def main(argv=None):
     wt_prepare.add_argument("--path", help="worktree path (default: .claude/worktrees/BRANCH in primary checkout)")
     wt_prepare.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
     wt_prepare.add_argument("--project", type=int, help="board number")
+    wt_ensure = wt_commands.add_parser("ensure", help="Idempotently create or confirm the issue worktree; the first build step.")
+    wt_ensure.add_argument("issue", help="issue URL, or issue number from the subject checkout")
+    wt_ensure.add_argument("--branch", help="branch name (default: auto-derived from issue title)")
+    wt_ensure.add_argument("--path", help="worktree path (default: .claude/worktrees/BRANCH in primary checkout)")
+    wt_ensure.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
+    wt_ensure.add_argument("--project", type=int, help="board number")
     build_parser = commands.add_parser("build", help="Task builder operations.")
     build_commands = build_parser.add_subparsers(dest="build_command", required=True)
     build_finish_cmd = build_commands.add_parser("finish", help="Verify local gates (make check) and commit changes under machine identity.")
@@ -4612,6 +4682,11 @@ def main(argv=None):
     ident = commands.add_parser("identity", help="Report or export the configured agent identity.")
     ident.add_argument("--export", action="store_true", help="output shell export statements")
     exec_cmd = commands.add_parser("exec", help="Run a command under the configured agent identity.")
+    exec_cmd.add_argument(
+        "--allow-primary",
+        action="store_true",
+        help="allow a Git write in the primary checkout on the default branch (deliberate maintenance only)",
+    )
     exec_cmd.add_argument("exec_args", nargs=argparse.REMAINDER, help="command and arguments to run")
     tags_parser = commands.add_parser("tags", help="Universal Ctags symbol indexing, definition search, and outlines.")
     tags_commands = tags_parser.add_subparsers(dest="tags_command", required=True)
@@ -4723,7 +4798,7 @@ def main(argv=None):
         board = (args.owner, args.project) if args.owner and args.project is not None else None
         if (args.owner or args.project is not None) and board is None:
             parser.error("--owner and --project are required together for a board move.")
-        if args.worktree_command == "prepare":
+        if args.worktree_command in ("prepare", "ensure"):
             result, status = worktree_prepare(args.issue, branch=args.branch, path=args.path, board=board)
         else:
             result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
@@ -4893,6 +4968,10 @@ def main(argv=None):
             cmd_args = cmd_args[1:]
         if not cmd_args:
             sys.stderr.write("Give a command to run with exec.\n")
+            return 1
+        guard = guard_primary_checkout(cmd_args, allow_primary=args.allow_primary)
+        if guard:
+            sys.stderr.write(guard + "\n")
             return 1
         try:
             identity = resolve_identity()

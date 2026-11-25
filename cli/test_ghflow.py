@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -1280,7 +1280,8 @@ class IdentityTests(unittest.TestCase):
                 status = main(["exec", "--", "git", "commit", "-m", "test"])
         self.assertEqual(status, 1)
         self.assertIn("author name and email", stderr.getvalue())
-        run.assert_not_called()
+        # The guard may inspect the checkout with git reads; the child command must not run.
+        self.assertFalse([call for call in run.call_args_list if call.args and call.args[0][:2] == ["git", "commit"]])
 
     def test_identity_command_export(self):
         with tempfile.TemporaryDirectory() as temp_dir:
@@ -5493,3 +5494,70 @@ class SessionCommandTests(unittest.TestCase):
             code = main(["session", "debrief", str(self.tmp)])
             self.assertEqual(code, 0)
             self.assertIn("| `session-test.log` |", mock_stdout.getvalue())
+
+
+class PrimaryCheckoutGuardTests(unittest.TestCase):
+    def test_git_subcommand_skips_global_options(self):
+        self.assertEqual(git_subcommand(["git", "-C", "/x", "commit", "-m", "y"]), "commit")
+        self.assertEqual(git_subcommand(["git", "-c", "a=b", "add", "f"]), "add")
+        self.assertEqual(git_subcommand(["git", "--git-dir=/x", "reset", "--hard"]), "reset")
+        self.assertIsNone(git_subcommand(["echo", "git"]))
+
+    def test_git_write_classification(self):
+        for sub in ("commit", "add", "reset", "merge", "rebase", "checkout"):
+            self.assertTrue(is_git_write_command(["git", sub]), sub)
+        for sub in ("status", "log", "diff", "show"):
+            self.assertFalse(is_git_write_command(["git", sub]), sub)
+
+    def _fake_git(self, top="/tmp/repo", primary="/tmp/repo", branch="main", base="origin/main"):
+        def fake(args, cwd=None):
+            if args[:3] == ["rev-parse", "--show-toplevel"]:
+                return top + "\n"
+            if args[:3] == ["rev-parse", "--abbrev-ref", "HEAD"]:
+                return branch + "\n"
+            if args[:2] == ["worktree", "list"]:
+                return f"worktree {primary}\nHEAD {'a' * 40}\nbranch refs/heads/{branch}\n\n"
+            if args[:2] == ["symbolic-ref", "--short"]:
+                return base + "\n"
+            return ""
+
+        return fake
+
+    def test_refuses_primary_default_branch(self):
+        message = guard_primary_checkout(["git", "commit"], cwd="/tmp/repo", git=self._fake_git())
+        self.assertIn("primary checkout", message)
+        self.assertIn("worktree ensure", message)
+
+    def test_allows_linked_worktree(self):
+        fake = self._fake_git(top="/tmp/wt", primary="/tmp/repo", branch="feature")
+        self.assertIsNone(guard_primary_checkout(["git", "commit"], cwd="/tmp/wt", git=fake))
+
+    def test_allows_feature_branch_in_primary(self):
+        self.assertIsNone(guard_primary_checkout(["git", "commit"], cwd="/tmp/repo", git=self._fake_git(branch="feature")))
+
+    def test_allows_allow_primary(self):
+        self.assertIsNone(
+            guard_primary_checkout(
+                ["git", "commit"], allow_primary=True, cwd="/tmp/repo", git=self._fake_git()
+            )
+        )
+
+    def test_cli_refuses_before_child(self):
+        ident = {"login": "Bot", "name": "Bot", "email": "b@example.com", "token_file": None,
+                 "token_present": False, "configured": True, "ready": True}
+        with patch("ghflow.guard_primary_checkout", return_value="refuse"), \
+                patch("ghflow.resolve_identity", return_value=ident), \
+                patch("ghflow.subprocess.run") as run:
+            stderr = io.StringIO()
+            with patch("sys.stderr", stderr):
+                status = main(["exec", "--", "git", "commit", "-m", "x"])
+        self.assertEqual(status, 1)
+        self.assertIn("refuse", stderr.getvalue())
+        run.assert_not_called()
+
+    def test_worktree_ensure_alias(self):
+        with patch("ghflow.worktree_prepare", return_value=({"ready": True}, 0)) as prepare, \
+                patch("sys.stdout", new_callable=io.StringIO):
+            status = main(["worktree", "ensure", "https://github.com/o/r/issues/5"])
+        self.assertEqual(status, 0)
+        prepare.assert_called_once()
