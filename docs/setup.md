@@ -198,6 +198,7 @@ python3 /PATH/TO/ghflow/scripts/run_queue.py --project OWNER/NUMBER --hours 8 \
 When the remaining time is below `--floor` minutes, the runner stops before a long step. If that phase boundary leaves an open draft with committed work, the runner parks the issue with kind `time` and names the PR and remaining steps, so the next run resumes from the record.
 `--model` names the local implementation model. `--review-model` names the local review model. Both flags are required. The implement and correction steps use `--model`. The review step uses `--review-model`. Both models must use a local provider: `lmstudio/`, `ollama/`, `mlx/`, `rec/`, or `llama.cpp/`. The runner refuses a cloud provider such as `otari/` or `google-vertex/`.
 The runner loads one model at a time. It loads `--model` for implementation, then loads `--review-model` for review. The swap takes time. If both flags name the same local model, the review is a fresh same-model session. Record the waiver in the run summary.
+The runner unloads the LM Studio models with `lms unload --all` before a step that uses a different local model. The unload costs a reload. Set `GHFLOW_NO_MODEL_UNLOAD=1` to skip the unload in tests or on a shared server.
 Check the installed local models with `lms ls` and the OpenCode names with `opencode models`. Use `--provider lmstudio` with a bare model ID. For example:
 
 ```sh

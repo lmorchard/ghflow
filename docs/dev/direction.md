@@ -89,7 +89,7 @@ An unattended request lets a coordinator take a supported recommendation, record
 
 ## Local-first model policy
 
-The local model is the implementation default. The runner does not use model-fit labels or a per-issue model map. It uses one local implementation model and one local review model. It loads one model at a time.
+The local model is the implementation default. The runner does not use model-fit labels or a per-issue model map. It uses one local implementation model and one local review model. It loads one model at a time. It unloads the previous LM Studio model before it loads a different one.
 Use a different local model for review when one is available. If the same local model reviews its own work in a fresh session, record the waiver.
 A local delivery that fails records the failure in the park comment. The comment names the next step: fix the preparation, or retry with a different local model or a person. The comment does not suggest a cloud model.
 The [#248 audit](../research/trials/2026-11-24-local-sufficiency/index.md) records the evidence. The labels `impl:local` and `impl:strong` are retired.

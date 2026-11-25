@@ -131,6 +131,30 @@ def format_models(models):
     return f"{models.get('implementation', '-')} / {models.get('review', '-')}"
 
 
+def unload_local_models(model, runner=None, which=None, home=None):
+    """Unload LM Studio models before a session that uses another model."""
+    if os.environ.get("GHFLOW_NO_MODEL_UNLOAD"):
+        return {"status": "skipped", "reason": "disabled"}
+    value = str(model)
+    provider = value.split("/", 1)[0] if "/" in value else ""
+    if provider != "lmstudio":
+        return {"status": "skipped", "reason": "not lmstudio"}
+    which = which or shutil.which
+    lms = which("lms")
+    if not lms:
+        candidate = Path(home or Path.home()) / ".lmstudio" / "bin" / "lms"
+        lms = str(candidate) if candidate.is_file() else None
+    if not lms:
+        return {"status": "skipped", "reason": "lms not found"}
+    runner = runner or subprocess.run
+    try:
+        result = runner([lms, "unload", "--all"], capture_output=True, text=True, timeout=60)
+    except (OSError, subprocess.TimeoutExpired) as error:
+        return {"status": "failed", "reason": str(error)}
+    reason = (result.stdout or result.stderr or "").strip()
+    return {"status": "unloaded" if result.returncode == 0 else "failed", "reason": reason}
+
+
 def verification_lines(body):
     """Return the issue's Verify lines, if it declares them."""
     return [line.strip() for line in (body or "").splitlines()
@@ -1924,6 +1948,7 @@ def main(argv=None):
         "deterministic_pr": not args.no_deterministic_pr,
     }
     attempted, delivered, park_failures = set(), [], []
+    last_model = None
     delivery_records = []
 
     session_monitor = monitor_mod.Monitor(notes_dir)
@@ -2428,6 +2453,14 @@ def main(argv=None):
 
             session_monitor.phase_start("session", issue=state["issue"], step=step,
                                         remaining_minutes=remaining_minutes)
+            step_model = step_options.get("model")
+            if step_model != last_model:
+                unload = unload_local_models(step_model)
+                if unload.get("status") == "unloaded":
+                    print(f"[{time.strftime('%X')}] Unloaded LM Studio models before {step}.", flush=True)
+                elif unload.get("status") == "failed":
+                    print(f"[{time.strftime('%X')}] Model unload failed: {unload.get('reason')}", flush=True)
+                last_model = step_model
             print(f"[{time.strftime('%X')}] Starting {step} session for {issue_ref}...")
             success, info = run_session(step, state["issue"], notes_dir, step_options,
                                         log_hook=lambda path: captured.update(log=path))

@@ -8,9 +8,12 @@ import subprocess
 import tempfile
 import unittest
 from pathlib import Path
+from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import run_queue
+
+os.environ.setdefault("GHFLOW_NO_MODEL_UNLOAD", "1")
 
 _LOCK_DIR = None
 _SAVED_LOCK_ENV = None
@@ -2606,6 +2609,74 @@ class FloorDecisionTests(unittest.TestCase):
         self.assertEqual(parks[0][2], "time")
         self.assertIn("https://github.com/o/r/pull/8", parks[0][3])
         self.assertIn("review-changes", parks[0][3])
+
+
+class ModelUnloadTests(unittest.TestCase):
+    """LM Studio models unload before a different model starts."""
+
+    def test_unloads_lmstudio_models(self):
+        calls = []
+
+        def runner(args, **kwargs):
+            calls.append((args, kwargs))
+            return SimpleNamespace(returncode=0, stdout="unloaded", stderr="")
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "unloaded")
+        self.assertEqual(calls[0][0], ["/bin/lms", "unload", "--all"])
+        self.assertEqual(calls[0][1]["timeout"], 60)
+
+    def test_skips_other_providers(self):
+        runner = MagicMock()
+        which = MagicMock()
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "ollama/qwen", runner=runner, which=which)
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("not lmstudio", result["reason"])
+        runner.assert_not_called()
+        which.assert_not_called()
+
+    def test_skips_when_disabled(self):
+        runner = MagicMock()
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": "1"}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=MagicMock())
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("disabled", result["reason"])
+        runner.assert_not_called()
+
+    def test_skips_without_lms(self):
+        runner = MagicMock()
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: None, home=tmp)
+        self.assertEqual(result["status"], "skipped")
+        self.assertIn("lms not found", result["reason"])
+        runner.assert_not_called()
+
+    def test_reports_an_unload_failure(self):
+        def runner(args, **kwargs):
+            return SimpleNamespace(returncode=1, stdout="", stderr="busy")
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "failed")
+        self.assertEqual(result["reason"], "busy")
+
+    def test_reports_a_timeout(self):
+        def runner(args, **kwargs):
+            raise subprocess.TimeoutExpired("lms", 60)
+
+        with patch.dict(os.environ, {"GHFLOW_NO_MODEL_UNLOAD": ""}):
+            result = run_queue.unload_local_models(
+                "lmstudio/qwen", runner=runner, which=lambda name: "/bin/lms")
+        self.assertEqual(result["status"], "failed")
+        self.assertIn("timed out", result["reason"])
 
 
 class ParkSuggestionTests(unittest.TestCase):
