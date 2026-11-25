@@ -32,7 +32,14 @@ A symbolic link is a path that points to another location.
 From the source checkout, install personal symbolic links with:
 
 ```sh
-python3 scripts/install-skill.py claude codex
+make install
+```
+
+The target runs `python3 scripts/install-skill.py claude codex`.
+Set `AGENTS` to select other agents, and `ARGS` to pass installer options:
+
+```sh
+make install AGENTS=opencode ARGS="--project PATH"
 ```
 
 A symbolic link points to the source checkout root. Source edits appear through the links without another installation.

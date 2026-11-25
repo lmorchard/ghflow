@@ -1,7 +1,13 @@
 # Diff against the empty tree so whitespace checks cover all tracked files.
 EMPTY_TREE := $(shell git hash-object -t tree /dev/null)
 
-.PHONY: check test run-scenario scenario-index run-queue queue test-runner-integration
+.PHONY: check test install run-scenario scenario-index run-queue queue test-runner-integration
+
+# Agent names and installer options: make install AGENTS=codex ARGS="--project PATH"
+AGENTS ?= claude codex
+
+install:
+	python3 scripts/install-skill.py $(AGENTS) $(ARGS)
 
 check: test
 	python3 scripts/check.py

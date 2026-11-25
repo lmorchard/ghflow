@@ -10,7 +10,14 @@ Keep local checkouts of this repository and the target project.
 From this repository, install the skill for Claude Code and Codex:
 
 ```sh
-python3 scripts/install-skill.py claude codex
+make install
+```
+
+The target runs `python3 scripts/install-skill.py claude codex`.
+Set `AGENTS` to select other agents, and `ARGS` to pass installer options:
+
+```sh
+make install AGENTS=opencode ARGS="--project PATH"
 ```
 
 The installer creates symbolic links, paths that point to this source checkout.
