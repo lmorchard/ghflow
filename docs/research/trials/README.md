@@ -256,6 +256,10 @@ Both arms reported zero cached tokens, so a cache effect was not measured.
 The compact arm still used two grep calls and four reads.
 Decision: keep the compact-tags guidance; one task and one run per arm support it, not a general saving.
 
+## 2026-11-24: label discrimination on paired scavenger issues
+
+The [label-discrimination folder](2026-11-24-label-discrimination) records the [#219](https://github.com/lmorchard/gh-project-workflow/issues/219) trial on two `impl:local` and two `impl:strong` children of [decafclaw#1729](https://github.com/lmorchard/decafclaw/issues/1729). Local arm: existing PRs [#1781](https://github.com/lmorchard/decafclaw/pull/1781), [#1782](https://github.com/lmorchard/decafclaw/pull/1782), [#1784](https://github.com/lmorchard/decafclaw/pull/1784), and [#1786](https://github.com/lmorchard/decafclaw/pull/1786) from `lmstudio/qwen3.8-27b-mlx@4bit`. Strong arm: new PRs [#1793](https://github.com/lmorchard/decafclaw/pull/1793) and [#1794](https://github.com/lmorchard/decafclaw/pull/1794) from `otari-local/claude-sonnet-5.5`. Reviewer: `otari-local/claude-opus-5.5` on six anonymized diffs. Skills: `9613716`. All heads passed `make check` and hosted CI. Both #1723 diffs need work for the same native-engine coupling defect; both #1731 diffs are minor with the same themes. The labels did not discriminate on quality, and the strong arm was not faster. Decision: narrow the labels to provider and cost routing, not quality. Limits: two issues per cell, retrospective manual strong arm, diff-only review, no live fleet, and no human calibration.
+
 ## 2026-11-24: local sufficiency audit
 
 The [local sufficiency folder](2026-11-24-local-sufficiency) records the [#248](https://github.com/lmorchard/ghflow/issues/248) audit.
