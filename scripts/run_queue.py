@@ -362,6 +362,8 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
 
     current_head = pr.get("head")
     is_draft = pr.get("is_draft", pr.get("draft", False))
+    if pr.get("mergeable") == "CONFLICTING":
+        return "repair-conflict"
     reviews = state.get("reviews") or []
     rev_summary = state.get("review_summary") or {}
 
@@ -402,7 +404,11 @@ def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome
     if state.get("pending_review_requests"):
         return "WAITING"
     if ci in ("green", "passed"):
-        return "DONE"
+        # A stale local verdict means the head changed since review, for
+        # example after a conflict repair. Require a review at the current
+        # head; a PR with no local verdict keeps the DONE path for human review.
+        verdicts = state.get("review_verdicts") or []
+        return "review-changes" if verdicts and not (verdict_clean or approved) else "DONE"
     if ci == "none":
         # No hosted checks are configured. A clean review on the current head is the
         # evidence; without it, request a review instead of declaring success.
@@ -515,6 +521,7 @@ def observe_issue(issue_ref, cli_fn=run_cli, cwd=None):
             "base": pr_st.get("base") or pr.get("base"),
             "is_draft": pr_st.get("is_draft", pr.get("is_draft", False)),
             "state": pr_st.get("state") or pr.get("state", "OPEN"),
+            "mergeable": pr_st.get("mergeable"),
         }
         state["reviews"] = pr_st.get("reviews") or []
         state["review_summary"] = pr_st.get("review_summary") or {}
@@ -677,6 +684,7 @@ def compose_prompt(skill_dir, handoff_prompt, step=None):
         role_map = {
             "implement-issue": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "address-pr-review": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
+            "repair-conflict": ("ghflow-build-slim", "skills/build-slim/SKILL.md"),
             "review-changes": ("ghflow-review-slim", "skills/review-slim/SKILL.md"),
             # The facts refresh has no slim role; inline its task procedure so the
             # session does not have to read a reference file.
@@ -1174,6 +1182,26 @@ def git_output(args, cwd=None):
         return proc.stdout.strip() if proc.returncode == 0 else None
     except OSError:
         return None
+
+def prepare_conflict_merge(path, base, run=subprocess.run, git=git_output):
+    """Fetch and merge the base into a PR worktree and report the conflicts.
+
+    ``ok`` is true when git merged without conflicts. ``files`` names the
+    unresolved paths. A merge that fails for another reason leaves ``files``
+    empty so the caller can report it instead of starting a repair session.
+    """
+    if not path or not Path(path).is_dir():
+        return {"ok": False, "reason": "The worktree is missing.", "files": []}
+    fetch = run(["git", "fetch", "origin", base], cwd=path, capture_output=True, text=True)
+    if fetch.returncode != 0:
+        return {"ok": False, "reason": (fetch.stderr or fetch.stdout).strip(), "files": []}
+    merge = run(["git", "merge", "--no-edit", f"origin/{base}"], cwd=path,
+                capture_output=True, text=True)
+    files = git(["diff", "--name-only", "--diff-filter=U"], cwd=path) or ""
+    return {"ok": merge.returncode == 0,
+            "reason": ((merge.stdout or "") + (merge.stderr or "")).strip(),
+            "files": [line for line in files.splitlines() if line]}
+
 
 def committed_count(path, base):
     """Count commits on the worktree branch since the base revision."""
@@ -1848,6 +1876,8 @@ def main(argv=None):
     parser.add_argument("--project", help="project board number or OWNER/NUMBER")
     parser.add_argument("--parent", action="append", dest="parents",
                         help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown; repeat for several parents")
+    parser.add_argument("--issue",
+                        help="drive one issue URL directly, bypassing parent and board selection")
     parser.add_argument("--exclude", help="comma-separated issue numbers to skip when selecting from --parent (e.g. 1294,1295)")
     parser.add_argument("--require-label", action="append", default=[],
                         help="only select children carrying this label; repeat for several labels")
@@ -1900,6 +1930,7 @@ def main(argv=None):
         except ValueError:
             parser.error("--exclude takes comma-separated issue numbers")
     parents = args.parents or []
+    direct_issue = args.issue
     require_labels = [label for label in args.require_label if label]
     exclude_labels = [label for label in args.exclude_label if label]
 
@@ -1955,8 +1986,14 @@ def main(argv=None):
     options["monitor"] = session_monitor
     options["monitor_interval"] = args.monitor_interval
 
-    target = (", ".join(f"parent {parent}" for parent in parents) if parents
-              else f"project {owner}/{project}" if owner and project else None)
+    if direct_issue:
+        target = f"issue {direct_issue}"
+    elif parents:
+        target = ", ".join(f"parent {parent}" for parent in parents)
+    elif owner and project:
+        target = f"project {owner}/{project}"
+    else:
+        target = None
     lock_info = None
     if not args.allow_concurrent:
         try:
@@ -2093,7 +2130,9 @@ def main(argv=None):
             break
         if time.time() >= deadline_time:
             break
-        if parents:
+        if direct_issue:
+            item = {"url": direct_issue}
+        elif parents:
             if parent_index >= len(parents):
                 print(f"[{time.strftime('%X')}] No more parent issues.")
                 break
@@ -2142,6 +2181,7 @@ def main(argv=None):
         attempted.add(issue_ref)
         published_pr = None
         pending = {}
+        repair_attempts = 0
 
         def flush_monitor(state, step, phase_end=False):
             entry = pending.pop("entry", None)
@@ -2288,6 +2328,62 @@ def main(argv=None):
                 existing = worktree_status(state["issue"], cwd=options.get("cwd"))
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
+            elif step == "repair-conflict":
+                existing = worktree_status(state["issue"], cwd=options.get("cwd"))
+                path = existing.get("path")
+                branch = git_output(["rev-parse", "--abbrev-ref", "HEAD"], cwd=path) if path else None
+                pr_url = (state.get("pr") or {}).get("url")
+                if not path or not branch:
+                    record_park(state["issue"], pr_url,
+                                "The conflicting PR has no task worktree to repair.")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref,
+                                             "pr": pr_url, "endpoint": "parked",
+                                             "models": selected_models})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
+                    break
+                repair_attempts += 1
+                if repair_attempts > CORRECTION_LIMIT:
+                    record_park(state["issue"], pr_url,
+                                "Conflict repair did not settle within the correction limit.")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref,
+                                             "pr": pr_url, "endpoint": "parked",
+                                             "models": selected_models})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
+                    break
+                base_name = worktree_base or "main"
+                worktree = {"path": path, "branch": branch, "base": f"origin/{base_name}",
+                            "setup": {"generated": generated_paths}}
+                step_options["session_cwd"] = path
+                step_options["branch"] = branch
+                merge_state = prepare_conflict_merge(path, base_name)
+                files = merge_state.get("files") or []
+                if not merge_state.get("ok") and not files:
+                    record_park(state["issue"], pr_url,
+                                f"The base merge failed without conflict files: {merge_state.get('reason')}")
+                    delivered.append(issue_ref)
+                    delivery_records.append({"issue": state.get("issue") or issue_ref,
+                                             "pr": pr_url, "endpoint": "parked",
+                                             "models": selected_models})
+                    final_states.append(dict(state))
+                    flush_monitor(state, step, phase_end=True)
+                    break
+                if files:
+                    step_options["extra_text"] = (
+                        f"The runner merged `origin/{base_name}` into this worktree and left conflicts in: "
+                        f"{', '.join(files)}. Resolve every conflict marker. Preserve both intents; do not "
+                        "drop either side to make the merge quiet. Keep the issue scope. Run the focused "
+                        "tests and the project gate once. Commit the merge and push to the same branch "
+                        "with `python3 \"$GHFLOW_CLI\" exec -- git ...`."
+                    )
+                else:
+                    step_options["extra_text"] = (
+                        f"The runner merged `origin/{base_name}` cleanly. Run the focused tests, commit "
+                        "any remaining change, and push to the same branch."
+                    )
             elif step == "submit-pr":
                 existing = worktree_status(state["issue"], cwd=options.get("cwd"))
                 if existing.get("path"):
@@ -2441,7 +2537,7 @@ def main(argv=None):
 
             def publish_step_work():
                 """Publish committed implementation work that the session left unpublished."""
-                if step == "implement-issue":
+                if step in ("implement-issue", "repair-conflict"):
                     session_ref = None
                     if captured.get("log"):
                         session_ref = session_reference(notes_dir, Path(captured["log"]))
@@ -2492,7 +2588,7 @@ def main(argv=None):
                     final_states.append(dict(state))
                     flush_monitor(state, step, phase_end=True)
                     break
-        if args.once:
+        if args.once or direct_issue:
             break
 
     toil_report = None

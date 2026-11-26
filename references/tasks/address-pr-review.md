@@ -44,6 +44,10 @@ Poll GitHub about once a minute, or use a supported watch mechanism. Keep each w
 
 Stop waiting at the deadline or when the user interrupts. At a timeout, report the last observed state and address the available findings. A timeout is an incomplete review. It is not approval and does not show that Copilot is unavailable. After a timeout, use a different-model local review of the current head as the review evidence, as when Copilot is unavailable. If none covers the current head, hand off a review of the uncovered changes with [review-changes](review-changes.md) to the parent, without asking the user. If a Copilot review arrives later, read it before merge. The deadline applies only to the review; CI repair continues after it.
 
+## Repair a base conflict
+
+If the PR conflicts with its base, use [repair-conflict](repair-conflict.md) before the review findings. The resolution changes the head, so the previous review does not cover it.
+
 ## Address the findings
 
 Read the review body, inline discussions, and relevant top-level comments, including all result pages. Assess each finding against the issue and current code before you change anything.

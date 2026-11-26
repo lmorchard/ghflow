@@ -5758,6 +5758,60 @@ class MergeTrainTests(unittest.TestCase):
         self.assertEqual(result["items"][0]["result"], "refused")
         self.assertIn("No approved review", result["items"][0]["reason"])
 
+    def test_stops_on_conflict_by_default(self):
+        def fake_state(repo, number, **kwargs):
+            state = self._state(self.HEAD_A)
+            state["mergeable"] = "CONFLICTING"
+            return state, 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            raise AssertionError(args)
+
+        result, status = pr_merge_train(
+            "o/r", [{"pr": "1", "head": self.HEAD_A}], "squash", "authorized",
+            state=fake_state, merge_fn=lambda *a, **k: ({"merge_commit": "x"}, 0), gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0,
+        )
+
+        self.assertEqual(status, 3)
+        self.assertEqual(result["stopped_at"], "o/r#1")
+        self.assertEqual(result["merged"], [])
+        self.assertEqual(result["conflicts"][0]["pr"], "o/r#1")
+
+    def test_continues_past_conflict_when_asked(self):
+        conflicting = self._state(self.HEAD_A)
+        conflicting["mergeable"] = "CONFLICTING"
+        states = {1: iter([conflicting]), 2: iter([self._state(self.HEAD_C)])}
+        merged = []
+
+        def fake_state(repo, number, **kwargs):
+            return next(states[number]), 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            raise AssertionError(args)
+
+        def fake_merge(repo, number, method, head, **kwargs):
+            merged.append(head)
+            return {"merge_commit": f"m{number}", "merged_at": "now"}, 0
+
+        result, status = pr_merge_train(
+            "o/r",
+            [{"pr": "1", "head": self.HEAD_A}, {"pr": "2", "head": self.HEAD_C}],
+            "squash", "authorized",
+            state=fake_state, merge_fn=fake_merge, gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0, continue_on_conflict=True,
+        )
+
+        self.assertEqual(status, 3)
+        self.assertEqual(merged, [self.HEAD_C])
+        self.assertEqual([entry["pr"] for entry in result["merged"]], ["o/r#2"])
+        self.assertEqual([entry["pr"] for entry in result["conflicts"]], ["o/r#1"])
+        self.assertIsNone(result["stopped_at"])
+
     def test_stops_when_checks_fail_after_update(self):
         states = {
             1: iter([self._state(self.HEAD_A, base=1), self._state(self.HEAD_B, ci="failed")]),

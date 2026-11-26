@@ -60,7 +60,18 @@ in order, and honors `merge:hold` on linked issues. A clean update from the base
 its own, so the reviewed head's clean verdict still covers it; the train requires green checks on
 the new head. Right after a base merge GitHub can report the next PR's mergeability as `UNKNOWN`
 while it recomputes; the train polls that state for up to 120 seconds instead of refusing. It stops
-at the first failure and reports each merge commit, the stop, and the remaining PRs.
+at the first failure and reports each merge commit, the stop, and the remaining PRs. Add
+`--continue-on-conflict` when the PRs are independent: a conflicting PR is
+recorded in `conflicts` and skipped, the remaining PRs still merge, and the
+command exits 3 while a conflict remains. Resolve a conflict with
+[repair-conflict](repair-conflict.md), not by forcing the merge; the resolution
+changes the head, so review the new head before the next train.
+
+For a batch, run `scripts/merge_train.py` with the same authorization and items.
+It runs the train with `--continue-on-conflict`, invokes the queue runner with
+`--issue` for each conflict, and runs the train again. The runner merges the
+base into the PR worktree, starts the build session, publishes the resolved
+head, and reviews it before the next train.
 
 To make a self-review usable by the batch or train, post a top-level PR comment whose first line is `<!-- ghflow-review head=SHA verdict=clean -->` (or `verdict=findings`/`blocked`). The command reads the marker at the reviewed head.
 

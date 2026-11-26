@@ -103,9 +103,14 @@ new base before merging. The train checks the reviewed head, a clean review or
 its base is updated with the API; the train waits for the required checks on the
 new head (bounded by `--timeout`, default 1800s) and accepts the reviewed head's
 clean verdict for the clean base update. It merges in order and stops at the
-first failure, reporting `merged`, `stopped_at`, and `remaining`. With the board
-options it moves each closed issue to Done. It does not compare attribution;
-check `author` and `commit_authors` before the train.
+first failure, reporting `merged`, `stopped_at`, and `remaining`. Add
+`--continue-on-conflict` when the PRs are independent: a conflicting PR is
+recorded in `conflicts` and skipped, the remaining PRs still merge, and the
+command exits 3 while a conflict remains. Resolve a conflict with
+[repair-conflict](tasks/repair-conflict.md), then review the new head and run
+the train again. With the board options it moves each closed issue to Done. It
+does not compare attribution; check `author` and `commit_authors` before the
+train.
 
 ## Pruning merged worktrees
 
