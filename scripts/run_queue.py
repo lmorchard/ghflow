@@ -34,6 +34,26 @@ SIZE_ORDER = ("XS", "S", "M", "L", "XL")
 _RUN_LOCK = None
 
 
+def resolve_worker_cmd(options=None):
+    """Resolve the executable command for running worker sessions.
+
+    Precedence:
+    1. options["worker_cmd"]
+    2. options["opencode_cmd"] (deprecated alias)
+    3. GHFLOW_WORKER_CMD environment variable
+    4. GHFLOW_OPENCODE_CMD environment variable (deprecated alias)
+    5. "opencode" default
+    """
+    opts = options or {}
+    return (
+        opts.get("worker_cmd")
+        or opts.get("opencode_cmd")
+        or os.environ.get("GHFLOW_WORKER_CMD")
+        or os.environ.get("GHFLOW_OPENCODE_CMD")
+        or "opencode"
+    )
+
+
 def find_cli():
     """Locate cli/ghflow.py."""
     env_cli = os.environ.get("GHFLOW_CLI")
@@ -303,11 +323,12 @@ def is_runner_or_session_process_alive(current_pid=None):
         return True
 
 
-def check_active_runs(opencode_cmd="opencode", process_checker=None):
+def check_active_runs(worker_cmd=None, process_checker=None):
     """Raise RuntimeError if an unattended session was active in the last 30 minutes and its process is alive."""
-    if not shutil.which(opencode_cmd):
+    cmd = worker_cmd or resolve_worker_cmd()
+    if not shutil.which(cmd):
         return
-    proc = subprocess.run([opencode_cmd, "session", "list", "--format", "json"], stdin=subprocess.DEVNULL,
+    proc = subprocess.run([cmd, "session", "list", "--format", "json"], stdin=subprocess.DEVNULL,
                           capture_output=True, text=True)
     if proc.returncode != 0:
         return
@@ -937,7 +958,8 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
         session_monitor.handoff_model(step, handoff_file, options.get("model"))
 
     prompt_text = compose_prompt(options["skill_dir"], h_out.get("dispatch_prompt", ""), step=step)
-    cmd = [options.get("opencode_cmd", "opencode"), "run", "--auto", "--format", "json",
+    worker_cmd = resolve_worker_cmd(options)
+    cmd = [worker_cmd, "run", "--auto", "--format", "json",
            "--title", f"Queue runner {step} {stamp}"]
     if options.get("model"):
         cmd += ["--model", options["model"]]
@@ -1124,7 +1146,8 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             print(f"[{time.strftime('%X')}] Session log hook failed: {error}", flush=True)
 
     if session_id:
-        subprocess.run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
+        worker_cmd = resolve_worker_cmd(options)
+        subprocess.run([worker_cmd, "session", "delete", session_id],
                        stdin=subprocess.DEVNULL, capture_output=True)
     if primary_before is not None:
         change = primary_checkout_change(primary_before,
@@ -1917,6 +1940,10 @@ def main(argv=None):
                         help=f"seconds between monitor samples during a session (default {monitor_mod.DEFAULT_INTERVAL_SECONDS})")
     parser.add_argument("--monitor-endpoint", action="store_true",
                         help="probe LLAMA_CPP_BASE_URL for the model endpoint check")
+    parser.add_argument("--worker-cmd",
+                        help="worker executable command (e.g. opencode, custom wrapper; default: opencode or GHFLOW_WORKER_CMD)")
+    parser.add_argument("--opencode-cmd", dest="worker_cmd",
+                        help="deprecated alias for --worker-cmd")
     args = parser.parse_args(argv)
     if args.context_warn_tokens < 0 or args.max_context_tokens < 0:
         parser.error("--context-warn-tokens and --max-context-tokens must be 0 or greater")
@@ -1966,9 +1993,12 @@ def main(argv=None):
     model = selected_models["implementation"]
     review_model = selected_models["review"]
 
+    resolved_cmd = resolve_worker_cmd({"worker_cmd": args.worker_cmd})
     options = {
         "model": model, "review_model": review_model,
         "skill_dir": args.skill_dir, "notes_dir": notes_dir,
+        "worker_cmd": resolved_cmd,
+        "opencode_cmd": resolved_cmd,
         "deadline": deadline_str, "cwd": os.getcwd(), "standalone": True,
         "max_turns": args.max_turns, "session_timeout": args.session_timeout,
         "step_idle_timeout": args.step_idle_timeout,
@@ -1998,7 +2028,7 @@ def main(argv=None):
     if not args.allow_concurrent:
         try:
             acquire_run_lock(notes_dir, target)
-            check_active_runs()
+            check_active_runs(worker_cmd=resolved_cmd)
         except RuntimeError as error:
             lock_info = {"error": str(error)}
             session_monitor.add("runner_lock", "preflight", monitor_mod.STOP,
@@ -2022,8 +2052,8 @@ def main(argv=None):
     identity_out, _ = run_cli("identity", cwd=options.get("cwd"))
     exec_user, _ = run_cli("exec", "--", "gh", "api", "user", cwd=options.get("cwd"))
     exec_login = exec_user.get("login") if isinstance(exec_user, dict) else None
-    model_available = monitor_mod.probe_model(model, options.get("opencode_cmd", "opencode"))
-    review_available = monitor_mod.probe_model(review_model, options.get("opencode_cmd", "opencode"))
+    model_available = monitor_mod.probe_model(model, resolved_cmd)
+    review_available = monitor_mod.probe_model(review_model, resolved_cmd)
     endpoint_url = os.environ.get("LLAMA_CPP_BASE_URL") if args.monitor_endpoint else None
     endpoint_ok = monitor_mod.probe_endpoint(endpoint_url) if endpoint_url else None
     session_monitor.preflight(facts_out, identity=identity_out, exec_login=exec_login,

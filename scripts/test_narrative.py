@@ -1,11 +1,13 @@
 """Unit tests for scripts/narrative.py."""
 
 import json
+import os
 import subprocess
 import tempfile
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import narrative
 
@@ -147,6 +149,43 @@ class SummaryTests(unittest.TestCase):
             {"opencode_cmd": "fake"}, run=run, print_fn=lambda *a: None)
         self.assertEqual(source, "facts")
         self.assertIn("succeeded", summary)
+
+    def test_resolve_worker_cmd_hierarchy(self):
+        # 1. options["worker_cmd"] wins
+        self.assertEqual(
+            narrative.resolve_worker_cmd({"worker_cmd": "custom-agent", "opencode_cmd": "legacy"}),
+            "custom-agent",
+        )
+        # 2. options["opencode_cmd"] fallback
+        self.assertEqual(
+            narrative.resolve_worker_cmd({"opencode_cmd": "legacy"}),
+            "legacy",
+        )
+        # 3. GHFLOW_WORKER_CMD env var
+        with patch.dict(os.environ, {"GHFLOW_WORKER_CMD": "env-agent", "GHFLOW_OPENCODE_CMD": "env-legacy"}):
+            self.assertEqual(narrative.resolve_worker_cmd({}), "env-agent")
+        # 4. GHFLOW_OPENCODE_CMD env var
+        with patch.dict(os.environ, {"GHFLOW_OPENCODE_CMD": "env-legacy"}, clear=True):
+            self.assertEqual(narrative.resolve_worker_cmd({}), "env-legacy")
+        # 5. default opencode
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(narrative.resolve_worker_cmd({}), "opencode")
+
+    def test_worker_cmd_used_in_summarize_session(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            return subprocess.CompletedProcess(cmd, 0, stdout='{"type": "text", "text": "- Done."}\n', stderr="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            summary, source = narrative.summarize_session(
+                "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                {"worker_cmd": "custom-agent"}, run=run, print_fn=lambda *a: None)
+        self.assertEqual((summary, source), ("- Done.", "model"))
+        self.assertEqual(calls[0][0], "custom-agent")
 
 
 class RunNotebookTests(unittest.TestCase):

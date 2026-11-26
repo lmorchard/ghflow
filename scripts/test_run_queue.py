@@ -489,6 +489,35 @@ class ActiveRunCheckTests(unittest.TestCase):
         # Should not raise
         run_queue.check_active_runs()
 
+    def test_resolve_worker_cmd_hierarchy(self):
+        # 1. options["worker_cmd"] wins
+        self.assertEqual(
+            run_queue.resolve_worker_cmd({"worker_cmd": "custom-agent", "opencode_cmd": "legacy"}),
+            "custom-agent",
+        )
+        # 2. options["opencode_cmd"] fallback
+        self.assertEqual(
+            run_queue.resolve_worker_cmd({"opencode_cmd": "legacy"}),
+            "legacy",
+        )
+        # 3. GHFLOW_WORKER_CMD env var
+        with patch.dict(os.environ, {"GHFLOW_WORKER_CMD": "env-agent", "GHFLOW_OPENCODE_CMD": "env-legacy"}):
+            self.assertEqual(run_queue.resolve_worker_cmd({}), "env-agent")
+        # 4. GHFLOW_OPENCODE_CMD env var
+        with patch.dict(os.environ, {"GHFLOW_OPENCODE_CMD": "env-legacy"}, clear=True):
+            self.assertEqual(run_queue.resolve_worker_cmd({}), "env-legacy")
+        # 5. default opencode
+        with patch.dict(os.environ, {}, clear=True):
+            self.assertEqual(run_queue.resolve_worker_cmd({}), "opencode")
+
+    @patch("shutil.which", return_value="/usr/local/bin/custom-worker")
+    @patch("subprocess.run")
+    def test_check_active_runs_uses_custom_worker_cmd(self, mock_run, mock_which):
+        mock_run.return_value = MagicMock(returncode=0, stdout="[]")
+        run_queue.check_active_runs(worker_cmd="custom-worker")
+        mock_which.assert_called_with("custom-worker")
+        self.assertEqual(mock_run.call_args[0][0][0], "custom-worker")
+
 class ComposePromptTests(unittest.TestCase):
     """Tests for prompt composition."""
 
@@ -630,6 +659,36 @@ class ProgressRuleAndLoopTests(unittest.TestCase):
             self.assertFalse(any(arg is None for arg in handoff))
             self.assertIn("--facts-path", handoff)
             self.assertIn("/wt/.ghflow/project.md", handoff)
+
+    def test_run_session_uses_worker_cmd_over_opencode_cmd(self):
+        subproc_calls = []
+        mock_proc = MagicMock()
+        mock_proc.stdout = ['{"type": "step_start", "sessionID": "ses_test123"}\n', '{"type": "step_finish"}\n']
+        mock_proc.returncode = 0
+        mock_proc.wait.return_value = 0
+
+        def fake_subproc_run(*args, **kwargs):
+            subproc_calls.append(args[0])
+            return MagicMock(returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes_dir = Path(tmp)
+            skill_dir = notes_dir / "skill"
+            skill_dir.mkdir()
+            (skill_dir / "SKILL.md").write_text("# Skill", encoding="utf-8")
+            options = {"skill_dir": str(skill_dir), "worker_cmd": "my_custom_worker", "opencode_cmd": "ignored"}
+
+            with patch("subprocess.Popen", return_value=mock_proc) as popen, \
+                 patch("subprocess.run", side_effect=fake_subproc_run):
+                ok, ses_id = run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                                   notes_dir, options, cli_fn=lambda *a, **k: ({}, 0))
+            self.assertTrue(ok)
+            # Popen invocation uses worker_cmd
+            popen_cmd = popen.call_args[0][0]
+            self.assertEqual(popen_cmd[0], "my_custom_worker")
+            # Cleanup uses worker_cmd
+            delete_calls = [c for c in subproc_calls if "delete" in c]
+            self.assertEqual(delete_calls[0][0], "my_custom_worker")
 
     def test_run_session_uses_worktree_cwd_and_sets_cli_env(self):
         mock_proc = MagicMock()
