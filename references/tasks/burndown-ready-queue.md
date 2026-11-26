@@ -54,6 +54,10 @@ For an interactive delivery:
 4. **Disruption**: if an issue hits an unexpected blocker, persistent test failure, or review defect, **halt the burndown immediately.** Do not advance to the next issue. Preserve the worktree and branch. Return the blocker, error logs, and proposed remediation to the user.
 5. If the issue successfully completes to the authorized endpoint, proceed to the next selected issue that has not reached that endpoint.
 
+## Record per-issue metrics
+
+Keep a short per-issue block in the run notes: start and end time (from `date`, not an estimate), tool-call count when the runtime exposes it, the number of CI cycles, and the merge commit. Report the metrics in the final summary so local and cloud runs have comparable numbers. At close-out, run `python3 "$GHFLOW_CLI" worktree prune-merged --apply` and report the removed and skipped worktrees.
+
 ## Conclude and hand off
 
 When all selected issues have reached the agreed endpoint:

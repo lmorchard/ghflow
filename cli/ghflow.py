@@ -2027,6 +2027,89 @@ def default_branch(root, git=run_git):
     return git(["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], root).strip().removeprefix("origin/")
 
 
+def worktree_prune_merged(cwd=None, *, apply=False, git=run_git, gh=run_gh):
+    """List or remove clean worktrees under .claude/worktrees whose branch has a merged PR.
+
+    Dry-run by default. A dirty worktree, an unreadable PR state, or a branch
+    with no merged PR is skipped and reported.
+    """
+    start = Path.cwd() if cwd is None else Path(cwd)
+    try:
+        primary = primary_checkout(start, git)
+        repo = checkout_repo(primary, git)
+        listing = git(["worktree", "list", "--porcelain"], primary)
+    except (GhError, OSError, ValueError) as error:
+        return {"primary": None, "worktrees": [], "removed": [], "skipped": [],
+                "errors": [{"part": "checkout", "error": str(error)}]}, 1
+    base = (primary / ".claude" / "worktrees").resolve()
+    records = []
+    removed = []
+    skipped = []
+    for block in listing.strip().split("\n\n"):
+        fields = dict(line.partition(" ")[::2] for line in block.splitlines())
+        path = fields.get("worktree")
+        branch_ref = fields.get("branch", "")
+        if not path or not branch_ref:
+            continue
+        worktree = Path(path)
+        try:
+            inside = worktree.resolve().is_relative_to(base)
+        except OSError:
+            inside = False
+        if not inside:
+            continue
+        branch = branch_ref.removeprefix("refs/heads/")
+        record = {"path": str(worktree), "branch": branch}
+        try:
+            dirty = git(["status", "--porcelain"], worktree).strip()
+        except (GhError, OSError) as error:
+            record.update(result="skipped", reason=f"status failed: {error}")
+            skipped.append(record)
+            records.append(record)
+            continue
+        if dirty:
+            record.update(result="skipped", reason="dirty worktree")
+            skipped.append(record)
+            records.append(record)
+            continue
+        if not repo:
+            record.update(result="skipped", reason="no GitHub origin in the checkout")
+            skipped.append(record)
+            records.append(record)
+            continue
+        try:
+            prs = gh(["pr", "list", "--repo", repo, "--head", branch, "--state", "merged",
+                      "--json", "number,url"])
+        except (GhError, OSError, json.JSONDecodeError) as error:
+            record.update(result="skipped", reason=f"PR read failed: {error}")
+            skipped.append(record)
+            records.append(record)
+            continue
+        if not isinstance(prs, list) or not prs:
+            record.update(result="skipped", reason="no merged PR for the branch")
+            skipped.append(record)
+            records.append(record)
+            continue
+        record["pr"] = prs[0].get("url") if isinstance(prs[0], dict) else None
+        if not apply:
+            record.update(result="would-remove")
+            records.append(record)
+            continue
+        try:
+            git(["worktree", "remove", str(worktree)], primary)
+            git(["branch", "-D", branch], primary)
+        except (GhError, OSError) as error:
+            record.update(result="failed", reason=str(error))
+            skipped.append(record)
+            records.append(record)
+            continue
+        record.update(result="removed")
+        removed.append(record)
+        records.append(record)
+    return {"primary": str(primary), "worktrees": records, "removed": removed,
+            "skipped": skipped, "errors": []}, 0
+
+
 def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), notes=False, board=None,
                     base=None, git=run_git, shell=None, board_write=None, now=None):
     """Create an issue worktree from origin's default branch or ``base`` and prepare it.
@@ -4772,6 +4855,10 @@ def main(argv=None):
     wt_ensure.add_argument("--path", help="worktree path (default: .claude/worktrees/BRANCH in primary checkout)")
     wt_ensure.add_argument("--owner", help="board owner, with --project, to move the issue In progress")
     wt_ensure.add_argument("--project", type=int, help="board number")
+    wt_prune = wt_commands.add_parser(
+        "prune-merged",
+        help="Remove clean worktrees under .claude/worktrees whose branch has a merged PR; dry-run unless --apply.")
+    wt_prune.add_argument("--apply", action="store_true", help="remove the worktrees and delete their branches")
     build_parser = commands.add_parser("build", help="Task builder operations.")
     build_commands = build_parser.add_subparsers(dest="build_command", required=True)
     build_finish_cmd = build_commands.add_parser("finish", help="Verify local gates (make check) and commit changes under machine identity.")
@@ -5062,7 +5149,9 @@ def main(argv=None):
         board = (args.owner, args.project) if args.owner and args.project is not None else None
         if (args.owner or args.project is not None) and board is None:
             parser.error("--owner and --project are required together for a board move.")
-        if args.worktree_command in ("prepare", "ensure"):
+        if args.worktree_command == "prune-merged":
+            result, status = worktree_prune_merged(apply=args.apply)
+        elif args.worktree_command in ("prepare", "ensure"):
             result, status = worktree_prepare(args.issue, branch=args.branch, path=args.path, board=board)
         else:
             result, status = worktree_create(args.issue, args.branch, path=args.path, copy=args.copy, setup=args.setup,
