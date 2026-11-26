@@ -5693,6 +5693,31 @@ class MergeTrainTests(unittest.TestCase):
         self.assertEqual(len(result["merged"]), 2)
         self.assertTrue(any(call[:3] == ["api", "-X", "PUT"] for call in calls))
 
+    def test_polls_transient_unknown_mergeability(self):
+        reads = []
+
+        def fake_state(repo, number, **kwargs):
+            reads.append(1)
+            state = self._state(self.HEAD_A)
+            if len(reads) == 1:
+                state["mergeable"] = "UNKNOWN"
+            return state, 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            raise AssertionError(args)
+
+        result, status = pr_merge_train(
+            "o/r", [{"pr": "1", "head": self.HEAD_A}], "squash", "authorized",
+            state=fake_state, merge_fn=lambda *a, **k: ({"merge_commit": "x"}, 0), gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0,
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(result["items"][0]["result"], "merged")
+        self.assertGreaterEqual(len(reads), 2)
+
     def test_stops_on_merge_hold(self):
         def fake_state(repo, number, **kwargs):
             return self._state(self.HEAD_A), 0
