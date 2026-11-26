@@ -107,6 +107,10 @@ first failure, reporting `merged`, `stopped_at`, and `remaining`. With the board
 options it moves each closed issue to Done. It does not compare attribution;
 check `author` and `commit_authors` before the train.
 
+## Pruning merged worktrees
+
+Run `python3 "$GHFLOW_CLI" worktree prune-merged` to list clean worktrees under `.claude/worktrees/` whose branch has a merged PR. Add `--apply` to remove them and delete their local branches. Dirty worktrees, branches without a merged PR, and unreadable PR state are skipped and reported, so the command is safe to run at close-out.
+
 ## Reading project facts
 
 Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live facts that a handoff would otherwise restate. It reports the checkout root, branch, head, dirty state, and worktrees; the remote, default branch, how far the local default branch is behind `origin`, recent commit subjects, and the age of the last fetch; the tracked instruction files, Makefile targets, `conftest.py` paths, CI workflows, PR template, environment example, and lockfiles; the identity's login and readiness without secrets; and the required checks for the default branch. Add `--issue` with an issue URL or a bare number from the checkout to include the issue's title, state, labels, board items with their status, and the branches, worktrees, and PRs that name its number.

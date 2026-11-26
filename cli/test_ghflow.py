@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, worktree_prune_merged, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -5762,3 +5762,54 @@ class MergeTrainTests(unittest.TestCase):
         observed = self._state(self.HEAD_A, review_state="none",
                                verdicts=[{"verdict": "clean", "head": self.HEAD_A[:7]}])
         self.assertTrue(review_covers_head(observed, self.HEAD_A))
+
+
+class WorktreePruneTests(unittest.TestCase):
+    def _repo(self, temp):
+        repo = Path(temp)
+        subprocess.run(["git", "init", "-q", "-b", "main"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.name", "T"], cwd=repo, check=True)
+        subprocess.run(["git", "config", "user.email", "t@example.com"], cwd=repo, check=True)
+        (repo / "a.txt").write_text("x\n")
+        subprocess.run(["git", "add", "."], cwd=repo, check=True)
+        subprocess.run(["git", "commit", "-qm", "init"], cwd=repo, check=True)
+        subprocess.run(["git", "remote", "add", "origin", "git@github.com:o/r.git"], cwd=repo, check=True)
+        worktree = repo / ".claude" / "worktrees" / "feature"
+        worktree.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "worktree", "add", "-q", "-b", "feature", str(worktree)], cwd=repo, check=True)
+        return repo, worktree
+
+    def _gh(self, args, **kwargs):
+        if args[:2] == ["pr", "list"]:
+            return [{"number": 1, "url": "https://github.com/o/r/pull/1"}]
+        raise AssertionError(args)
+
+    def test_dry_run_lists_a_merged_worktree(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, worktree = self._repo(temp)
+            result, status = worktree_prune_merged(cwd=repo, gh=self._gh)
+            self.assertEqual(status, 0)
+            self.assertEqual(result["worktrees"][0]["result"], "would-remove")
+            self.assertTrue(worktree.exists())
+
+    def test_apply_removes_the_worktree_and_branch(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, worktree = self._repo(temp)
+            result, status = worktree_prune_merged(cwd=repo, apply=True, gh=self._gh)
+            self.assertEqual(status, 0)
+            self.assertEqual(len(result["removed"]), 1)
+            self.assertFalse(worktree.exists())
+            branches = subprocess.run(
+                ["git", "branch", "--list", "feature"], cwd=repo, capture_output=True, text=True, check=True
+            ).stdout
+            self.assertEqual(branches.strip(), "")
+
+    def test_dirty_worktree_is_skipped(self):
+        with tempfile.TemporaryDirectory() as temp:
+            repo, worktree = self._repo(temp)
+            (worktree / "untracked.txt").write_text("dirty\n")
+            result, status = worktree_prune_merged(cwd=repo, apply=True, gh=self._gh)
+            self.assertEqual(status, 0)
+            self.assertEqual(result["worktrees"][0]["result"], "skipped")
+            self.assertIn("dirty", result["worktrees"][0]["reason"])
+            self.assertTrue(worktree.exists())
