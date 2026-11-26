@@ -94,6 +94,19 @@ Every item is parsed before the first write. Each PR must be open, not a draft, 
 The command merges in order and stops at the first failure. It reports each `merge_commit`, `stopped_at`, and `remaining`. With the board options it moves each issue a merged PR closes to Done and reports each board result; a board failure does not fail the batch.
 The command does not compare `author` or `commit_authors`; check attribution before the batch, as [merge-pr](tasks/merge-pr.md) requires. The queue runner never calls this command. Use it only in a session where the user authorized the batch.
 
+## Merging a train
+
+Run `python3 "$GHFLOW_CLI" pr merge-train --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` when several green,
+self-reviewed PRs are ready and each may need to be brought up to date with the
+new base before merging. The train checks the reviewed head, a clean review or
+`ghflow-review` verdict, and the linked issues' `merge:hold` veto. A PR behind
+its base is updated with the API; the train waits for the required checks on the
+new head (bounded by `--timeout`, default 1800s) and accepts the reviewed head's
+clean verdict for the clean base update. It merges in order and stops at the
+first failure, reporting `merged`, `stopped_at`, and `remaining`. With the board
+options it moves each closed issue to Done. It does not compare attribution;
+check `author` and `commit_authors` before the train.
+
 ## Reading project facts
 
 Run `python3 "$GHFLOW_CLI" facts` from the subject checkout to read the live facts that a handoff would otherwise restate. It reports the checkout root, branch, head, dirty state, and worktrees; the remote, default branch, how far the local default branch is behind `origin`, recent commit subjects, and the age of the last fetch; the tracked instruction files, Makefile targets, `conftest.py` paths, CI workflows, PR template, environment example, and lockfiles; the identity's login and readiness without secrets; and the required checks for the default branch. Add `--issue` with an issue URL or a bare number from the checkout to include the issue's title, state, labels, board items with their status, and the branches, worktrees, and PRs that name its number.

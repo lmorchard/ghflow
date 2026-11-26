@@ -3015,6 +3015,170 @@ def pr_merge_batch(repo, items, method, authorization, owner=None, project=None,
     return result, 0
 
 
+def review_covers_head(observed, reviewed_head):
+    """True when an approved review or a clean ghflow verdict covers the reviewed head."""
+    summary = observed.get("review_summary") or {}
+    if summary.get("changes_requested"):
+        return False
+    if summary.get("state") == "approved":
+        return True
+    for verdict in observed.get("review_verdicts") or []:
+        if verdict.get("verdict") == "clean" and verdict.get("head") and reviewed_head.startswith(verdict["head"]):
+            return True
+    return False
+
+
+def merge_hold_reason(repo, number, gh=run_gh):
+    """Return why a linked issue vetoes merging, or None."""
+    try:
+        data = response_type(gh(["pr", "view", str(number), "--repo", repo,
+                                 "--json", "closingIssuesReferences"]), dict, "The PR response")
+        refs = data.get("closingIssuesReferences") or []
+    except READ_ERRORS as error:
+        return f"Could not read the linked issues: {error}"
+    for ref in refs:
+        if not isinstance(ref, dict):
+            continue
+        issue_repo = (ref.get("repository") or {}).get("nameWithOwner") or repo
+        issue_number = ref.get("number")
+        if not issue_number:
+            continue
+        try:
+            issue = response_type(gh(["issue", "view", str(issue_number), "--repo", issue_repo,
+                                      "--json", "labels"]), dict, "The issue response")
+        except READ_ERRORS as error:
+            return f"Could not read {issue_repo}#{issue_number} labels: {error}"
+        labels = [entry.get("name") for entry in issue.get("labels") or [] if isinstance(entry, dict)]
+        if "merge:hold" in labels:
+            return f"Linked issue {issue_repo}#{issue_number} is labeled merge:hold."
+    return None
+
+
+def wait_for_train_checks(repo, number, *, state=pr_state, gh=run_gh, gh_paginated=run_gh_paginated,
+                          identity=None, timeout=1800, poll_interval=15, sleep=time.sleep, now=time.time):
+    """Poll an updated PR until its required checks are green or the deadline passes."""
+    deadline = now() + timeout
+    observed = {}
+    while True:
+        observed, _status = state(repo, number, gh=gh, gh_paginated=gh_paginated, identity=identity)
+        if isinstance(observed, dict):
+            if observed.get("ci") == "failed":
+                return False, "The required checks failed after the branch update.", observed
+            if (observed.get("ci") == "green" and observed.get("base_behind_by") == 0
+                    and observed.get("mergeable") == "MERGEABLE"):
+                return True, "", observed
+        if now() >= deadline:
+            return False, f"Timed out after {timeout}s waiting for checks on the updated head.", observed
+        sleep(poll_interval)
+
+
+def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
+                   gh=run_gh, gh_text=run_gh_text, confirm=confirm_write_identity,
+                   state=pr_state, merge_fn=pr_merge, board_write=board_set_status,
+                   gh_paginated=run_gh_paginated, identity=None,
+                   timeout=1800, poll_interval=15, sleep=time.sleep, now=time.time):
+    """Merge green, self-reviewed PRs in order, updating each onto the new base first.
+
+    Each item is checked at its reviewed head, including the ``merge:hold``
+    veto. A PR behind its base is updated; the train waits for the required
+    checks on the new head and accepts the reviewed head's clean verdict (a
+    clean base update adds no change of its own). It stops at the first failure.
+    """
+    result = {"repo": repo, "method": method, "authorization": authorization,
+              "items": [], "merged": [], "stopped_at": None, "remaining": [], "errors": []}
+    if not isinstance(authorization, str) or not authorization.strip():
+        result["errors"].append({"part": "authorization",
+                                 "error": "A merge train needs the user authorization that covers it; nothing was written."})
+        return result, 1
+    if method not in ("merge", "squash", "rebase"):
+        result["errors"].append({"part": "method", "error": f"Unknown merge method {method!r}."})
+        return result, 1
+    if not items:
+        result["errors"].append({"part": "items", "error": "The train has no pull requests."})
+        return result, 1
+
+    parsed = []
+    for item in items:
+        ref = str(item.get("pr") or "").strip()
+        expected = str(item.get("head") or "").strip()
+        if len(expected) < 7:
+            result["errors"].append({"part": "item",
+                                     "error": f"{ref or 'An item'} needs a head of at least 7 characters; nothing was written."})
+            return result, 1
+        try:
+            item_repo, number = parse_pr(ref, repo)
+        except SystemExit as error:
+            result["errors"].append({"part": "item", "error": f"{ref!r}: {error}"})
+            return result, 1
+        parsed.append({"repo": item_repo, "number": number, "head": expected})
+
+    def stop(record, status):
+        result["items"].append(record)
+        result["stopped_at"] = record["pr"]
+        return result, status
+
+    for index, item in enumerate(parsed):
+        record = {"pr": f"{item['repo']}#{item['number']}", "expected_head": item["head"]}
+        result["remaining"] = [f"{entry['repo']}#{entry['number']}" for entry in parsed[index + 1:]]
+
+        observed, read_status = state(item["repo"], item["number"], gh=gh,
+                                      gh_paginated=gh_paginated, identity=identity)
+        record.update({"head": (observed or {}).get("head") if isinstance(observed, dict) else None,
+                       "ci": (observed or {}).get("ci") if isinstance(observed, dict) else None,
+                       "base_behind_by": (observed or {}).get("base_behind_by") if isinstance(observed, dict) else None,
+                       "review": (observed or {}).get("review_summary") if isinstance(observed, dict) else None})
+
+        hold = merge_hold_reason(item["repo"], item["number"], gh=gh)
+        if hold:
+            record.update(result="refused", reason=hold)
+            return stop(record, 3)
+
+        check = dict(observed) if isinstance(observed, dict) else {}
+        check["base_behind_by"] = 0  # the update step below is allowed to resolve this
+        reason = merge_block_reason(check, item["head"])
+        if reason:
+            record.update(result="refused", reason=reason)
+            return stop(record, 1 if read_status == 1 else 3)
+
+        if (observed or {}).get("base_behind_by"):
+            try:
+                gh(["api", "-X", "PUT", f"repos/{item['repo']}/pulls/{item['number']}/update-branch",
+                    "-f", f"expected_head_sha={observed.get('head')}"])
+            except READ_ERRORS as error:
+                record.update(result="update-failed", reason=str(error))
+                return stop(record, 1)
+            ok, wait_reason, observed = wait_for_train_checks(
+                item["repo"], item["number"], state=state, gh=gh, gh_paginated=gh_paginated,
+                identity=identity, timeout=timeout, poll_interval=poll_interval, sleep=sleep, now=now)
+            if not ok:
+                record.update(result="checks-failed", reason=wait_reason)
+                return stop(record, 3)
+            if not review_covers_head(observed, item["head"]):
+                record.update(result="refused",
+                              reason="No clean review covers the reviewed head after the branch update.")
+                return stop(record, 3)
+            record.update({"head": observed.get("head"), "ci": observed.get("ci"),
+                           "base_behind_by": observed.get("base_behind_by"), "updated": True})
+
+        head = (observed or {}).get("head")
+        merge_result, merge_status = merge_fn(item["repo"], item["number"], method, head,
+                                              gh=gh, gh_text=gh_text, confirm=confirm)
+        record["merge"] = merge_result
+        if merge_status != 0:
+            record.update(result="merge-failed", reason=(merge_result or {}).get("errors"))
+            return stop(record, merge_status)
+        record.update(result="merged", merge_commit=(merge_result or {}).get("merge_commit"),
+                      merged_at=(merge_result or {}).get("merged_at"))
+        result["merged"].append({"pr": record["pr"], "merge_commit": record["merge_commit"]})
+        if owner and project:
+            record["board"] = merge_batch_board(item["repo"], item["number"], owner, project,
+                                                gh=gh, board_write=board_write)
+        result["items"].append(record)
+
+    result["remaining"] = []
+    return result, 0
+
+
 HANDOFF_SCOPE = {
     "implement-issue": "Implement the issue, then publish it as a draft through submit-pr in the same session. "
                        "Publish the first significant committed checkpoint as a draft and keep working on the same branch. "
@@ -4659,6 +4823,22 @@ def main(argv=None):
                               help="the user authorization that covers this batch")
     pr_batch_cmd.add_argument("--owner", help="project board owner for post-merge Done moves")
     pr_batch_cmd.add_argument("--project", type=int, help="project board number for post-merge Done moves")
+    pr_train_cmd = pr_commands.add_parser(
+        "merge-train",
+        help="Merge green, self-reviewed PRs in order, updating each onto the new base first.")
+    pr_train_cmd.add_argument("--repo", required=True, help="OWNER/NAME for bare PR numbers")
+    pr_train_cmd.add_argument("--method", required=True, choices=("merge", "squash", "rebase"),
+                              help="merge method to use")
+    pr_train_cmd.add_argument("--item", action="append", required=True, metavar="PR=HEAD",
+                              help="PR and its reviewed head, in merge order; repeatable")
+    pr_train_cmd.add_argument("--authorization", required=True,
+                              help="the user authorization that covers this train")
+    pr_train_cmd.add_argument("--owner", help="project board owner for post-merge Done moves")
+    pr_train_cmd.add_argument("--project", type=int, help="project board number for post-merge Done moves")
+    pr_train_cmd.add_argument("--timeout", type=int, default=1800,
+                              help="seconds to wait for checks on an updated head (default 1800)")
+    pr_train_cmd.add_argument("--poll-interval", type=float, default=15.0,
+                              help="seconds between check polls (default 15)")
     discussion_group = commands.add_parser("discussion", help="Discussion notebook writes with read-backs.")
     discussion_commands = discussion_group.add_subparsers(dest="discussion_command", required=True)
     disc_post = discussion_commands.add_parser("post", help="Append a note to a titled discussion in a category, creating it once, and read the write back.")
@@ -4987,6 +5167,19 @@ def main(argv=None):
             items.append({"pr": ref, "head": head})
         result, status = pr_merge_batch(args.repo, items, args.method, args.authorization,
                                         owner=args.owner, project=args.project,
+                                        identity=resolve_identity_or_none())
+    elif args.command == "pr" and args.pr_command == "merge-train":
+        if bool(args.owner) != (args.project is not None):
+            parser.error("--owner and --project are required together for board updates.")
+        items = []
+        for raw in args.item:
+            if "=" not in raw:
+                parser.error("--item takes PR=HEAD.")
+            ref, head = raw.rsplit("=", 1)
+            items.append({"pr": ref, "head": head})
+        result, status = pr_merge_train(args.repo, items, args.method, args.authorization,
+                                        owner=args.owner, project=args.project,
+                                        timeout=args.timeout, poll_interval=args.poll_interval,
                                         identity=resolve_identity_or_none())
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
