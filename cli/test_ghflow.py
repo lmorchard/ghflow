@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -5628,3 +5628,137 @@ class AuditIssueTests(unittest.TestCase):
             self.assertEqual(status, 0)
             self.assertTrue(out.exists())
             self.assertEqual(json.loads(out.read_text())["issue"]["url"], "https://github.com/o/r/issues/1")
+
+
+class MergeTrainTests(unittest.TestCase):
+    HEAD_A = "a" * 40
+    HEAD_B = "b" * 40
+    HEAD_C = "c" * 40
+
+    def _state(self, head, *, base=0, ci="green", review_state="approved", verdicts=None):
+        return {
+            "head": head,
+            "state": "OPEN",
+            "is_draft": False,
+            "mergeable": "MERGEABLE",
+            "ci": ci,
+            "base_behind_by": base,
+            "review_summary": {
+                "state": review_state,
+                "requested": [],
+                "pending": [],
+                "changes_requested": [],
+                "completed": [],
+            },
+            "review_verdicts": verdicts or [],
+        }
+
+    def test_updates_a_behind_pr_then_merges_in_order(self):
+        states = {
+            1: iter([self._state(self.HEAD_A, base=1), self._state(self.HEAD_B)]),
+            2: iter([self._state(self.HEAD_C)]),
+        }
+        calls = []
+        merged_heads = []
+
+        def fake_state(repo, number, **kwargs):
+            return next(states[number]), 0
+
+        def fake_gh(args, **kwargs):
+            calls.append(list(args))
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            if args[:3] == ["api", "-X", "PUT"]:
+                return {}
+            raise AssertionError(args)
+
+        def fake_merge(repo, number, method, head, **kwargs):
+            merged_heads.append(head)
+            return {"merge_commit": f"m{number}", "merged_at": "now"}, 0
+
+        result, status = pr_merge_train(
+            "o/r",
+            [{"pr": "1", "head": self.HEAD_A}, {"pr": "2", "head": self.HEAD_C}],
+            "squash",
+            "authorized",
+            state=fake_state,
+            merge_fn=fake_merge,
+            gh=fake_gh,
+            sleep=lambda _s: None,
+            now=lambda: 0,
+        )
+
+        self.assertEqual(status, 0)
+        self.assertEqual(merged_heads, [self.HEAD_B, self.HEAD_C])
+        self.assertEqual(len(result["merged"]), 2)
+        self.assertTrue(any(call[:3] == ["api", "-X", "PUT"] for call in calls))
+
+    def test_stops_on_merge_hold(self):
+        def fake_state(repo, number, **kwargs):
+            return self._state(self.HEAD_A), 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": [{"number": 5, "repository": {"nameWithOwner": "o/r"}}]}
+            if args[:2] == ["issue", "view"]:
+                return {"labels": [{"name": "merge:hold"}]}
+            raise AssertionError(args)
+
+        result, status = pr_merge_train(
+            "o/r", [{"pr": "1", "head": self.HEAD_A}], "squash", "authorized",
+            state=fake_state, merge_fn=lambda *a, **k: ({"merge_commit": "x"}, 0), gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0,
+        )
+
+        self.assertEqual(status, 3)
+        self.assertEqual(result["items"][0]["result"], "refused")
+        self.assertIn("merge:hold", result["items"][0]["reason"])
+
+    def test_stops_without_a_clean_review(self):
+        def fake_state(repo, number, **kwargs):
+            return self._state(self.HEAD_A, review_state="none"), 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            raise AssertionError(args)
+
+        result, status = pr_merge_train(
+            "o/r", [{"pr": "1", "head": self.HEAD_A}], "squash", "authorized",
+            state=fake_state, merge_fn=lambda *a, **k: ({"merge_commit": "x"}, 0), gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0,
+        )
+
+        self.assertEqual(status, 3)
+        self.assertEqual(result["items"][0]["result"], "refused")
+        self.assertIn("No approved review", result["items"][0]["reason"])
+
+    def test_stops_when_checks_fail_after_update(self):
+        states = {
+            1: iter([self._state(self.HEAD_A, base=1), self._state(self.HEAD_B, ci="failed")]),
+        }
+
+        def fake_state(repo, number, **kwargs):
+            return next(states[number]), 0
+
+        def fake_gh(args, **kwargs):
+            if args[:2] == ["pr", "view"]:
+                return {"closingIssuesReferences": []}
+            if args[:3] == ["api", "-X", "PUT"]:
+                return {}
+            raise AssertionError(args)
+
+        result, status = pr_merge_train(
+            "o/r", [{"pr": "1", "head": self.HEAD_A}], "squash", "authorized",
+            state=fake_state, merge_fn=lambda *a, **k: ({"merge_commit": "x"}, 0), gh=fake_gh,
+            sleep=lambda _s: None, now=lambda: 0,
+        )
+
+        self.assertEqual(status, 3)
+        self.assertEqual(result["items"][0]["result"], "checks-failed")
+        self.assertEqual(result["merged"], [])
+
+    def test_review_covers_head_accepts_a_clean_marker(self):
+        observed = self._state(self.HEAD_A, review_state="none",
+                               verdicts=[{"verdict": "clean", "head": self.HEAD_A[:7]}])
+        self.assertTrue(review_covers_head(observed, self.HEAD_A))
