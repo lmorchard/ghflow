@@ -2829,6 +2829,32 @@ class LocalModelTests(unittest.TestCase):
                 models, error = run_queue.select_models(model, "lmstudio/review")
                 self.assertIsNone(models)
                 self.assertIn("is not local", error)
+                self.assertIn("--allow-remote-models", error)
+
+    def test_allow_remote_admits_cloud_and_gateway_providers(self):
+        for model in ("otari/deepseek-v4.1-flash-1017", "anthropic/claude-sonnet-5.5",
+                      "google-vertex/gemini-3.5-flash"):
+            with self.subTest(model=model):
+                models, error = run_queue.select_models(model, model, allow_remote=True)
+                self.assertIsNone(error)
+                self.assertEqual(models, {"implementation": model, "review": model})
+
+    def test_allow_remote_still_normalizes_the_provider_prefix(self):
+        models, error = run_queue.select_models("deepseek-v4.1-flash-1017", "review-model",
+                                                provider="otari", allow_remote=True)
+        self.assertIsNone(error)
+        self.assertEqual(models["implementation"], "otari/deepseek-v4.1-flash-1017")
+
+    def test_notice_is_silent_for_local_models(self):
+        models, _ = run_queue.select_models("lmstudio/qwen", "lmstudio/flint")
+        self.assertIsNone(run_queue.remote_model_notice(models))
+
+    def test_notice_names_only_the_remote_models(self):
+        models, _ = run_queue.select_models("otari/deepseek", "lmstudio/flint", allow_remote=True)
+        notice = run_queue.remote_model_notice(models)
+        self.assertIn("otari/deepseek", notice)
+        self.assertNotIn("lmstudio/flint", notice)
+        self.assertIn("may incur cost", notice)
 
     def test_applies_the_provider_to_both_models(self):
         models, error = run_queue.select_models("qwen", "flint", provider="lmstudio")
@@ -2844,6 +2870,10 @@ class LocalModelTests(unittest.TestCase):
             model_note="implementation `lmstudio/impl`, review `lmstudio/review`")
         self.assertIn("lmstudio/impl / lmstudio/review", summary)
         self.assertIn("Model: implementation", summary)
+
+
+class _StopAtValidation(Exception):
+    """Sentinel that ends main() at model validation, before any worker exists."""
 
 
 class LocalModelMainTests(unittest.TestCase):
@@ -2904,6 +2934,47 @@ class LocalModelMainTests(unittest.TestCase):
         self.assertEqual(ret, 1)
         board.assert_not_called()
         self.assertIn("is not local", out.getvalue())
+
+    def test_allow_remote_models_flag_reaches_select_models(self):
+        """--allow-remote-models is wired through to the model validation.
+
+        select_models raises a sentinel so main() stops at validation instead of
+        reaching the worker binary and project facts, which vary by environment.
+        """
+        captured = {}
+
+        def fake_select(implementation, review, provider=None, allow_remote=False):
+            captured["allow_remote"] = allow_remote
+            raise _StopAtValidation()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.select_models", side_effect=fake_select):
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                with self.assertRaises(_StopAtValidation):
+                    run_queue.main(["--model", "otari/deepseek-v4.1-flash-1017",
+                                    "--review-model", "otari/deepseek-v4.1-flash-1017",
+                                    "--allow-remote-models",
+                                    "--once", "--no-notebook", "--notes-dir", tmp])
+        self.assertIs(captured.get("allow_remote"), True)
+
+    def test_flag_is_off_by_default(self):
+        captured = {}
+
+        def fake_select(implementation, review, provider=None, allow_remote=False):
+            captured["allow_remote"] = allow_remote
+            raise _StopAtValidation()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.select_models", side_effect=fake_select):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(_StopAtValidation):
+                    run_queue.main(["--model", "lmstudio/qwen",
+                                    "--review-model", "lmstudio/flint",
+                                    "--once", "--no-notebook", "--notes-dir", tmp])
+        self.assertIs(captured.get("allow_remote"), False)
 
     def test_requires_both_models(self):
         with self.assertRaises(SystemExit):
