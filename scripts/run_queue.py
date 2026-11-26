@@ -130,18 +130,34 @@ def is_local_model(model):
     return provider in LOCAL_MODEL_PROVIDERS
 
 
-def select_models(implementation, review, provider=None):
-    """Normalize and validate the local implementation and review models.
+def select_models(implementation, review, provider=None, allow_remote=False):
+    """Normalize and validate the implementation and review models.
 
-    Returns ``(models, error)``. Both models must use a local provider.
+    Returns ``(models, error)``. Both models must use a local provider unless
+    ``allow_remote`` is set, which admits any provider — a homelab gateway or a
+    cloud API — for a run that deliberately asks for one.
     """
     models = {"implementation": normalize_model(implementation, provider),
               "review": normalize_model(review, provider)}
+    if allow_remote:
+        return models, None
     for role, model in models.items():
         if not is_local_model(model):
             return None, (f"{role} model `{model}` is not local. "
-                          f"Use a local provider: {', '.join(LOCAL_MODEL_PROVIDERS)}.")
+                          f"Use a local provider: {', '.join(LOCAL_MODEL_PROVIDERS)}. "
+                          f"Pass --allow-remote-models to use a homelab gateway or cloud provider.")
     return models, None
+
+
+def remote_model_notice(models):
+    """Name the non-local providers a run will use, or return None when all are local."""
+    remote = [f"{role} `{model}`"
+              for role, model in models.items()
+              if not is_local_model(model)]
+    if not remote:
+        return None
+    return (f"Using non-local models ({', '.join(remote)}). "
+            f"These may incur cost; local providers are preferred.")
 
 
 def format_models(models):
@@ -1911,6 +1927,8 @@ def main(argv=None):
     parser.add_argument("--review-model", required=True,
                         help="local review model in OpenCode's provider/model format (e.g. lmstudio/recursivesi/flint)")
     parser.add_argument("--provider", help="local provider prefix for a model ID without a slash (e.g. lmstudio, ollama)")
+    parser.add_argument("--allow-remote-models", action="store_true",
+                        help="allow homelab gateway or cloud providers (e.g. otari/); local models remain the default")
     parser.add_argument("--hours", type=float, default=8.0, help="maximum run duration in hours (default 8)")
     parser.add_argument("--floor", type=int, default=DEFAULT_FLOOR_MINUTES, help="minimum minutes required to start a new issue")
     parser.add_argument("--once", action="store_true", help="drive exactly one item to desired state and exit")
@@ -1986,12 +2004,17 @@ def main(argv=None):
     notes_dir = Path(args.notes_dir) if args.notes_dir else Path.home() / ".local/state/ghflow/notes" / f"runner-{time.strftime('%Y%m%d-%H%M%S')}"
     notes_dir.mkdir(parents=True, exist_ok=True)
 
-    selected_models, model_error = select_models(args.model, args.review_model, args.provider)
+    selected_models, model_error = select_models(args.model, args.review_model, args.provider,
+                                                 allow_remote=args.allow_remote_models)
     if model_error:
         print(f"[{time.strftime('%X')}] {model_error}", flush=True)
         return 1
     model = selected_models["implementation"]
     review_model = selected_models["review"]
+
+    notice = remote_model_notice(selected_models)
+    if notice:
+        print(f"[{time.strftime('%X')}] {notice}", flush=True)
 
     resolved_cmd = resolve_worker_cmd({"worker_cmd": args.worker_cmd})
     options = {
