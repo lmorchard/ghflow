@@ -315,6 +315,43 @@ class NextItemSelectionTests(unittest.TestCase):
         board = {"in_flight": [], "parked": [], "selection": []}
         self.assertIsNone(run_queue.next_item(board))
 
+    def test_only_restricts_selection_to_named_issue(self):
+        board = {
+            "in_flight": [{"number": 1, "step": "review-changes"}],
+            "parked": [{"number": 3, "issue": "o/r#3"}],
+            "selection": [
+                {"number": 4, "issue": "o/r#4"},
+                {"number": 1940, "issue": "o/r#1940"},
+            ],
+        }
+        item = run_queue.next_item(board, only={1940})
+        self.assertEqual(item["number"], 1940)
+
+    def test_only_skips_earlier_lanes_for_off_scope_items(self):
+        board = {
+            "in_flight": [{"number": 1, "step": "implement-issue"}],
+            "parked": [{"number": 3, "issue": "o/r#3"}],
+            "selection": [{"number": 1940, "issue": "o/r#1940"}],
+        }
+        item = run_queue.next_item(board, only={1940})
+        self.assertEqual(item["number"], 1940)
+
+    def test_only_returns_none_when_issue_not_actionable(self):
+        board = {
+            "in_flight": [],
+            "parked": [],
+            "selection": [{"number": 4, "issue": "o/r#4"}],
+        }
+        self.assertIsNone(run_queue.next_item(board, only={9999}))
+
+    def test_only_is_ignored_when_empty(self):
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 4}]}
+        self.assertEqual(run_queue.next_item(board, only=set())["number"], 4)
+
+    def test_only_accepts_several_issue_numbers(self):
+        board = {"in_flight": [], "parked": [], "selection": [{"number": 4}, {"number": 5}, {"number": 6}]}
+        self.assertEqual(run_queue.next_item(board, only={5, 6})["number"], 5)
+
 
 class ProjectDiscoveryTests(unittest.TestCase):
     """Tests for discover_project."""
@@ -1100,6 +1137,29 @@ class ParentSubIssueTests(unittest.TestCase):
             self.assertEqual(run_queue.next_item_for_parent(children, exclude={101})["number"], 102)
             self.assertEqual(run_queue.next_item_for_parent(children, exclude={101, 102})["number"], 103)
             self.assertIsNone(run_queue.next_item_for_parent(children, exclude={101, 102, 103}))
+
+    def test_only_restricts_parent_children(self):
+        children = [
+            {"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"},
+            {"number": 102, "state": "OPEN", "url": "https://github.com/o/r/issues/102"},
+        ]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            number = int(str(ref).rstrip("/").split("/")[-1])
+            return {"issue": str(ref), "number": number, "labels": [], "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            chosen = run_queue.next_item_for_parent(children, only={102})
+        self.assertEqual(chosen["number"], 102)
+
+    def test_only_returns_none_when_child_absent(self):
+        children = [{"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"}]
+
+        def fake_observe(ref, cli_fn=None, cwd=None):
+            return {"issue": str(ref), "number": 101, "labels": [], "pr": None}
+
+        with patch("run_queue.observe_issue", side_effect=fake_observe):
+            self.assertIsNone(run_queue.next_item_for_parent(children, only={999}))
 
     def test_next_item_for_parent_honors_labels_and_native_blockers(self):
         children = [

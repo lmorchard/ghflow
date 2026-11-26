@@ -468,13 +468,25 @@ def phase_boundary_park(state, step, remaining_minutes, floor):
     )
 
 
-def next_item(board, attempted=None):
-    """Pure function selecting the next item from board state (Decision 9)."""
+def next_item(board, attempted=None, only=None):
+    """Pure function selecting the next item from board state (Decision 9).
+
+    ``only`` restricts selection to a set of issue numbers. An item outside that
+    set is skipped in every lane, so a scoped run cannot wander onto an issue it
+    was not asked to touch.
+    """
     attempted = attempted or set()
+    only = set(only or ())
+
+    def off_scope(item):
+        return bool(only) and item.get("number") not in only
+
     in_flight = board.get("in_flight") or []
     for item in in_flight:
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
+            continue
+        if off_scope(item):
             continue
         if "triage:needs-input" in (item.get("labels") or []):
             continue
@@ -487,6 +499,8 @@ def next_item(board, attempted=None):
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
             continue
+        if off_scope(item):
+            continue
         if item.get("park_kind") in ("question", "blocker"):
             continue
         return item
@@ -495,6 +509,8 @@ def next_item(board, attempted=None):
     for item in selection:
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
+            continue
+        if off_scope(item):
             continue
         if "triage:needs-input" in (item.get("labels") or []):
             continue
@@ -609,15 +625,18 @@ def observe_parent(parent_ref, gh_cmd="gh", cwd=None):
 
 
 def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exclude=None,
-                         require_labels=None, exclude_labels=None, board_index=None):
+                         require_labels=None, exclude_labels=None, board_index=None, only=None):
     """Select the next child, honoring board order, labels, and native blocked-by links."""
     attempted = attempted or set()
     exclude = exclude or set()
+    only = set(only or ())
     require_labels = [label for label in (require_labels or []) if label]
     exclude_labels = [label for label in (exclude_labels or []) if label]
     candidates = []
     for child in children:
         if child.get("state") == "CLOSED" or child.get("number") in exclude:
+            continue
+        if only and child.get("number") not in only:
             continue
         ref = child.get("url") or child.get("number")
         if ref in attempted or child.get("number") in attempted:
@@ -1872,6 +1891,8 @@ def main(argv=None):
     parser.add_argument("--parent", action="append", dest="parents",
                         help="parent issue number, URL, or OWNER/REPO#NUMBER to burndown; repeat for several parents")
     parser.add_argument("--exclude", help="comma-separated issue numbers to skip when selecting from --parent (e.g. 1294,1295)")
+    parser.add_argument("--issue", action="append", default=[],
+                        help="restrict selection to this issue number or URL; repeat to name several")
     parser.add_argument("--require-label", action="append", default=[],
                         help="only select children carrying this label; repeat for several labels")
     parser.add_argument("--exclude-label", action="append", default=[],
@@ -1926,6 +1947,21 @@ def main(argv=None):
             exclude = {int(n.strip().lstrip("#")) for n in args.exclude.split(",") if n.strip()}
         except ValueError:
             parser.error("--exclude takes comma-separated issue numbers")
+
+    only: set[int] = set()
+    for raw in args.issue or []:
+        candidate = str(raw).strip().rstrip("/")
+        if not candidate:
+            continue
+        if "/" in candidate:
+            candidate = candidate.rsplit("/", 1)[-1]
+        candidate = candidate.lstrip("#")
+        try:
+            only.add(int(candidate))
+        except ValueError:
+            parser.error(f"--issue takes an issue number or URL, got {raw!r}")
+    if only and args.parents and len(only) > 1:
+        parser.error("--issue with --parent selects one child per parent; name a single issue")
     parents = args.parents or []
     require_labels = [label for label in args.require_label if label]
     exclude_labels = [label for label in args.exclude_label if label]
@@ -2143,7 +2179,8 @@ def main(argv=None):
                 recorded_parents.add(parent_ref)
             item = next_item_for_parent(parent_children, attempted, cli_fn=run_cli, cwd=options.get("cwd"),
                                         exclude=exclude, require_labels=require_labels,
-                                        exclude_labels=exclude_labels, board_index=board_index)
+                                        exclude_labels=exclude_labels, board_index=board_index,
+                                        only=only)
             if item is None:
                 print(f"[{time.strftime('%X')}] Parent {parent_ref} has no more actionable items.")
                 parent_index += 1
@@ -2162,10 +2199,17 @@ def main(argv=None):
                 session_monitor.write(force=True)
                 print(session_monitor.status_line(), flush=True)
                 selection_recorded = True
-            item = next_item(board, attempted)
+            item = next_item(board, attempted, only=only)
 
         if item is None:
-            print(f"[{time.strftime('%X')}] No more actionable items.")
+            if only:
+                # A scoped run that cannot find its issue is a configuration
+                # error, not an empty queue. Say which one, so the operator can
+                # see the issue is closed, parked, or not in the Ready column.
+                print(f"[{time.strftime('%X')}] --issue named {', '.join(str(n) for n in sorted(only))}, "
+                      f"but none is actionable on this board (closed, parked, in flight, or not in Ready).")
+            else:
+                print(f"[{time.strftime('%X')}] No more actionable items.")
             break
         issue_ref = item.get("url") or item.get("issue") or (str(item["number"]) if item.get("number") is not None else None)
         print(f"[{time.strftime('%X')}] Selected item: {issue_ref} - {item.get('title')}")
