@@ -53,7 +53,14 @@ Do not include a PR that lacks one of those conditions, and do not use the batch
 
 ## Merge a train
 
-When several green, self-reviewed PRs are ready but later ones will be behind the base after the first merge, use `python3 "$GHFLOW_CLI" pr merge-train` with the same authorization and attribution rules as the batch. It performs the update-branch → wait for required checks → merge cycle per PR, in order, and honors `merge:hold` on linked issues. A clean update from the base adds no change of its own, so the reviewed head's clean verdict still covers it; the train requires green checks on the new head. It stops at the first failure and reports each merge commit, the stop, and the remaining PRs.
+When several green, self-reviewed PRs are ready but later ones will be behind the base after the
+first merge, use `python3 "$GHFLOW_CLI" pr merge-train` with the same authorization and attribution
+rules as the batch. It performs the update-branch → wait for required checks → merge cycle per PR,
+in order, and honors `merge:hold` on linked issues. A clean update from the base adds no change of
+its own, so the reviewed head's clean verdict still covers it; the train requires green checks on
+the new head. Right after a base merge GitHub can report the next PR's mergeability as `UNKNOWN`
+while it recomputes; the train polls that state for up to 120 seconds instead of refusing. It stops
+at the first failure and reports each merge commit, the stop, and the remaining PRs.
 
 To make a self-review usable by the batch or train, post a top-level PR comment whose first line is `<!-- ghflow-review head=SHA verdict=clean -->` (or `verdict=findings`/`blocked`). The command reads the marker at the reviewed head.
 

@@ -3159,7 +3159,8 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
                    gh=run_gh, gh_text=run_gh_text, confirm=confirm_write_identity,
                    state=pr_state, merge_fn=pr_merge, board_write=board_set_status,
                    gh_paginated=run_gh_paginated, identity=None,
-                   timeout=1800, poll_interval=15, sleep=time.sleep, now=time.time):
+                   timeout=1800, poll_interval=15, mergeability_timeout=120,
+                   sleep=time.sleep, now=time.time):
     """Merge green, self-reviewed PRs in order, updating each onto the new base first.
 
     Each item is checked at its reviewed head, including the ``merge:hold``
@@ -3206,6 +3207,15 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
 
         observed, read_status = state(item["repo"], item["number"], gh=gh,
                                       gh_paginated=gh_paginated, identity=identity)
+        # GitHub recomputes mergeability asynchronously after a base merge; the
+        # next item is briefly UNKNOWN. Poll briefly instead of refusing, but
+        # still stop with the clear reason if it never settles (#261).
+        mergeability_deadline = now() + mergeability_timeout
+        while (isinstance(observed, dict) and observed.get("mergeable") == "UNKNOWN"
+               and now() < mergeability_deadline):
+            sleep(poll_interval)
+            observed, read_status = state(item["repo"], item["number"], gh=gh,
+                                          gh_paginated=gh_paginated, identity=identity)
         record.update({"head": (observed or {}).get("head") if isinstance(observed, dict) else None,
                        "ci": (observed or {}).get("ci") if isinstance(observed, dict) else None,
                        "base_behind_by": (observed or {}).get("base_behind_by") if isinstance(observed, dict) else None,

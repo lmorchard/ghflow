@@ -99,7 +99,7 @@ The command does not compare `author` or `commit_authors`; check attribution bef
 Run `python3 "$GHFLOW_CLI" pr merge-train --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` when several green,
 self-reviewed PRs are ready and each may need to be brought up to date with the
 new base before merging. The train checks the reviewed head, a clean review or
-`ghflow-review` verdict, and the linked issues' `merge:hold` veto. A PR behind
+`ghflow-review` verdict, and the linked issues' `merge:hold` veto. A transient `mergeable=UNKNOWN` after a base merge is polled for up to 120s before refusing. A PR behind
 its base is updated with the API; the train waits for the required checks on the
 new head (bounded by `--timeout`, default 1800s) and accepts the reviewed head's
 clean verdict for the clean base update. It merges in order and stops at the
