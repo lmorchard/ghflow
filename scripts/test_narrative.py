@@ -66,6 +66,56 @@ class SummaryTests(unittest.TestCase):
         self.assertIn("--model", cmd)
         self.assertIn("tool output the model should read", cmd[-1])
 
+    def test_summary_omits_standalone_for_opencode_1x(self):
+        """--standalone is an OpenCode 2.x flag; 1.x rejects it and prints help."""
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            with patch("narrative.worker_major", return_value=1):
+                narrative.summarize_session(
+                    "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                    {"opencode_cmd": "fake", "model": "m", "standalone": True},
+                    run=run, print_fn=lambda *a: None)
+        self.assertNotIn("--standalone", calls[0])
+
+    def test_summary_passes_standalone_for_opencode_2x(self):
+        calls = []
+
+        def run(cmd, **kwargs):
+            calls.append(cmd)
+            return SimpleNamespace(returncode=0, stderr="", stdout="")
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "session.log"
+            path.write_text("tool output", encoding="utf-8")
+            with patch("narrative.worker_major", return_value=2):
+                narrative.summarize_session(
+                    "implement-issue", "https://github.com/o/r/issues/1", True, "ses_1", path,
+                    {"opencode_cmd": "fake", "model": "m", "standalone": True},
+                    run=run, print_fn=lambda *a: None)
+        self.assertIn("--standalone", calls[0])
+
+    def test_worker_major_reads_the_version_and_caches_it(self):
+        narrative._WORKER_MAJOR_CACHE.clear()
+        proc = SimpleNamespace(returncode=0, stdout="2.0.29\n", stderr="")
+        with patch("narrative.subprocess.run", return_value=proc) as run:
+            self.assertEqual(narrative.worker_major("opencode"), 2)
+            self.assertEqual(narrative.worker_major("opencode"), 2)
+        run.assert_called_once()
+        narrative._WORKER_MAJOR_CACHE.clear()
+
+    def test_worker_major_falls_back_to_one_when_unreadable(self):
+        narrative._WORKER_MAJOR_CACHE.clear()
+        with patch("narrative.subprocess.run", side_effect=OSError("missing")):
+            self.assertEqual(narrative.worker_major("nope"), 1)
+        narrative._WORKER_MAJOR_CACHE.clear()
+
     def test_nul_bytes_are_dropped_from_the_excerpt(self):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "session.log"
