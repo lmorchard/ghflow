@@ -43,6 +43,7 @@ Match the user's explicit request to the operation below:
 | Implement an issue through local commits | [implement-issue](references/tasks/implement-issue.md) | [ghflow-build](skills/build/SKILL.md) |
 | Independently review code changes | [review-changes](references/tasks/review-changes.md) | [ghflow-review](skills/review/SKILL.md) |
 | Address PR feedback and repair CI | [address-pr-review](references/tasks/address-pr-review.md) | [ghflow-build](skills/build/SKILL.md) |
+| Resolve a PR that conflicts with its base | [repair-conflict](references/tasks/repair-conflict.md) | [ghflow-build](skills/build/SKILL.md) |
 | Publish committed changes as a PR | [submit-pr](references/tasks/submit-pr.md) | [ghflow-build](skills/build/SKILL.md) |
 | Deliver or tackle one selected issue | [express-issue](references/tasks/express-issue.md) | [ghflow-build](skills/build/SKILL.md) |
 | Define an idea or issue, including draft-only work | [define-issue](references/tasks/define-issue.md) | [ghflow-define](skills/define/SKILL.md) |

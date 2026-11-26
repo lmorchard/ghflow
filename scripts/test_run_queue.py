@@ -213,8 +213,27 @@ class NextStepTableTests(unittest.TestCase):
             "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": False},
             "ci": "green",
             "pending_review_requests": [],
+            "review_verdicts": [{"head": "abc", "verdict": "clean"}],
         }
         self.assertEqual(run_queue.next_step(state), "DONE")
+
+    def test_conflicting_pr_is_repair(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": False,
+                   "mergeable": "CONFLICTING"},
+            "ci": "green",
+            "review_verdicts": [{"head": "old_head", "verdict": "clean"}],
+        }
+        self.assertEqual(run_queue.next_step(state), "repair-conflict")
+
+    def test_ready_pr_green_ci_with_stale_verdict_is_review(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "new_head", "is_draft": False},
+            "ci": "green",
+            "pending_review_requests": [],
+            "review_verdicts": [{"head": "old_head", "verdict": "clean"}],
+        }
+        self.assertEqual(run_queue.next_step(state), "review-changes")
 
     def test_ready_pr_without_checks_needs_a_clean_verdict(self):
         state = {
@@ -314,6 +333,33 @@ class NextItemSelectionTests(unittest.TestCase):
     def test_empty_board_returns_none(self):
         board = {"in_flight": [], "parked": [], "selection": []}
         self.assertIsNone(run_queue.next_item(board))
+
+
+class PrepareConflictMergeTests(unittest.TestCase):
+    class Result:
+        def __init__(self, returncode, stdout="", stderr=""):
+            self.returncode = returncode
+            self.stdout = stdout
+            self.stderr = stderr
+
+    def test_reports_conflict_files(self):
+        def fake_run(cmd, **kwargs):
+            return (self.Result(0) if cmd[:2] == ["git", "fetch"]
+                    else self.Result(1, "CONFLICT (content)"))
+
+        result = run_queue.prepare_conflict_merge(
+            tempfile.gettempdir(), "main", run=fake_run, git=lambda *a, **k: "src/a.py\n")
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["files"], ["src/a.py"])
+
+    def test_clean_merge_has_no_files(self):
+        result = run_queue.prepare_conflict_merge(
+            tempfile.gettempdir(), "main", run=lambda *a, **k: self.Result(0),
+            git=lambda *a, **k: "")
+
+        self.assertTrue(result["ok"])
+        self.assertEqual(result["files"], [])
 
 
 class ProjectDiscoveryTests(unittest.TestCase):

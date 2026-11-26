@@ -3160,16 +3160,19 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
                    state=pr_state, merge_fn=pr_merge, board_write=board_set_status,
                    gh_paginated=run_gh_paginated, identity=None,
                    timeout=1800, poll_interval=15, mergeability_timeout=120,
-                   sleep=time.sleep, now=time.time):
+                   sleep=time.sleep, now=time.time, continue_on_conflict=False):
     """Merge green, self-reviewed PRs in order, updating each onto the new base first.
 
     Each item is checked at its reviewed head, including the ``merge:hold``
     veto. A PR behind its base is updated; the train waits for the required
     checks on the new head and accepts the reviewed head's clean verdict (a
     clean base update adds no change of its own). It stops at the first failure.
+    With ``continue_on_conflict``, a conflicting PR is recorded in ``conflicts``
+    and skipped so independent PRs later in the train still merge.
     """
     result = {"repo": repo, "method": method, "authorization": authorization,
-              "items": [], "merged": [], "stopped_at": None, "remaining": [], "errors": []}
+              "items": [], "merged": [], "conflicts": [], "stopped_at": None,
+              "remaining": [], "errors": []}
     if not isinstance(authorization, str) or not authorization.strip():
         result["errors"].append({"part": "authorization",
                                  "error": "A merge train needs the user authorization that covers it; nothing was written."})
@@ -3226,6 +3229,14 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
             record.update(result="refused", reason=hold)
             return stop(record, 3)
 
+        if isinstance(observed, dict) and observed.get("mergeable") == "CONFLICTING":
+            record.update(result="conflict", reason="The PR conflicts with its base.")
+            result["conflicts"].append(record)
+            if continue_on_conflict:
+                result["items"].append(record)
+                continue
+            return stop(record, 3)
+
         check = dict(observed) if isinstance(observed, dict) else {}
         check["base_behind_by"] = 0  # the update step below is allowed to resolve this
         reason = merge_block_reason(check, item["head"])
@@ -3238,6 +3249,15 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
                 gh(["api", "-X", "PUT", f"repos/{item['repo']}/pulls/{item['number']}/update-branch",
                     "-f", f"expected_head_sha={observed.get('head')}"])
             except READ_ERRORS as error:
+                retried, _ = state(item["repo"], item["number"], gh=gh,
+                                   gh_paginated=gh_paginated, identity=identity)
+                if isinstance(retried, dict) and retried.get("mergeable") == "CONFLICTING":
+                    record.update(result="conflict", reason="The PR conflicts with its base.")
+                    result["conflicts"].append(record)
+                    if continue_on_conflict:
+                        result["items"].append(record)
+                        continue
+                    return stop(record, 3)
                 record.update(result="update-failed", reason=str(error))
                 return stop(record, 1)
             ok, wait_reason, observed = wait_for_train_checks(
@@ -3269,7 +3289,7 @@ def pr_merge_train(repo, items, method, authorization, owner=None, project=None,
         result["items"].append(record)
 
     result["remaining"] = []
-    return result, 0
+    return result, 3 if result["conflicts"] else 0
 
 
 HANDOFF_SCOPE = {
@@ -3281,6 +3301,7 @@ HANDOFF_SCOPE = {
     "submit-pr": "Mark the reviewed head ready with `pr ready --expect-head`, with the final description, and move the issue In review. "
                  "Do not push new commits. Do not pre-load shared reference files or re-verify code.",
     "address-pr-review": "Address the named findings on the same branch, run the affected checks, and publish the commits to the same PR.",
+    "repair-conflict": "Resolve the PR's conflict with its base in the existing worktree, run the affected checks, and push to the same PR branch. Do not merge.",
     "prepare-project-facts": "Refresh `.ghflow/project.md` in its own worktree on a branch from origin's default branch, commit it, "
                              "and publish it as a ready PR for the user's review. It needs no agent review: do not publish a draft, "
                              "request a review, or wait for one. Do not merge. Return the refreshed file's worktree path.",
@@ -4936,6 +4957,8 @@ def main(argv=None):
                               help="seconds to wait for checks on an updated head (default 1800)")
     pr_train_cmd.add_argument("--poll-interval", type=float, default=15.0,
                               help="seconds between check polls (default 15)")
+    pr_train_cmd.add_argument("--continue-on-conflict", action="store_true",
+                              help="record a conflicting PR in conflicts and merge the remaining independent PRs")
     discussion_group = commands.add_parser("discussion", help="Discussion notebook writes with read-backs.")
     discussion_commands = discussion_group.add_subparsers(dest="discussion_command", required=True)
     disc_post = discussion_commands.add_parser("post", help="Append a note to a titled discussion in a category, creating it once, and read the write back.")
@@ -5279,7 +5302,8 @@ def main(argv=None):
         result, status = pr_merge_train(args.repo, items, args.method, args.authorization,
                                         owner=args.owner, project=args.project,
                                         timeout=args.timeout, poll_interval=args.poll_interval,
-                                        identity=resolve_identity_or_none())
+                                        identity=resolve_identity_or_none(),
+                                        continue_on_conflict=args.continue_on_conflict)
     elif args.command == "pr":
         repo, number = parse_pr(args.pr, args.repo)
         board = None
