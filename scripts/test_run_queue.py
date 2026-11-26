@@ -2872,6 +2872,10 @@ class LocalModelTests(unittest.TestCase):
         self.assertIn("Model: implementation", summary)
 
 
+class _StopAtValidation(Exception):
+    """Sentinel that ends main() at model validation, before any worker exists."""
+
+
 class LocalModelMainTests(unittest.TestCase):
     """main uses the local implementation and review models."""
 
@@ -2931,23 +2935,46 @@ class LocalModelMainTests(unittest.TestCase):
         board.assert_not_called()
         self.assertIn("is not local", out.getvalue())
 
-    def test_allow_remote_models_flag_reaches_the_model_selection(self):
-        """--allow-remote-models is what makes a gateway model survive validation."""
+    def test_allow_remote_models_flag_reaches_select_models(self):
+        """--allow-remote-models is wired through to the model validation.
+
+        select_models raises a sentinel so main() stops at validation instead of
+        reaching the worker binary and project facts, which vary by environment.
+        """
+        captured = {}
+
+        def fake_select(implementation, review, provider=None, allow_remote=False):
+            captured["allow_remote"] = allow_remote
+            raise _StopAtValidation()
+
         with tempfile.TemporaryDirectory() as tmp, \
              patch("run_queue.discover_project", return_value=("o", 12)), \
-             patch("run_queue.observe_board", return_value={"in_flight": [], "parked": [],
-                                                            "selection": []}) as board:
+             patch("run_queue.select_models", side_effect=fake_select):
             out = io.StringIO()
             with contextlib.redirect_stdout(out):
-                ret = run_queue.main(["--model", "otari/deepseek-v4.1-flash-1017",
-                                      "--review-model", "otari/deepseek-v4.1-flash-1017",
-                                      "--allow-remote-models",
-                                      "--once", "--no-notebook", "--notes-dir", tmp])
-        printed = out.getvalue()
-        self.assertNotIn("is not local", printed)
-        self.assertIn("may incur cost", printed)
-        self.assertEqual(ret, 0)
-        board.assert_called()
+                with self.assertRaises(_StopAtValidation):
+                    run_queue.main(["--model", "otari/deepseek-v4.1-flash-1017",
+                                    "--review-model", "otari/deepseek-v4.1-flash-1017",
+                                    "--allow-remote-models",
+                                    "--once", "--no-notebook", "--notes-dir", tmp])
+        self.assertIs(captured.get("allow_remote"), True)
+
+    def test_flag_is_off_by_default(self):
+        captured = {}
+
+        def fake_select(implementation, review, provider=None, allow_remote=False):
+            captured["allow_remote"] = allow_remote
+            raise _StopAtValidation()
+
+        with tempfile.TemporaryDirectory() as tmp, \
+             patch("run_queue.discover_project", return_value=("o", 12)), \
+             patch("run_queue.select_models", side_effect=fake_select):
+            with contextlib.redirect_stdout(io.StringIO()):
+                with self.assertRaises(_StopAtValidation):
+                    run_queue.main(["--model", "lmstudio/qwen",
+                                    "--review-model", "lmstudio/flint",
+                                    "--once", "--no-notebook", "--notes-dir", tmp])
+        self.assertIs(captured.get("allow_remote"), False)
 
     def test_requires_both_models(self):
         with self.assertRaises(SystemExit):
