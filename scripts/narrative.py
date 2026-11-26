@@ -74,10 +74,31 @@ def deterministic_summary(step, issue, success, info, pr_url=None, head=None):
     return "\n".join(bullets)
 
 
+def resolve_worker_cmd(options=None):
+    """Resolve the executable command for running worker sessions.
+
+    Precedence:
+    1. options["worker_cmd"]
+    2. options["opencode_cmd"] (deprecated alias)
+    3. GHFLOW_WORKER_CMD environment variable
+    4. GHFLOW_OPENCODE_CMD environment variable (deprecated alias)
+    5. "opencode" default
+    """
+    opts = options or {}
+    return (
+        opts.get("worker_cmd")
+        or opts.get("opencode_cmd")
+        or os.environ.get("GHFLOW_WORKER_CMD")
+        or os.environ.get("GHFLOW_OPENCODE_CMD")
+        or "opencode"
+    )
+
+
 def delete_summary_session(run, options, session_id, print_fn=print):
     """Delete one OpenCode session created by the summary call; never raise."""
+    worker_cmd = resolve_worker_cmd(options)
     try:
-        run([options.get("opencode_cmd", "opencode"), "session", "delete", session_id],
+        run([worker_cmd, "session", "delete", session_id],
             stdin=subprocess.DEVNULL, capture_output=True, text=True, timeout=30)
     except Exception as error:
         print_fn(f"[notebook] summary session cleanup failed: {error}")
@@ -109,7 +130,8 @@ def summarize_session(step, issue, success, info, log_path, options, run=subproc
     fallback = deterministic_summary(step, issue, success, info)
     if not excerpt:
         return fallback, "facts"
-    cmd = [options.get("opencode_cmd", "opencode"), "run", "--auto", "--format", "json",
+    worker_cmd = resolve_worker_cmd(options)
+    cmd = [worker_cmd, "run", "--auto", "--format", "json",
            "--title", f"Run notebook summary {time.strftime('%Y%m%d-%H%M%S')}"]
     if options.get("model"):
         cmd += ["--model", options["model"]]
