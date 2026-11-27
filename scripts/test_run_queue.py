@@ -1027,6 +1027,49 @@ class ParentSubIssueTests(unittest.TestCase):
         self.assertIsNone(run_queue.prepare_worktree("https://github.com/o/r/issues/9", "t", "o", 1,
                                                     {"cwd": "/repo"}, cli_fn=fake_cli))
 
+    def test_prepare_worktree_keeps_worktree_when_only_the_board_failed(self):
+        """A board write failure must not discard a prepared worktree (#272).
+
+        Dropping it leaves publish_committed without a worktree, so the session's
+        commits never reach a PR and the issue parks as "no progress".
+        """
+        def fake_cli(*args, cwd=None):
+            return {"path": "/repo/.claude/worktrees/issue-42-add-a-thing",
+                    "base": "origin/main",
+                    "errors": [{"part": "board", "error": "board set-status exited 1."}]}, 2
+
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            res = run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing", "o", 12,
+                                             {"cwd": "/repo"}, cli_fn=fake_cli)
+        self.assertIsNotNone(res)
+        self.assertEqual(res["path"], "/repo/.claude/worktrees/issue-42-add-a-thing")
+        self.assertIn("non-fatal board error", out.getvalue())
+
+    def test_prepare_worktree_still_fails_on_a_non_board_error(self):
+        def fake_cli(*args, cwd=None):
+            return {"path": "/repo/.claude/worktrees/issue-42-add-a-thing",
+                    "errors": [{"part": "setup", "error": "'uv sync' exited 1."}]}, 2
+
+        self.assertIsNone(run_queue.prepare_worktree("https://github.com/o/r/issues/42", "Add a Thing",
+                                                     "o", 12, {"cwd": "/repo"}, cli_fn=fake_cli))
+
+    def test_stall_reason_names_unpublished_commits(self):
+        with patch("run_queue.committed_count", return_value=2):
+            reason = run_queue.stall_reason({"path": "/wt", "branch": "issue-42-x"}, "implement-issue")
+        self.assertIn("2 commit(s)", reason)
+        self.assertIn("issue-42-x", reason)
+        self.assertIn("unpublished", reason)
+        self.assertNotIn("No progress", reason)
+
+    def test_stall_reason_falls_back_when_nothing_was_committed(self):
+        with patch("run_queue.committed_count", return_value=0):
+            self.assertEqual(run_queue.stall_reason({"path": "/wt", "branch": "b"}, "implement-issue"),
+                             "No progress made in session.")
+
+    def test_stall_reason_falls_back_without_a_worktree(self):
+        self.assertEqual(run_queue.stall_reason(None, "implement-issue"), "No progress made in session.")
+
     def test_park_issue_omits_pr_when_none(self):
         calls = []
 

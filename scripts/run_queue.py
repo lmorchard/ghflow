@@ -1238,7 +1238,16 @@ def prepare_worktree(issue_url, title, owner, project, options, cli_fn=run_cli, 
         args += ["--owner", owner, "--project", str(project)]
     out, code = cli_fn(*args, cwd=options.get("cwd"))
     path = (out or {}).get("path") if isinstance(out, dict) else None
-    if code not in (0, 3) or not path:
+    # A board write can fail on a token without the ``project`` scope while the
+    # worktree itself was created and set up. That must not discard usable work:
+    # without a worktree reference the runner cannot publish the session's
+    # commits, and the issue parks as "no progress" (#272).
+    errors = (out or {}).get("errors") if isinstance(out, dict) else None
+    fatal = [e for e in (errors or []) if e.get("part") != "board"]
+    if code == 2 and path and not fatal:
+        print(f"[{time.strftime('%X')}] Worktree prepared at {path} with a non-fatal board error; "
+              f"continuing without the board update", flush=True)
+    elif code not in (0, 3) or not path:
         print(f"[{time.strftime('%X')}] Worktree preparation failed (exit {code}): {out}", flush=True)
         return None
     setup = (out or {}).get("worktree_setup") if isinstance(out, dict) else None
@@ -1288,6 +1297,25 @@ def committed_count(path, base):
         return int(out)
     except (TypeError, ValueError):
         return None
+
+
+def stall_reason(worktree, step, base_branch=None):
+    """Describe why a run stopped making progress, naming unpublished commits.
+
+    A session that commits work which nothing publishes looks identical to a
+    session that did nothing, because the loop only compares step, PR head, and
+    verdict. Say which one happened instead of blaming the model (#272).
+    """
+    path = (worktree or {}).get("path")
+    branch = (worktree or {}).get("branch")
+    if path and branch:
+        count_ref = base_branch or (worktree or {}).get("base") or "origin/main"
+        count = committed_count(path, count_ref)
+        if count:
+            return (f"{count} commit(s) on `{branch}` are unpublished: no pull request exists, "
+                    f"so the next step stayed `{step}`. Publish the branch or fix the runner's "
+                    f"publish step.")
+    return "No progress made in session."
 
 
 def publish_committed(issue_url, title, worktree, repo, notes_dir, options, base_branch=None,
@@ -2347,7 +2375,7 @@ def main(argv=None):
             curr = (step, (state.get("pr") or {}).get("head"), (state.get("review_verdicts") or [{}])[-1].get("verdict"))
             if prev == curr:
                 pr_url = parked_pr_url(state, published_pr, cli_fn=run_cli, cwd=options.get("cwd"))
-                record_park(state["issue"], pr_url, "No progress made in session.")
+                record_park(state["issue"], pr_url, stall_reason(worktree, step))
                 delivered.append(issue_ref)
                 delivery_records.append({"issue": state.get("issue") or issue_ref, "pr": pr_url, "endpoint": "parked", "models": selected_models})
                 break

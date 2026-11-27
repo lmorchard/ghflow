@@ -3589,6 +3589,25 @@ class WorktreeCreateTests(unittest.TestCase):
         self.assertFalse((Path(result["path"]) / "later.txt").exists())
         self.assertEqual(self.moves, [])
 
+    def test_board_failure_keeps_the_worktree_and_exits_zero(self):
+        """A board move that fails is bookkeeping, not a lost worktree (#272).
+
+        The worktree is created and set up before the board write. Exiting 2 here
+        made the runner drop it, which silently disabled publishing and parked the
+        issue as "no progress".
+        """
+        def failing_board(repo, number, owner, project, status):
+            self.moves.append((repo, number, owner, project, status))
+            return {"before": "Ready", "after": "Ready", "readback_matches": False, "action": None}, 1
+
+        result, status = worktree_create(
+            "https://github.com/o/r/issues/5", "issue-5-fix", cwd=self.clone,
+            board_write=failing_board, now=lambda: datetime(2026, 10, 16, 9, 30),
+            setup=["touch made.txt"], board=("o", 6))
+        self.assertEqual(status, 0, result["errors"])
+        self.assertTrue((Path(result["path"]) / "made.txt").exists())
+        self.assertIn({"part": "board", "error": "board set-status exited 1."}, result["errors"])
+
     def write_facts(self, body):
         path = Path(self.clone) / ".ghflow" / "project.md"
         path.parent.mkdir(parents=True, exist_ok=True)
