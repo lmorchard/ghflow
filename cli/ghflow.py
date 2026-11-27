@@ -3717,6 +3717,13 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
 
     diff_output = git(["diff", f"{base}..{head}"], wt_path) or ""
     files_changed = [f for f in (git(["diff", "--name-only", f"{base}..{head}"], wt_path) or "").splitlines() if f.strip()]
+    # Include the commit list here rather than making the reviewer fetch it.
+    # The toil audit flagged `review inspect` followed by a separate
+    # `cd <worktree> && git log --oneline origin/main...HEAD` as a repeated
+    # three-strike sequence: every review session spent a turn on it, and the
+    # cd/quoting is where reviewer turns got wasted. The history belongs in the
+    # payload the reviewer already requested.
+    commits_output = git(["log", "--oneline", f"{base}..{head}"], wt_path) or ""
 
     gate_result = None
     if not no_gate:
@@ -3731,6 +3738,7 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
         "worktree": str(wt_path),
         "files_changed": files_changed,
         "diff_stat": prep_res.get("stat") or "",
+        "commits": [line for line in commits_output.splitlines() if line.strip()],
         "diff": diff_output[:12000],
         "gate": "skipped" if no_gate else (gate_result.get("summary") if gate_result else "none"),
         "gate_success": None if no_gate else (gate_result.get("success") if gate_result else None),
