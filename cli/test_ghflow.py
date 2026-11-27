@@ -5861,6 +5861,27 @@ class MergeTrainTests(unittest.TestCase):
                                verdicts=[{"verdict": "clean", "head": self.HEAD_A[:7]}])
         self.assertTrue(review_covers_head(observed, self.HEAD_A))
 
+    def test_review_covers_head_accepts_non_blocking_findings(self):
+        observed = self._state(self.HEAD_A, review_state="none", verdicts=[{
+            "verdict": "findings", "head": self.HEAD_A[:7],
+            "body": "## Blocking findings\n\n## Notes\n\n1. A note.",
+        }])
+        self.assertTrue(review_covers_head(observed, self.HEAD_A))
+
+    def test_merge_block_reason_accepts_non_blocking_findings(self):
+        observed = self._state(self.HEAD_A, review_state="none", verdicts=[{
+            "verdict": "findings", "head": self.HEAD_A,
+            "body": "## Blocking findings\n\n## Notes\n\n1. A note.",
+        }])
+        self.assertIsNone(merge_block_reason(observed, self.HEAD_A))
+
+    def test_merge_block_reason_refuses_blocking_findings(self):
+        observed = self._state(self.HEAD_A, review_state="none", verdicts=[{
+            "verdict": "findings", "head": self.HEAD_A,
+            "body": "## Blocking findings\n- Real defect\n",
+        }])
+        self.assertIsNotNone(merge_block_reason(observed, self.HEAD_A))
+
 
 class WorktreePruneTests(unittest.TestCase):
     def _repo(self, temp):

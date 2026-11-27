@@ -415,10 +415,12 @@ def is_verdict_blocking(verdict_entry):
     if v != "findings":
         return False
     body = verdict_entry.get("body") or ""
-    m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", body, re.IGNORECASE)
+    m = re.search(r"##\s*Blocking findings[ \t]*\n(.*?)(?:\n##|\Z)",
+                  body, re.IGNORECASE | re.DOTALL)
     if m:
         val = m.group(1).strip().lower().rstrip(".")
-        if val in ("none", "no blocking findings", "no blockers", "none —", "none -"):
+        if val in ("", "none", "no blocking findings", "no blockers",
+                   "none —", "none -", "- none", "- no blocking findings"):
             return False
     return True
 

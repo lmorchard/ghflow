@@ -217,6 +217,20 @@ class NextStepTableTests(unittest.TestCase):
         }
         self.assertEqual(run_queue.next_step(state), "DONE")
 
+    def test_findings_with_empty_blocking_is_not_blocking(self):
+        state = {
+            "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": True},
+            "review_verdicts": [{
+                "head": "abc", "verdict": "findings",
+                "body": "## Blocking findings\n\n## Notes\n\n1. A note.",
+            }],
+        }
+        self.assertEqual(run_queue.next_step(state), "submit-pr")
+        self.assertFalse(run_queue.is_verdict_blocking(state["review_verdicts"][0]))
+        self.assertTrue(run_queue.is_verdict_blocking({
+            "verdict": "findings", "body": "## Blocking findings\n- Real defect\n",
+        }))
+
     def test_conflicting_pr_is_repair(self):
         state = {
             "pr": {"url": "https://github.com/o/r/pull/1", "head": "abc", "is_draft": False,

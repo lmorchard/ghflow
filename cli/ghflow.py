@@ -2964,7 +2964,8 @@ def merge_block_reason(observed, expected_head):
     The checks mirror the merge policy: exact reviewed head, open and
     mergeable, green required checks, a base that contains its tip, and an
     affirmative review at that head. A ghflow comment verdict of ``clean``
-    counts as the agent-PR review evidence.
+    counts as the agent-PR review evidence. A ``findings`` verdict with an
+    empty ``## Blocking findings`` section is non-blocking.
     """
     if not isinstance(observed, dict) or not observed.get("head"):
         return "The PR state could not be read."
@@ -2992,10 +2993,10 @@ def merge_block_reason(observed, expected_head):
     if verdicts is None:
         return "The review comments could not be read, so no clean verdict is available."
     for verdict in reversed(verdicts):
-        if (verdict.get("verdict") == "clean" and verdict.get("head")
-                and head.startswith(verdict["head"])):
+        if ((verdict.get("verdict") == "clean" or not verdict_is_blocking(verdict))
+                and verdict.get("head") and head.startswith(verdict["head"])):
             return None
-    return "No approved review or clean ghflow verdict covers the current head."
+    return "No approved review or non-blocking ghflow verdict covers the current head."
 
 
 def merge_batch_board(repo, number, owner, project, gh=run_gh, board_write=board_set_status):
@@ -3102,15 +3103,40 @@ def pr_merge_batch(repo, items, method, authorization, owner=None, project=None,
     return result, 0
 
 
+def verdict_is_blocking(verdict):
+    """True when a ghflow verdict entry carries a blocking finding.
+
+    A ``findings`` verdict with an empty ``## Blocking findings`` section is
+    non-blocking: the reviewer recorded notes only.
+    """
+    if not verdict:
+        return False
+    state = verdict.get("verdict")
+    if state == "blocked":
+        return True
+    if state != "findings":
+        return False
+    body = verdict.get("body") or ""
+    match = re.search(r"##\s*Blocking findings[ \t]*\n(.*?)(?:\n##|\Z)",
+                      body, re.IGNORECASE | re.DOTALL)
+    if match:
+        value = match.group(1).strip().lower().rstrip(".")
+        if value in ("", "none", "no blocking findings", "no blockers",
+                     "none —", "none -", "- none", "- no blocking findings"):
+            return False
+    return True
+
+
 def review_covers_head(observed, reviewed_head):
-    """True when an approved review or a clean ghflow verdict covers the reviewed head."""
+    """True when an approved review or a non-blocking ghflow verdict covers the reviewed head."""
     summary = observed.get("review_summary") or {}
     if summary.get("changes_requested"):
         return False
     if summary.get("state") == "approved":
         return True
     for verdict in observed.get("review_verdicts") or []:
-        if verdict.get("verdict") == "clean" and verdict.get("head") and reviewed_head.startswith(verdict["head"]):
+        if (verdict.get("verdict") == "clean" or not verdict_is_blocking(verdict)) \
+                and verdict.get("head") and reviewed_head.startswith(verdict["head"]):
             return True
     return False
 
