@@ -1880,8 +1880,13 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
         linked_pr_numbers = set()
 
         def read_issue():
+            # `blockedBy` and `blocking` are not `gh issue view --json` fields, so
+            # requesting them fails the whole read and silently strips labels,
+            # title, and body from the facts payload. They come from one GraphQL
+            # call instead, and a failure there degrades only the relationship
+            # fields.
             data = gh(["issue", "view", str(number), "--repo", issue_repo, "--json",
-                       "url,title,state,labels,projectItems,closedByPullRequestsReferences,body,blockedBy,blocking"])
+                       "url,title,state,labels,projectItems,closedByPullRequestsReferences,body"])
             response_type(data, dict, "The issue response")
             items = []
             for item in response_type(data.get("projectItems") or [], list, "The issue project items"):
@@ -1896,20 +1901,39 @@ def project_facts(cwd=None, issue=None, gh=run_gh, git=run_git, gh_paginated=run
                     if isinstance(p, dict) and p.get("number") is not None:
                         linked_pr_numbers.add(p["number"])
 
-            def issue_refs(key):
-                refs = data.get(key) or []
-                if isinstance(refs, dict):
-                    refs = refs.get("nodes") or []
-                return [{"number": r.get("number"), "state": r.get("state"), "url": r.get("url")}
-                        for r in refs if isinstance(r, dict) and r.get("number") is not None]
-
             return {"url": response_string(data["url"], "The issue url"), "title": data.get("title"), "state": data.get("state"),
                     "body": data.get("body"),
                     "labels": [label.get("name") for label in data.get("labels") or [] if isinstance(label, dict)],
-                    "blocked_by": issue_refs("blockedBy"), "blocking": issue_refs("blocking"),
                     "board_items": items}
 
+        def read_relationships():
+            owner_name, name = issue_repo.split("/", 1)
+            query = ('query($owner: String!, $name: String!, $number: Int!) {'
+                     ' repository(owner: $owner, name: $name) {'
+                     ' issue(number: $number) {'
+                     ' blockedBy(first: 50) { nodes { number state url } }'
+                     ' blocking(first: 50) { nodes { number state url } }'
+                     ' } } }')
+            data = response_type(gh(["api", "graphql", "-f", f"query={query}",
+                                     "-f", f"owner={owner_name}", "-f", f"name={name}",
+                                     "-F", f"number={number}"]), dict, "The relationships response")
+            if data.get("errors"):
+                raise ValueError(f"The relationships query has GraphQL errors: {data['errors']}")
+            repository = response_type(response_type(data.get("data"), dict, "The relationships data")
+                                       .get("repository"), dict, "The repository")
+            issue = response_type(repository.get("issue"), dict, "The issue")
+
+            def issue_refs(key):
+                refs = (issue.get(key) or {}).get("nodes") or []
+                return [{"number": r.get("number"), "state": r.get("state"), "url": r.get("url")}
+                        for r in refs if isinstance(r, dict) and r.get("number") is not None]
+
+            return {"blocked_by": issue_refs("blockedBy"), "blocking": issue_refs("blocking")}
+
         issue_facts = part("issue", read_issue) or {}
+        relationships = part("issue_relationships", read_relationships) or {}
+        issue_facts["blocked_by"] = relationships.get("blocked_by") or []
+        issue_facts["blocking"] = relationships.get("blocking") or []
         pattern = str(number)
 
         def read_branches():
@@ -4504,6 +4528,303 @@ def triage_issues_by_label(repo, label, state, gh):
             raise ValueError("An issues page claims a next page without a cursor.")
 
 
+TRIAGE_STATUS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) {
+      number url title state updatedAt
+      labels(first: 50) { nodes { name } }
+      comments(last: 50) { nodes { url body createdAt author { login } } }
+      blockedBy(first: 20) { nodes { number state url } }
+      blocking(first: 20) { nodes { number state url } }
+    }
+  }
+}"""
+
+# Comment headings that carry triage state. They are ordinary markdown, so a
+# reader sees them in the issue timeline. Nothing is hidden in an HTML comment:
+# that is the pattern this project moved away from for review verdicts, and the
+# same legibility argument applies here.
+TRIAGE_ASSESSMENT_HEADING = re.compile(r"^#{1,6}\s*Triage assessment\s*$", re.IGNORECASE | re.MULTILINE)
+TRIAGE_DEFINITION_HEADING = re.compile(r"^#{1,6}\s*Triage definition\s*$", re.IGNORECASE | re.MULTILINE)
+TRIAGE_MODEL_LINE = re.compile(r"^model=(\S+)\s*$", re.MULTILINE)
+TRIAGE_PROMPT_LINE = re.compile(r"^prompt=(.+?)\s*$", re.MULTILINE)
+TRIAGE_ATTEMPT_LABEL = re.compile(r"^triage:attempt-(\d+)$")
+
+# Ordered refinement states. `none` means no triage label at all.
+TRIAGE_REFINEMENT_STATES = ("needs-input", "needs-definition", "blocked", "ready", "parked", "agent-closed")
+
+
+def triage_bucket(labels):
+    """Return the single triage refinement bucket from an issue's labels, or None.
+
+    Exactly one refinement label is expected. When several are present the first
+    in ``TRIAGE_REFINEMENT_STATES`` wins, so an issue mid-transition still reports
+    one definite state rather than an ambiguous set.
+    """
+    present = set()
+    for label in labels or []:
+        if not isinstance(label, str) or not label.startswith(TRIAGE_LABEL_PREFIX):
+            continue
+        name = label[len(TRIAGE_LABEL_PREFIX):]
+        if name in TRIAGE_REFINEMENT_STATES:
+            present.add(name)
+    for state in TRIAGE_REFINEMENT_STATES:
+        if state in present:
+            return state
+    return None
+
+
+def triage_attempts(labels):
+    """Return the highest attempt number recorded on the issue, or 0."""
+    highest = 0
+    for label in labels or []:
+        match = TRIAGE_ATTEMPT_LABEL.match(label) if isinstance(label, str) else None
+        if match:
+            highest = max(highest, int(match.group(1)))
+    return highest
+
+
+def triage_latest_comment(comments, heading):
+    """Return the newest comment whose body contains the given heading, or None."""
+    found = None
+    for comment in comments or []:
+        if not isinstance(comment, dict):
+            continue
+        body = comment.get("body") or ""
+        if heading.search(body):
+            found = comment
+    return found
+
+
+def triage_comment_fields(body):
+    """Extract the visible metadata lines from a triage comment body."""
+    model = TRIAGE_MODEL_LINE.search(body or "")
+    prompt = TRIAGE_PROMPT_LINE.search(body or "")
+    return {
+        "model": model.group(1) if model else None,
+        "prompt_version": prompt.group(1) if prompt else None,
+    }
+
+
+def triage_stage(bucket, assessment, definition):
+    """Derive the refinement stage from observable issue state.
+
+    The stage is never stored. It follows from the bucket and whether an
+    assessment and definition comment are present. Staleness is reported
+    separately by ``triage_assessment_stale`` rather than folded in here,
+    because a stale assessment still tells you which stage the issue reached.
+    """
+    if bucket is None:
+        return "untriaged"
+    if bucket == "needs-definition":
+        return "defined" if definition else "assessed"
+    if bucket == "ready":
+        return "ready"
+    if bucket == "blocked":
+        return "blocked"
+    if bucket == "parked":
+        return "parked"
+    if bucket == "agent-closed":
+        return "closed"
+    if bucket == "needs-input":
+        return "defined" if definition else "assessed"
+    return "assessed"
+
+
+def triage_assessment_stale(assessment, updated_at, comments):
+    """Whether the issue changed after its last assessment.
+
+    ``updatedAt`` moves for label changes as well as comments, so a stale flag is
+    a prompt to look rather than proof of new content. The comparison is against
+    the assessment comment's own timestamp, which GitHub supplies.
+    """
+    if not assessment:
+        return False
+    assessed_at = assessment.get("createdAt") or ""
+    if not assessed_at:
+        return False
+    if updated_at and updated_at > assessed_at:
+        return True
+    for comment in comments or []:
+        if not isinstance(comment, dict):
+            continue
+        if (comment.get("createdAt") or "") > assessed_at and comment.get("url") != assessment.get("url"):
+            return True
+    return False
+
+
+def triage_blockers(blocked_by):
+    """Summarise the blocked-by edges, separating cleared blockers from open ones."""
+    edges = []
+    for node in blocked_by or []:
+        if not isinstance(node, dict):
+            continue
+        edges.append({"issue": node.get("number"), "url": node.get("url"), "state": node.get("state")})
+    open_edges = [edge for edge in edges if (edge.get("state") or "").upper() == "OPEN"]
+    return {"blockers": edges, "open": open_edges, "cleared": len(open_edges) == 0}
+
+
+def triage_eligibility(stage, bucket, blockers, evidence):
+    """Return whether an autonomous pass can act, with a stated reason when it cannot.
+
+    ``evidence`` is None when verification was not requested; an unverified
+    citation only blocks eligibility when verification actually ran and failed.
+    """
+    if stage == "ready":
+        return {"eligible": False, "reason": "already at triage:ready; nothing to refine"}
+    if bucket == "needs-input":
+        return {"eligible": False, "reason": "waiting on a decision from the user"}
+    if bucket == "parked":
+        return {"eligible": False, "reason": "parked; revisit only on request"}
+    if bucket == "agent-closed":
+        return {"eligible": False, "reason": "closed by an agent; audit only"}
+    if bucket == "blocked" and not blockers.get("cleared"):
+        open_numbers = ", ".join(f"#{edge['issue']}" for edge in blockers.get("open") or [])
+        return {"eligible": False, "reason": f"blocked by open issue(s): {open_numbers}"}
+    if evidence is not None and not evidence.get("verified", True):
+        failed = [item for item in evidence.get("citations") or [] if not item.get("ok")]
+        detail = "; ".join(f"{item['citation']} ({item['detail']})" for item in failed[:3])
+        return {"eligible": False, "reason": f"cited evidence does not verify: {detail}"}
+    if stage == "blocked":
+        return {"eligible": True, "reason": "all blockers are closed; return to needs-definition"}
+    if stage == "untriaged":
+        return {"eligible": True, "reason": "no triage label; needs an assessment"}
+    if stage == "assessed":
+        return {"eligible": True, "reason": f"assessed but not at {bucket or 'a bucket'}; refine further"}
+    if stage == "defined":
+        return {"eligible": True, "reason": "definition present; verify evidence and advance"}
+    return {"eligible": False, "reason": f"stage {stage} has no autonomous next step"}
+
+
+CITATION_SHA = re.compile(r"\b([0-9a-f]{7,40})\b")
+CITATION_PATH = re.compile(r"\b((?:src|tests|docs|scripts|contrib|references|skills|evals)/[\w./-]+\.\w+)\b")
+CITATION_ISSUE = re.compile(r"(?:^|\s)#(\d+)\b")
+
+
+def triage_citations(body):
+    """Extract the verifiable citations from an assessment body.
+
+    Only three citation kinds are checked, because only those three can be
+    resolved mechanically: a commit SHA, a repository path, and an issue number.
+    Prose claims are left to the reviewer.
+    """
+    body = body or ""
+    found = []
+    for match in CITATION_SHA.finditer(body):
+        found.append({"citation": match.group(1), "kind": "commit"})
+    for match in CITATION_PATH.finditer(body):
+        found.append({"citation": match.group(1), "kind": "path"})
+    for match in CITATION_ISSUE.finditer(body):
+        found.append({"citation": f"#{match.group(1)}", "kind": "issue"})
+    seen, unique = set(), []
+    for item in found:
+        key = (item["kind"], item["citation"])
+        if key not in seen:
+            seen.add(key)
+            unique.append(item)
+    return unique
+
+
+def triage_verify_citations(citations, repo, gh=run_gh, git=None):
+    """Check each citation resolves, without a model and without guessing.
+
+    A hallucinated citation is worse than no citation: an assessment that names a
+    commit which does not exist looks exactly like one that names a real commit,
+    so an unverified claim passes review silently. This resolves each citation
+    against the repository and reports per-item detail.
+    """
+    git = git or run_git
+    results = []
+    for item in citations:
+        kind, value = item["kind"], item["citation"]
+        ok, detail = False, ""
+        try:
+            if kind == "commit":
+                out = git(["cat-file", "-t", value], None)
+                ok = (out or "").strip() == "commit"
+                detail = "commit exists" if ok else "no such commit in this checkout"
+            elif kind == "path":
+                ok = Path(value).exists()
+                detail = "path exists" if ok else "no such path in this checkout"
+            elif kind == "issue":
+                number = value.lstrip("#")
+                data = gh(["issue", "view", number, "--repo", repo, "--json", "number,state"])
+                ok = isinstance(data, dict) and data.get("number") is not None
+                detail = f"issue is {data.get('state')}" if ok else "no such issue"
+        except (GhError, OSError, ValueError, json.JSONDecodeError, TypeError) as error:
+            ok, detail = False, str(error)
+        results.append({"citation": value, "kind": kind, "ok": ok, "detail": detail})
+    return {"verified": all(item["ok"] for item in results) and bool(results), "citations": results}
+
+
+def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
+    """Derive one issue's triage state from labels, comments, and relationships.
+
+    Nothing here is stored: the bucket comes from labels, the stage from the
+    bucket plus visible comment headings, the blockers from native relationships,
+    and evidence verification is recomputed every call. That is what lets a
+    reconciliation loop re-read state instead of bookkeeping it locally.
+    """
+    result = {"issue": f"{repo}#{number}", "repo": repo, "number": number, "complete": False, "errors": []}
+    try:
+        owner, name = repo.split("/", 1)
+        data = response_type(gh(["api", "graphql", "-f", f"query={TRIAGE_STATUS_QUERY}",
+                                 "-f", f"owner={owner}", "-f", f"name={name}",
+                                 "-F", f"number={number}"]), dict, "The triage status response")
+        if data.get("errors"):
+            raise ValueError(f"The triage query has GraphQL errors: {data['errors']}")
+        repository = response_type(response_type(data.get("data"), dict, "The triage data").get("repository"),
+                                   dict, "The repository")
+        issue = response_type(repository.get("issue"), dict, "The issue")
+        labels = [label.get("name") for label in (issue.get("labels") or {}).get("nodes") or []
+                  if isinstance(label, dict) and label.get("name")]
+        comments = [comment for comment in (issue.get("comments") or {}).get("nodes") or []
+                    if isinstance(comment, dict)]
+        updated_at = issue.get("updatedAt")
+
+        assessment = triage_latest_comment(comments, TRIAGE_ASSESSMENT_HEADING)
+        definition = triage_latest_comment(comments, TRIAGE_DEFINITION_HEADING)
+        bucket = triage_bucket(labels)
+        blockers = triage_blockers((issue.get("blockedBy") or {}).get("nodes"))
+
+        evidence = None
+        if verify_evidence and assessment:
+            citations = triage_citations(assessment.get("body"))
+            evidence = triage_verify_citations(citations, repo, gh=gh, git=git) if citations else {
+                "verified": False, "citations": [],
+                "detail": "the assessment cites no commit, path, or issue to verify"}
+
+        stage = triage_stage(bucket, assessment, definition)
+        result.update(
+            url=issue.get("url"),
+            title=issue.get("title"),
+            state=issue.get("state"),
+            updated_at=updated_at,
+            labels=labels,
+            bucket=bucket,
+            stage=stage,
+            attempts=triage_attempts(labels),
+            assessment=({
+                "url": assessment.get("url"),
+                "created_at": assessment.get("createdAt"),
+                "author": (assessment.get("author") or {}).get("login"),
+                "stale": triage_assessment_stale(assessment, updated_at, comments),
+                **triage_comment_fields(assessment.get("body")),
+            } if assessment else None),
+            definition=({"url": definition.get("url"),
+                         "created_at": definition.get("createdAt")} if definition else None),
+            blockers=blockers,
+        )
+        if evidence is not None:
+            result["evidence"] = evidence
+        result["next_step"] = triage_eligibility(stage, bucket, blockers, evidence)
+    except (GhError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
+        result["errors"].append({"part": "triage_status", "error": str(error)})
+        return result, 2
+    result["complete"] = True
+    return result, 0
+
+
 def triage_list(category, repo=None, owner=None, project=None, gh=run_gh):
     """Return the deterministic issue selection for one triage sweep category.
 
@@ -5109,12 +5430,20 @@ def main(argv=None):
     q_summary.add_argument("--repo", help="OWNER/NAME when giving issue numbers")
     q_summary.add_argument("--owner", required=True, help="project owner login")
     q_summary.add_argument("--project", required=True, type=int, help="project number")
-    triage_cmd = commands.add_parser("triage", help="Deterministic issue selection for a triage sweep.")
-    triage_cmd.add_argument("category", choices=sorted(set(TRIAGE_BOARD_CATEGORIES) | set(TRIAGE_REPO_CATEGORIES)),
-                            help="sweep category: untriaged and ready read the board; needs-input, needs-definition, blocked, and agent-closed read one label")
-    triage_cmd.add_argument("--repo", help="OWNER/NAME for a label-based category")
-    triage_cmd.add_argument("--owner", help="project owner login for a board-based category")
-    triage_cmd.add_argument("--project", type=int, help="project number for a board-based category")
+    triage_cmd = commands.add_parser("triage", help="Deterministic issue selection and per-issue state for a triage sweep.")
+    triage_commands = triage_cmd.add_subparsers(dest="triage_command")
+    triage_list_cmd = triage_commands.add_parser("list", help="List the issue selection for one sweep category.")
+    triage_list_cmd.add_argument("category", choices=sorted(set(TRIAGE_BOARD_CATEGORIES) | set(TRIAGE_REPO_CATEGORIES)),
+                                 help="sweep category: untriaged and ready read the board; needs-input, needs-definition, blocked, and agent-closed read one label")
+    triage_list_cmd.add_argument("--repo", help="OWNER/NAME for a label-based category")
+    triage_list_cmd.add_argument("--owner", help="project owner login for a board-based category")
+    triage_list_cmd.add_argument("--project", type=int, help="project number for a board-based category")
+    triage_status_cmd = triage_commands.add_parser(
+        "status", help="Derive one issue's bucket, stage, blockers, and eligibility without storing anything.")
+    triage_status_cmd.add_argument("issue", help="issue URL, or a number with --repo")
+    triage_status_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
+    triage_status_cmd.add_argument("--verify-evidence", action="store_true",
+                                   help="resolve each commit, path, and issue cited by the latest assessment")
     budget_cmd = commands.add_parser("budget", help="Read the clock, mark task starts and ends in a log, and report time left and measured durations.")
     budget_cmd.add_argument("--log", required=True, metavar="FILE", help="JSON-lines log, such as budget.jsonl in the coordinator notes directory")
     budget_cmd.add_argument("--deadline", help="record the deadline: ISO 8601 or YYYY-MM-DD HH:MM [ZONE], read as local time")
@@ -5300,11 +5629,20 @@ def main(argv=None):
     elif args.command == "queue":
         result, status = queue_summary([parse_issue(ref, args.repo) for ref in args.issues], args.owner, args.project)
     elif args.command == "triage":
-        if args.category in TRIAGE_BOARD_CATEGORIES and (not args.owner or args.project is None):
-            parser.error(f"triage {args.category} needs --owner and --project.")
-        if args.category in TRIAGE_REPO_CATEGORIES and not args.repo:
-            parser.error(f"triage {args.category} needs --repo OWNER/NAME.")
-        result, status = triage_list(args.category, repo=args.repo, owner=args.owner, project=args.project)
+        if args.triage_command == "status":
+            repo = args.repo or checkout_repo()
+            if not repo:
+                parser.error("triage status needs --repo OWNER/NAME outside a checkout.")
+            issue_repo, number = parse_issue(args.issue, repo)
+            result, status = triage_status(issue_repo, number, verify_evidence=args.verify_evidence)
+        else:
+            if not getattr(args, "category", None):
+                parser.error("triage needs a subcommand: list or status.")
+            if args.category in TRIAGE_BOARD_CATEGORIES and (not args.owner or args.project is None):
+                parser.error(f"triage list {args.category} needs --owner and --project.")
+            if args.category in TRIAGE_REPO_CATEGORIES and not args.repo:
+                parser.error(f"triage list {args.category} needs --repo OWNER/NAME.")
+            result, status = triage_list(args.category, repo=args.repo, owner=args.owner, project=args.project)
     elif args.command == "budget":
         need = tuple(k.strip() for k in args.need.split(",") if k.strip()) if args.need else ()
         try:
