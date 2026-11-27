@@ -24,7 +24,14 @@ CORRECTION_LIMIT = 2
 DEFAULT_MAX_TURNS = 150
 DEFAULT_SESSION_TIMEOUT = 5400
 DEFAULT_STEP_IDLE_TIMEOUT = 900
-DEFAULT_CONTEXT_WARN_TOKENS = 100000
+# Context thresholds are measured by step_context_tokens(), which sums uncached
+# input plus cache reads plus cache writes. On a long agentic session most of
+# that total is cache traffic, so a 100k warning fired on ordinary work: the
+# 2026-11-27 burndown produced three alerts at 105k/131k/111k while every
+# session completed normally. A warning that always fires carries no signal, so
+# the default moved to a level that means "this prompt is genuinely large".
+# Raise with --context-warn-tokens if a deployment really does run smaller.
+DEFAULT_CONTEXT_WARN_TOKENS = 200000
 DEFAULT_MAX_CONTEXT_TOKENS = 0
 LOCAL_MODEL_PROVIDERS = ("lmstudio", "ollama", "mlx", "rec", "llama.cpp")
 SLOW_STEP_WARN_SECONDS = 120
@@ -527,13 +534,28 @@ def phase_boundary_park(state, step, remaining_minutes, floor):
     )
 
 
-def next_item(board, attempted=None):
-    """Pure function selecting the next item from board state (Decision 9)."""
+def next_item(board, attempted=None, exclude=None):
+    """Pure function selecting the next item from board state (Decision 9).
+
+    ``exclude`` is an operator denylist of issue numbers. It applies to every
+    tier — in-flight, parked, and Ready selection — because an operator who
+    says "do not touch #1344" means it regardless of which column the issue
+    currently sits in. Before this was threaded through, `--exclude` reached
+    only the parent-issue path, so a board run silently ran excluded issues.
+    """
     attempted = attempted or set()
+    exclude = exclude or set()
+
+    def denied(item):
+        num = item.get("number")
+        return num in exclude or item.get("issue") in exclude or item.get("url") in exclude
+
     in_flight = board.get("in_flight") or []
     for item in in_flight:
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
+            continue
+        if denied(item):
             continue
         if "triage:needs-input" in (item.get("labels") or []):
             continue
@@ -546,6 +568,8 @@ def next_item(board, attempted=None):
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
             continue
+        if denied(item):
+            continue
         if item.get("park_kind") in ("question", "blocker"):
             continue
         return item
@@ -554,6 +578,8 @@ def next_item(board, attempted=None):
     for item in selection:
         num = item.get("number")
         if num in attempted or item.get("issue") in attempted or item.get("url") in attempted:
+            continue
+        if denied(item):
             continue
         if "triage:needs-input" in (item.get("labels") or []):
             continue
@@ -874,11 +900,31 @@ def slow_step_warning(now, last_event_ts, step_idle_timeout, warned):
             f"waiting up to {step_idle_timeout}s")
 
 
-def context_warning(context_tokens, warn_tokens, warned):
+def context_warning(context_tokens, warn_tokens, warned, tokens=None):
     """Describe a session that reached the context warning threshold."""
     if warned or not warn_tokens or context_tokens < warn_tokens:
         return None
-    return f"Session context reached {context_tokens} tokens (warn {warn_tokens})."
+    detail = context_breakdown(tokens) if tokens else ""
+    return (f"Session context reached {context_tokens} tokens (warn {warn_tokens}){detail}.")
+
+
+def context_breakdown(tokens):
+    """Render the input/cache split behind a context figure.
+
+    The warning used to report a single number, and that number is the sum of
+    uncached input plus cache reads plus cache writes (see
+    ``step_context_tokens``). Without the split an operator cannot tell a
+    genuinely large prompt from an accounting artifact, so a threshold that
+    fires is not actionable.
+    """
+    tokens = tokens or {}
+    cache = tokens.get("cache") or {}
+    parts = [
+        f"input={int(tokens.get('input') or 0)}",
+        f"cache_read={int(cache.get('read') or 0)}",
+        f"cache_write={int(cache.get('write') or 0)}",
+    ]
+    return " [" + ", ".join(parts) + "]"
 
 
 def context_cap_reason(context_tokens, max_tokens):
@@ -1115,7 +1161,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
             last_context_tokens = context_tokens
             print(f"[{time.strftime('%X')}] [turn {step_num}] Step finish (in: {in_tok}, out: {out_tok} tokens, "
                   f"context: {context_tokens})", flush=True)
-            warning = context_warning(context_tokens, context_warn_tokens, context_warned)
+            warning = context_warning(context_tokens, context_warn_tokens, context_warned, tokens)
             if warning:
                 print(f"[{time.strftime('%X')}] Warning: {warning}", flush=True)
                 log_fp.write(json.dumps({"type": "runner_warning", "reason": warning,
@@ -1917,6 +1963,67 @@ def worktree_status(issue_ref, cwd=None):
     return {"path": None, "dirty": None}
 
 
+def review_independence_note(model, review_model):
+    """Warn when the reviewer is the implementing model, or say the review is independent.
+
+    A same-model reviewer is weakly independent: it is the same weights that
+    wrote the diff, re-reading it with a fresh context. That is worth something
+    but it is not adversarial, and the 2026-11-27 burndown showed the cost —
+    thirteen consecutive `clean` verdicts carried two real defects through,
+    including a "fix" for a behavior that never failed. Surfacing the pairing
+    at preflight lets an operator notice a batch that will have no dissent in it.
+    """
+    if not model or not review_model:
+        return None
+    if model.strip() == review_model.strip():
+        return (f"review model `{review_model}` is the implementation model; "
+                f"expect weak independence — pass a different --review-model for "
+                f"review that can disagree")
+    return f"review is independent: implementation `{model}`, review `{review_model}`"
+
+
+GUARD_PATH_MARKERS = (
+    "tools/prompt_tools.py",
+    "tools/admin_tools.py",
+    "secret_policy.py",
+    "tools/shell_tools.py",
+    "tools/skill_tools.py",
+    "prompts/",
+)
+
+
+def guard_touching_paths(state, options, cli_fn=run_cli, cwd=None, git=None):
+    """Return changed paths in this delivery that hold a permission boundary or admin guard.
+
+    Reviewing a diff that removes a refusal or an allowlist entry is a
+    different question from reviewing a refactor. The reviewer needs to know a
+    guard file is in the diff so it asks the right question; nothing in the
+    diff itself announces it.
+
+    Paths come from local git in the prepared review worktree, not from the
+    GitHub API: `ghflow pr` has no changed-files command and `pr-state` does not
+    carry them. Returns an empty list when the worktree or diff is unavailable,
+    which keeps the note advisory rather than blocking.
+    """
+    from pathlib import Path as _Path
+
+    git = git or git_output
+    worktree = options.get("session_cwd")
+    base = options.get("review_base") or "origin/main"
+    if not worktree or not _Path(str(worktree)).is_dir():
+        return []
+    try:
+        changed = git(["diff", "--name-only", f"{base}..HEAD"], cwd=str(worktree)) or ""
+    except Exception:
+        return []
+    hits = []
+    for name in changed.splitlines():
+        name = name.strip()
+        if name and any(marker in name for marker in GUARD_PATH_MARKERS):
+            hits.append(name)
+    return sorted(set(hits))[:8]
+
+
 def format_run_summary(records, park_failures, notes_dir, start_time, cwd=None, facts_refresh=None,
                        session_monitor=None, model_note=None):
     """Render the run's deliveries, parked items, worktree state, and token totals."""
@@ -2084,6 +2191,9 @@ def main(argv=None):
     notice = remote_model_notice(selected_models)
     if notice:
         print(f"[{time.strftime('%X')}] {notice}", flush=True)
+    independence = review_independence_note(model, review_model)
+    if independence:
+        print(f"[{time.strftime('%X')}] {independence}", flush=True)
 
     resolved_cmd = resolve_worker_cmd({"worker_cmd": args.worker_cmd})
     options = {
@@ -2293,7 +2403,7 @@ def main(argv=None):
                 session_monitor.write(force=True)
                 print(session_monitor.status_line(), flush=True)
                 selection_recorded = True
-            item = next_item(board, attempted)
+            item = next_item(board, attempted, exclude=exclude)
 
         if item is None:
             print(f"[{time.strftime('%X')}] No more actionable items.")
@@ -2521,6 +2631,7 @@ def main(argv=None):
                 if existing.get("path"):
                     step_options["session_cwd"] = existing["path"]
                 base_ref = review_base
+                step_options["review_base"] = base_ref
                 stacked_note = f" This PR is stacked on base `{stack_base['branch']}`; hosted CI does not run for non-main targets on this repo. Use local worktree gate checks for the review, and keep the PR a draft until hosted checks run." if stack_base else ""
                 verdict_rule = " Verdict rules: if '## Blocking findings' is empty or None, verdict MUST be 'clean', even if non-blocking notes or follow-up ideas appear under '## Notes'. Use 'findings' only for actionable blocking defects."
 
@@ -2553,17 +2664,25 @@ def main(argv=None):
                 )
                 model_note = (f" Post the verdict with `review verdict ... --model {step_options['model']}` or include `model={step_options['model']}` in a `pr comment` marker."
                               if step_options.get("model") else "")
+                guard_note = ""
+                guard_paths = guard_touching_paths(state, step_options, cli_fn=run_cli, cwd=options.get("cwd"))
+                if guard_paths:
+                    guard_note = (f" Guard watch: this diff touches {', '.join(guard_paths)}. "
+                                  "If it removes or weakens a refusal, allowlist entry, symlink or redirect check, "
+                                  "confirmation gate, or permission boundary, the verdict MUST be `blocked`, not "
+                                  "`clean` or `findings` — the user decides whether that protection is removed, "
+                                  "and the builder cannot resolve it. Say plainly which protection the diff removes.")
                 if earlier_blocking > 0:
                     step_options["extra_text"] = (
                         f"Scope: Re-review of correction on HEAD. Focus on the commit diff (`git diff HEAD~1..HEAD` or `git diff {base_ref}...HEAD`) "
-                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note} {gate_instruction}{verification_note}"
+                        f"and verifying that the earlier finding is resolved. Do not re-audit unchanged components or pre-load shared reference files.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note}{guard_note} {gate_instruction}{verification_note}"
                     )
                 else:
                     step_options["extra_text"] = (
                         "Scope: Review committed changes on HEAD against the issue requirements. "
                         f"Inspect the commit diff (`git diff {base_ref}...HEAD`). {gate_instruction} "
                         f"Post the verdict comment directly with `pr comment`. "
-                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note}{verification_note}"
+                        f"Do not write new end-to-end integration test suites, browser harnesses, or query session databases.{workspace_note}{model_note}{stacked_note}{verdict_rule}{gate_note}{guard_note}{verification_note}"
                     )
             elif step == "implement-issue":
                 worktree = prepare_worktree(state["issue"], state.get("title"), owner, project, step_options,

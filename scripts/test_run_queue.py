@@ -288,6 +288,64 @@ class NextStepTableTests(unittest.TestCase):
         self.assertEqual(run_queue.step_context_tokens({"input": 10}), 10)
         self.assertEqual(run_queue.step_context_tokens({}), 0)
 
+    def test_guard_touching_paths_flags_guard_files(self):
+        """A reviewer must be told when the diff reaches a permission boundary."""
+        seen = {}
+
+        def fake_git(args, cwd=None):
+            seen["args"] = args
+            return "\n".join([
+                "src/decafclaw/tools/prompt_tools.py",
+                "src/decafclaw/web/static/styles/host-gauges.css",
+                "src/decafclaw/prompts/SOUL.md",
+            ])
+
+        paths = run_queue.guard_touching_paths(
+            {}, {"session_cwd": str(run_queue.Path(__file__).parent), "review_base": "origin/main"},
+            git=fake_git)
+
+        self.assertIn("src/decafclaw/tools/prompt_tools.py", paths)
+        self.assertIn("src/decafclaw/prompts/SOUL.md", paths)
+        self.assertNotIn("src/decafclaw/web/static/styles/host-gauges.css", paths)
+
+    def test_guard_touching_paths_is_empty_without_a_worktree(self):
+        """Missing worktree must yield no note, not an exception or a false guard hit."""
+        self.assertEqual(run_queue.guard_touching_paths({}, {}), [])
+
+    def test_review_independence_note(self):
+        """A run must say out loud whether its review can disagree."""
+        same = run_queue.review_independence_note("otari/x", "otari/x")
+        self.assertIn("implementation model", same)
+        self.assertIn("weak independence", same)
+
+        distinct = run_queue.review_independence_note("otari/a", "otari/b")
+        self.assertIn("independent", distinct)
+
+        self.assertIsNone(run_queue.review_independence_note("", "otari/b"))
+
+    def test_context_breakdown_shows_the_split(self):
+        """The warning must name the input/cache split, not just a total.
+
+        A bare total cannot distinguish a genuinely large prompt from cache
+        traffic, so an operator reading the alert cannot tell whether to act.
+        """
+        text = run_queue.context_warning(
+            150000, 100000, False,
+            {"input": 9000, "cache": {"read": 140000, "write": 1000}})
+        self.assertIn("input=9000", text)
+        self.assertIn("cache_read=140000", text)
+        self.assertIn("cache_write=1000", text)
+
+    def test_context_warn_default_does_not_fire_on_ordinary_sessions(self):
+        """The 2026-11-27 burndown peaked near 131k on every step and stayed silent-worthy.
+
+        A warning that fires on every long session is noise; the default must
+        sit above ordinary cache-inflated totals.
+        """
+        self.assertGreater(run_queue.DEFAULT_CONTEXT_WARN_TOKENS, 131000)
+        self.assertIsNone(run_queue.context_warning(
+            131000, run_queue.DEFAULT_CONTEXT_WARN_TOKENS, False))
+
     def test_negative_context_limits_are_rejected(self):
         with self.assertRaises(SystemExit):
             run_queue.main(["--model", "lmstudio/test", "--review-model", "lmstudio/review", "--context-warn-tokens", "-1", "--no-notebook"])
@@ -1155,6 +1213,56 @@ class ParentSubIssueTests(unittest.TestCase):
             with self.assertRaises(RuntimeError) as ctx:
                 run_queue.observe_parent("999")
             self.assertIn("Failed to query parent issue", str(ctx.exception))
+
+    def test_next_item_honors_exclude_on_the_board_path(self):
+        """`--exclude` must apply to in-flight, parked, and Ready selection.
+
+        Regression: before this was threaded through, the board path called
+        next_item(board, attempted) with no exclude, so `--exclude 1344` on a
+        board run still selected #1344. The flag silently did nothing.
+        """
+        board = {
+            "in_flight": [
+                {"number": 101, "url": "https://github.com/o/r/issues/101", "step": "implement-issue"},
+                {"number": 102, "url": "https://github.com/o/r/issues/102", "step": "implement-issue"},
+            ],
+            "parked": [{"number": 201, "url": "https://github.com/o/r/issues/201"}],
+            "selection": [
+                {"number": 301, "url": "https://github.com/o/r/issues/301", "labels": []},
+                {"number": 302, "url": "https://github.com/o/r/issues/302", "labels": []},
+            ],
+        }
+
+        # No denylist: in-flight wins.
+        self.assertEqual(run_queue.next_item(board)["number"], 101)
+
+        # Excluding an in-flight issue falls through to the next in-flight one.
+        self.assertEqual(run_queue.next_item(board, exclude={101})["number"], 102)
+
+        # Excluding every in-flight issue falls through to parked.
+        self.assertEqual(run_queue.next_item(board, exclude={101, 102})["number"], 201)
+
+        # Excluding in-flight and parked falls through to Ready selection.
+        self.assertEqual(run_queue.next_item(board, exclude={101, 102, 201})["number"], 301)
+
+        # Excluding everything returns None rather than running a denied issue.
+        self.assertIsNone(
+            run_queue.next_item(board, exclude={101, 102, 201, 301, 302})
+        )
+
+    def test_next_item_exclude_matches_issue_ref_forms(self):
+        """A denylist entry must match whether the item carries a number or a ref."""
+        board = {
+            "in_flight": [],
+            "parked": [],
+            "selection": [
+                {"number": 301, "url": "https://github.com/o/r/issues/301", "labels": []},
+                {"issue": "https://github.com/o/r/issues/302", "url": "https://github.com/o/r/issues/302",
+                 "labels": []},
+            ],
+        }
+        self.assertEqual(run_queue.next_item(board, exclude={301})["url"],
+                         "https://github.com/o/r/issues/302")
 
     def test_next_item_for_parent_prioritizes_inflight(self):
         children = [

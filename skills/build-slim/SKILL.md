@@ -53,6 +53,8 @@ Follow project test-first conventions:
    python3 "$GHFLOW_CLI" gate --cmd "make check" --summary
    python3 "$GHFLOW_CLI" gate --cmd "make test" --summary
    ```
+7. **Cannot-verify rule**: If the issue needs a measurement this environment cannot take (a container engine, an OS, a host-level tool, a network endpoint, hardware), do not infer a fix and present it as verified. Park and name the missing capability: "cannot verify: `podman` is not installed here." If the issue asks you to check a behavior and it already works, change nothing and say so — "verified, no change needed" is a correct outcome. A patch that removes working code is worse than no patch, and it still passes CI and review.
+
 ## 4. Addressing review feedback
 
 When tasked with addressing review findings (`address-pr-review`):
