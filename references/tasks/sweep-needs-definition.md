@@ -1,46 +1,49 @@
 # Sweep issues needing definition
 
-Develop open issues labeled `triage:needs-definition` into actionable definitions. Use [Define an issue](define-issue.md) for research, scope, and issue content. Keep each definition proportional to its goal and evidence.
+Turn `triage:needs-definition` issues into specifications that are concrete enough to implement against current code. The distinct work here is **research and writing**; the classification and the promotion gate follow [Triage state](../shared/triage-state.md).
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. The parent agent coordinates the sweep; subagents execute research and issue updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Triage state](../shared/triage-state.md), [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md). The parent coordinates; subagents research and write following [Agent identity](../shared/identity.md), and [GitHub writes](../shared/github-writes.md) before changing records.
 
 ## List pending issues
 
-Query open issues in the subject repository with the label `triage:needs-definition`:
-
 ```bash
-python3 "$GHFLOW_CLI" triage needs-definition --repo OWNER/REPO
+python3 "$GHFLOW_CLI" triage list needs-definition --repo OWNER/REPO
 ```
 
-Optionally filter by a specific parent issue or component area. If no issues carry the label, report that all accepted issues are fully defined and stop.
+If none carry the label, report that the accepted backlog is fully defined and stop.
 
 ## Define each issue
 
-Process issues one at a time or in bounded slices of 2 to 5 issues. For each issue, dispatch a subagent to apply [Define an issue](define-issue.md). Give the agent the issue, current evidence, and existing authorization.
+Work in bounded slices of 2 to 5. For each issue, dispatch a subagent to apply [Define an issue](define-issue.md), giving it the issue, the current evidence, and the existing authorization.
 
-Use the shared [Decisions](../shared/decisions.md) rule when facts or choices are missing. Return material product decisions to the parent instead of choosing them in the sweep.
+Start from `ghflow triage status ISSUE` and read the existing assessment. Build on a finding whose source and revision still apply rather than repeating it; recheck it if either has changed.
 
-If refinement depends on another open issue that will change the code or supply a contract, follow [Blocked issues](../shared/triage-labels.md#blocked-issues). Set the native blocked-by relationship and apply `triage:blocked`. Optionally replace the body with an outline. Return the issue to the parent. If only part waits, propose a split.
+Use [Decisions](../shared/decisions.md) when facts or choices are missing. Return material product decisions to the parent instead of choosing them in the sweep.
 
-If research finds a product or design decision that needs user judgment, stop the definition. Apply `triage:needs-input`, post the focused question, and return it to the parent.
+Three outcomes while defining:
 
-## Update the issue record
+- **A decision is needed.** Stop. Apply `triage:needs-input`, post the focused question, return to the parent. Do not choose for the user.
+- **The work depends on another open issue** that will change the code or supply a contract. Record the native blocked-by relationship, apply `triage:blocked`, optionally replace the body with an outline, and return. If only part waits, propose a split instead.
+- **The definition is solid.** Continue to promotion.
 
-Once the specification is solid:
+Keep each definition proportional to its goal and its evidence. A definition that restates the issue at length is not more specifiable than the issue was.
 
-1. Update the issue body in the subject repository with the reviewed definition:
+## Promote
+
+1. Update the body with the reviewed definition.
+2. Verify the evidence before promoting — this is the gate, not a formality:
+
    ```bash
-   ghflow exec -- gh issue edit ISSUE_NUMBER --repo OWNER/REPO --body-file /tmp/defined-body.md
+   python3 "$GHFLOW_CLI" triage status ISSUE --repo OWNER/REPO --verify-evidence
    ```
-2. Remove `triage:needs-definition` and add `triage:ready`.
-3. Post a brief comment linking to the revised body and noting that the issue is now actionable for implementation.
-4. When the issue belongs to a parent theme, update the parent issue's rollup comment to reflect the newly ready status.
 
-## Conclude the sweep
+   If `evidence.verified` is false, do **not** apply `triage:ready`. Leave `triage:needs-definition`, and post a comment naming each citation that did not resolve so the next pass can repair it.
+3. On verified evidence, replace `triage:needs-definition` with `triage:ready`.
+4. Post a brief comment linking the revised body, per the assessment format.
+5. If the issue belongs to a parent theme, update the parent's rollup comment.
 
-Return a summary to the parent with:
+## Return
 
-- Issue number, title, and updated label.
-- The definition's main boundary and any unresolved question or dependency.
-- The next useful step.
-- If scenario answers assessed the sweep, report them as samples and state what they do not establish.
+Report per issue: number, title, resulting state, the definition's boundary, any unresolved dependency, and the next useful step.
+
+State which citations verified and which did not. A sweep that reports "all defined" while skipping verification has reported nothing a reader can use.

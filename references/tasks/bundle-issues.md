@@ -64,6 +64,6 @@ When the user approves a bundle:
 Return a summary of established parent-child structures and unbundled standalone issues.
 
 Recommend the next step for each bundle:
-- Run [triage-issues](triage-issues.md) on a specific bundle to evaluate completion and currency.
+- Run [sweep-triage](sweep-triage.md) on a specific bundle to evaluate completion and currency.
 - Run [decompose-parent-issue](decompose-parent-issue.md) if the parent needs further breakdown.
 - Advance ready children to [define-issue](define-issue.md) or [implement-issue](implement-issue.md).

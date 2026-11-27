@@ -145,7 +145,7 @@ The broader identity and access scope remains open.
 
 The parent ran triage-issues, interview-issue, sweep-needs-input, and sweep-needs-definition on about 60 decafclaw issues at skills `9e64bd5`. Subagents performed subject-repository writes as `MokaGnome`.
 The definition sweep left 15 issues on `triage:needs-definition` that could not be specified: 12 waited on open issues and 2 were a parking lot and a parent. Les's needs-attention board view could not tell them from actionable work.
-This led to [Triage labels](../../../references/shared/triage-labels.md), `triage:blocked`, `triage:parked`, and [sweep-blocked](../../../references/tasks/sweep-blocked.md), with two new scenarios. Four fresh sessions passed them at `c96332a`, as the [results](../../../evals/results/2026-10-08-blocked-parked-labels.md) record.
+This led to [Triage labels](../../../references/shared/triage-labels.md), `triage:blocked`, `triage:parked`, and the `sweep-blocked` task (since folded into [sweep-triage](../../../references/tasks/sweep-triage.md)), with two new scenarios. Four fresh sessions passed them at `c96332a`, as the [results](../../../evals/results/2026-10-08-blocked-parked-labels.md) record.
 
 ## 2026-10-10: local-model notes and resumption
 
