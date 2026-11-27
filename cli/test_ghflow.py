@@ -4838,6 +4838,47 @@ class TriageStatusTests(unittest.TestCase):
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertTrue(result["next_step"]["eligible"])
         self.assertIn("all blockers are closed", result["next_step"]["reason"])
+        self.assertEqual(result["label_stale"], "triage:blocked is set but every blocked-by edge is closed")
+
+    def test_an_open_edge_blocks_a_ready_issue(self):
+        """A live blocked-by edge outranks the label, whatever the label says.
+
+        #1708 in decafclaw carried triage:ready while still blocked by an open
+        #1709. Trusting the label made the issue look like it could be
+        implemented, and a pass that acted on it would build against code about
+        to change.
+        """
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:ready",),
+            blocked_by=[{"number": 1709, "state": "OPEN", "url": "u/1709"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#1709", result["next_step"]["reason"])
+        self.assertIsNone(result.get("label_stale"))
+
+    def test_an_open_edge_blocks_a_needs_definition_issue(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+
+    def test_an_open_edge_blocks_an_untriaged_issue(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+
+    def test_a_closed_edge_leaves_a_ready_issue_alone(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:ready",),
+            blocked_by=[{"number": 11, "state": "CLOSED", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("already at triage:ready", result["next_step"]["reason"])
+        self.assertIsNone(result.get("label_stale"))
 
     def test_stale_assessment_is_detected_from_a_later_comment(self):
         gh = FakeTriageStatusGh(triage_status_issue(

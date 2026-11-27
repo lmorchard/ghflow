@@ -4664,12 +4664,39 @@ def triage_blockers(blocked_by):
     return {"blockers": edges, "open": open_edges, "cleared": len(open_edges) == 0}
 
 
+def triage_label_stale(bucket, blockers):
+    """Whether a ``triage:blocked`` label no longer matches the relationships.
+
+    The label says "waiting on open work" and the edges say nothing is open, so
+    the issue is stranded on a label that keeps it out of the refinement queues.
+    Reported as its own field because it is an actionable inconsistency rather
+    than a stage: one `gh issue edit` clears it, and leaving it unreported is how
+    a queue quietly loses work.
+    """
+    if bucket != "blocked":
+        return None
+    if blockers.get("cleared"):
+        return "triage:blocked is set but every blocked-by edge is closed"
+    return None
+
+
 def triage_eligibility(stage, bucket, blockers, evidence):
     """Return whether an autonomous pass can act, with a stated reason when it cannot.
+
+    An open blocked-by edge dominates every other consideration, whatever the
+    label says. The label is a claim; the relationship is the fact. Checking the
+    edge only inside the ``blocked`` bucket would report an issue at
+    ``triage:ready`` or ``triage:needs-definition`` as eligible while it still
+    waits on open work, and a pass that acts on it produces a definition written
+    against code that is about to change.
 
     ``evidence`` is None when verification was not requested; an unverified
     citation only blocks eligibility when verification actually ran and failed.
     """
+    open_edges = blockers.get("open") or []
+    if open_edges:
+        open_numbers = ", ".join(f"#{edge['issue']}" for edge in open_edges)
+        return {"eligible": False, "reason": f"blocked by open issue(s): {open_numbers}"}
     if stage == "ready":
         return {"eligible": False, "reason": "already at triage:ready; nothing to refine"}
     if bucket == "needs-input":
@@ -4678,9 +4705,6 @@ def triage_eligibility(stage, bucket, blockers, evidence):
         return {"eligible": False, "reason": "parked; revisit only on request"}
     if bucket == "agent-closed":
         return {"eligible": False, "reason": "closed by an agent; audit only"}
-    if bucket == "blocked" and not blockers.get("cleared"):
-        open_numbers = ", ".join(f"#{edge['issue']}" for edge in blockers.get("open") or [])
-        return {"eligible": False, "reason": f"blocked by open issue(s): {open_numbers}"}
     if evidence is not None and not evidence.get("verified", True):
         failed = [item for item in evidence.get("citations") or [] if not item.get("ok")]
         detail = "; ".join(f"{item['citation']} ({item['detail']})" for item in failed[:3])
@@ -4817,6 +4841,9 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
         )
         if evidence is not None:
             result["evidence"] = evidence
+        stale_label = triage_label_stale(bucket, blockers)
+        if stale_label:
+            result["label_stale"] = stale_label
         result["next_step"] = triage_eligibility(stage, bucket, blockers, evidence)
     except (GhError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         result["errors"].append({"part": "triage_status", "error": str(error)})
