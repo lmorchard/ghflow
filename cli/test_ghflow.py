@@ -4743,8 +4743,9 @@ class TriageTests(unittest.TestCase):
 
 
 def triage_status_issue(labels=(), comments=(), blocked_by=(), updated_at="2026-11-20T00:00:00Z",
-                        state="OPEN"):
+                        state="OPEN", sub_issues=()):
     """Build a GraphQL issue node shaped like TRIAGE_STATUS_QUERY returns."""
+    children = list(sub_issues)
     return {
         "number": 7, "url": "https://github.com/o/r/issues/7", "title": "An issue",
         "state": state, "updatedAt": updated_at,
@@ -4752,6 +4753,7 @@ def triage_status_issue(labels=(), comments=(), blocked_by=(), updated_at="2026-
         "comments": {"nodes": list(comments)},
         "blockedBy": {"nodes": list(blocked_by)},
         "blocking": {"nodes": []},
+        "subIssues": {"totalCount": len(children), "nodes": children},
     }
 
 
@@ -4976,6 +4978,63 @@ class TriageStatusTests(unittest.TestCase):
             self.assertNotIn("edit", call[:2], f"no edit: {call}")
             self.assertNotIn("close", call[:2], f"no close: {call}")
             self.assertNotIn("delete", call[:2], f"no delete: {call}")
+
+
+class TriageParkedParentTests(unittest.TestCase):
+    def test_parked_parent_with_open_children_stays_parked(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:parked",),
+            sub_issues=[{"number": 8, "state": "OPEN", "url": "u/8"},
+                        {"number": 9, "state": "CLOSED", "url": "u/9"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertEqual(result["children"]["total"], 2)
+        self.assertEqual([c["issue"] for c in result["children"]["open"]], [8])
+        self.assertFalse(result["children"]["all_closed"])
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("revisit only on request", result["next_step"]["reason"])
+        self.assertIsNone(result.get("label_stale"))
+
+    def test_parked_parent_with_every_child_closed_is_worth_reassessing(self):
+        """The park reason was "the children carry the work". That stopped being true.
+
+        A parent parked on that basis is not wrong, it is expired, and nothing
+        else in the system notices the children finished.
+        """
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:parked",),
+            sub_issues=[{"number": 8, "state": "CLOSED", "url": "u/8"},
+                        {"number": 9, "state": "CLOSED", "url": "u/9"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertTrue(result["children"]["all_closed"])
+        self.assertEqual(result["children"]["closed_count"], 2)
+        self.assertTrue(result["next_step"]["eligible"])
+        self.assertIn("children all closed", result["next_step"]["reason"])
+        self.assertEqual(result["label_stale"], "triage:parked on a parent whose children have all closed")
+
+    def test_parked_leaf_with_no_children_is_never_stale(self):
+        """"Nobody intends to work on this" is a decision; time does not undo it."""
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:parked",)))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertEqual(result["children"]["total"], 0)
+        self.assertFalse(result["children"]["all_closed"])
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIsNone(result.get("label_stale"))
+
+    def test_a_parked_parent_with_an_open_blocker_is_still_not_eligible(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:parked",),
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}],
+            sub_issues=[{"number": 8, "state": "CLOSED", "url": "u/8"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+
+    def test_a_non_parked_issue_with_closed_children_is_not_flagged(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            sub_issues=[{"number": 8, "state": "CLOSED", "url": "u/8"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertIsNone(result.get("label_stale"))
 
 
 class TriageBucketHelpersTests(unittest.TestCase):
