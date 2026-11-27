@@ -163,9 +163,9 @@ When inspection is complete, post your verdict atomically:
 ```sh
 python3 "$GHFLOW_CLI" review verdict PR_URL --verdict clean|findings|blocked --body-file VERDICT_FILE --model MODEL_ID
 ```
-- Automatically resolves the PR's current head commit SHA.
-- Automatically formats and prepends the required `<!-- ghflow-review head=SHA verdict=... -->` marker.
-- Pass `--model` with the review model when the handoff names it. The command records it in the marker. A `model=` value already in the body is kept.
+- Automatically resolves the PR's current head commit SHA and records it on the review object, so the verdict covers only the head it reviewed.
+- Lists blocking findings under `## Blocking findings` and notes under `## Notes`, without a required hidden marker.
+- Pass `--model` with the review model when the handoff names it. The command writes `model=MODEL_ID` as a visible line in the review body. A `model=` value already in the body is kept.
 - Enforces verdict rules: if `## Blocking findings` is empty, none, or absent (No blocking findings), the command automatically records `verdict=clean`, preventing accidental review loop lockouts.
 - Verifies comment readback internally before exiting 0. Do not poll `pr-state` or custom scripts; the inspect payload already has the review state.
 

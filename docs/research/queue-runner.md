@@ -66,9 +66,9 @@ Merge is not part of the desired state.
 
 ### Review verdict
 
-The runner reads every input of `next_step` from GitHub, so that a restart needs no local files. GitHub does not let the agent account approve or request changes on its own PR. The reviewer therefore posts its verdict as a PR comment with `pr comment`.
+The runner reads every input of `next_step` from GitHub, so that a restart needs no local files. GitHub does not let the agent account approve or request changes on its own PR, so the reviewer publishes a `COMMENT` review instead. That deliberately does not require the `APPROVED` state: an author cannot approve their own PR, and ghflow commonly submits PRs as the user.
 
-The comment starts with a fixed marker: `<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->`. The body lists blocking findings and non-blocking notes separately. The runner ignores a verdict whose SHA differs from the current head. `pr-state` reports these verdicts under `review_verdicts`.
+A ghflow verdict is a native PR review whose body opens with a visible `## Verdict: clean|findings|blocked` heading, optionally followed by a `model=` line. The reviewed commit comes from the review object's own `commit_id`. The runner ignores a verdict whose commit differs from the current head. `pr-state` reports these verdicts under `review_verdicts`.
 
 The count of earlier blocking verdicts on the PR gives the correction limit.
 

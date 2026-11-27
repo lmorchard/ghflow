@@ -470,30 +470,51 @@ def review_summary(reviews, latest_requests, pending_requests):
         state = "none"
     return {"state": state, "requested": requested, "pending": pending,
             "changes_requested": changes_requested, "completed": completed}
-def parse_review_verdicts(comments):
-    """Extract review verdict markers from PR top-level comments."""
-    if not isinstance(comments, list):
+REVIEW_VERDICT_HEADING = re.compile(
+    r"^#{1,6}\s*Verdict\s*:\s*(clean|findings|blocked)\s*$",
+    re.IGNORECASE | re.MULTILINE,
+)
+REVIEW_MODEL_LINE = re.compile(r"^model=(\S+)\s*$", re.MULTILINE)
+
+
+def parse_review_verdicts(reviews, head=None):
+    """Derive review verdicts from the PR's native review objects.
+
+    A ghflow verdict is a native review whose body opens with a
+    ``## Verdict: clean|findings|blocked`` heading, which puts the verdict and
+    its model in the visible review body instead of a hidden HTML comment. The
+    reviewed commit comes from the review's own ``commit_id``, so a verdict
+    covers only the head it was submitted against.
+
+    The review event is deliberately not the verdict. Authors cannot approve
+    their own pull requests, and ghflow commonly submits PRs as the user, so an
+    approval review is often impossible to post at all. ``COMMENT`` reviews are
+    permitted on your own PR and carry ``commit_id``, which is the only
+    property the runner actually needs.
+    """
+    if not isinstance(reviews, list):
         return None
-    pattern = re.compile(r"<!--\s*ghflow-review\s+head=([0-9a-fA-F]+)\s+verdict=([a-zA-Z_-]+)(?:\s+model=([^\s]+))?\s*-->")
     verdicts = []
-    for comment in comments:
-        if not isinstance(comment, dict):
+    for review in reviews:
+        if not isinstance(review, dict):
             continue
-        body = comment.get("body") or ""
-        match = pattern.search(body)
-        if match:
-            head, verdict = match.group(1), match.group(2).lower()
-            verdicts.append({
-                "head": head,
-                "verdict": verdict,
-                "model": match.group(3),
-                "author": comment.get("author"),
-                "created_at": comment.get("created_at"),
-                "comment_id": comment.get("id"),
-                "url": comment.get("url"),
-                "body": body,
-            })
+        body = review.get("body") or ""
+        heading = REVIEW_VERDICT_HEADING.search(body)
+        if not heading:
+            continue
+        model = REVIEW_MODEL_LINE.search(body)
+        verdicts.append({
+            "head": review.get("commit") or review.get("commit_id"),
+            "verdict": heading.group(1).lower(),
+            "model": model.group(1) if model else None,
+            "author": review.get("author"),
+            "created_at": review.get("submitted_at"),
+            "review_id": review.get("id"),
+            "url": review.get("url"),
+            "body": body,
+        })
     return verdicts
+
 
 
 
@@ -740,7 +761,7 @@ def pr_state(repo, number, gh=run_gh, gh_paginated=run_gh_paginated, bare_login=
         "reviews": reviews,
         "comments": comments,
         "review_summary": review_summary(reviews, latest_requests, [r.get("login") or r.get("slug") or r.get("name") for r in pr.get("reviewRequests") or []]),
-        "review_verdicts": parse_review_verdicts(comments),
+        "review_verdicts": parse_review_verdicts(reviews),
         "errors": errors,
     }
     if bare_login is not None:
@@ -3577,9 +3598,10 @@ def write_handoff(operation, issue_url, out, decisions=None, review_plan=None, l
         lines.append(f"This handoff: {HANDOFF_SCOPE[operation]}")
     if operation == "review-changes" and verdict:
         lines.append(
-            "Verdict comment: post your review verdict as a PR comment with `python3 "
-            f"{skill_dir / 'cli' / 'ghflow.py'} pr comment PR_URL --body-file FILE`. "
-            "The comment must start with `<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->`. "
+            "Verdict: publish your review verdict as a native PR review with `python3 "
+            f"{skill_dir / 'cli' / 'ghflow.py'} review verdict PR_URL --verdict clean|findings|blocked "
+            "--body-file FILE --model MODEL_ID`. "
+            "The tool writes a visible `## Verdict: ...` heading and records the reviewed head. "
             "List blocking findings under `## Blocking findings` and non-blocking notes under `## Notes`."
         )
     if deadline and operation in ("implement-issue", "address-pr-review"):
@@ -3756,7 +3778,13 @@ def review_inspect(repo, number, path=None, cwd=None, git=run_git, gh=run_gh, ga
 
 
 def review_verdict(repo, number, verdict, body=None, body_file=None, identity=None, model=None):
-    """Format and publish a structured review verdict comment with automated head verification."""
+    """Publish a review verdict as a native PR review with a visible heading.
+
+    The verdict and model appear as ordinary markdown in the review body, so a
+    reader can see them in the web UI without inspecting raw markup. The review
+    object supplies the reviewed commit, which is what binds a verdict to a
+    head.
+    """
     pr_info, code = pr_state(repo, number)
     if code != 0 or not pr_info.get("head"):
         return {"error": f"Failed to retrieve PR head for {repo}#{number}"}, 1
@@ -3771,49 +3799,57 @@ def review_verdict(repo, number, verdict, body=None, body_file=None, identity=No
     elif body:
         content = body.strip()
     else:
-        content = f"## Verdict: {verdict}\n\nReview completed."
+        content = "Review completed."
 
-    marker = re.search(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=([^\s]+))?\s*-->", content)
-    selected_model = model or (marker.group(1) if marker else None)
-    clean_content = re.sub(r"<!--\s*ghflow-review\s+head=[0-9a-fA-F]+\s+verdict=[a-zA-Z_-]+(?:\s+model=[^\s]+)?\s*-->", "", content).strip()
+    # A caller may already have written the verdict and model into the body.
+    # Strip those so the canonical heading below is the only one present.
+    initial_heading = REVIEW_VERDICT_HEADING.search(content)
+    selected_model = model or (REVIEW_MODEL_LINE.search(content).group(1)
+                               if REVIEW_MODEL_LINE.search(content) else None)
+    if initial_heading:
+        verdict = initial_heading.group(1).lower()
+    content = REVIEW_VERDICT_HEADING.sub("", content)
+    content = REVIEW_MODEL_LINE.sub("", content).strip()
 
+    # A "findings" verdict whose blocking section is empty or absent is clean.
+    # The runner applies the same rule, so resolve it here where the body is.
     if verdict == "findings":
-        m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", clean_content, re.IGNORECASE)
+        m = re.search(r"##\s*Blocking findings\s*\n+([^\n#]+)", content, re.IGNORECASE)
         if m:
             val = m.group(1).strip().lower().rstrip(".")
             if val in ("none", "no blocking findings", "no blockers", "none —", "none -"):
                 verdict = "clean"
-        elif "## Blocking findings" not in clean_content:
+        elif "## Blocking findings" not in content:
             verdict = "clean"
 
-    final_marker = f"<!-- ghflow-review head={head} verdict={verdict}"
+    final_body = f"## Verdict: {verdict}\n"
     if selected_model:
-        final_marker += f" model={selected_model}"
-    final_marker += " -->"
-    final_body = f"{final_marker}\n\n{clean_content}\n"
+        final_body += f"model={selected_model}\n"
+    final_body += f"\n{content}\n"
 
     with tempfile.NamedTemporaryFile("w", encoding="utf-8", delete=False) as tf:
         tf.write(final_body)
         temp_path = tf.name
 
     try:
-        comment_res, comment_status = pr_comment(repo, number, temp_path, identity=identity)
+        review_res, review_status = pr_review_post(
+            repo, number, "comment", temp_path, identity=identity)
     finally:
         try:
             os.unlink(temp_path)
         except OSError:
             pass
 
-    if comment_status != 0:
-        return comment_res, comment_status
+    if review_status != 0:
+        return review_res, review_status
 
     return {
         "success": True,
         "pr": f"{repo}#{number}",
         "head": head,
         "verdict": verdict,
-        "comment_id": comment_res.get("comment_id"),
-        "comment_url": comment_res.get("comment_url"),
+        "review_url": review_res.get("url"),
+        "review": review_res,
     }, 0
 
 
