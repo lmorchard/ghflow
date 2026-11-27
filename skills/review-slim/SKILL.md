@@ -42,6 +42,16 @@ Focus on these criteria:
 4. **Gates**: Read the issue's `Verify` line and run those focused tests. Run `make test` once. If the prompt supplies a pre-computed `make check` at this head, use `review inspect --no-gate` and do not repeat it.
 5. **No implementation**: Suggest fixes clearly with file and line numbers, but do not write code to resolve findings yourself.
 
+## 3b. Three checks before any `clean` verdict
+
+A reviewer that never returns a finding is not reviewing. Check these explicitly:
+
+1. **Did the diff answer the question the issue asked?** Read the issue's `Result` or acceptance section. If the issue says "verify X; if it works, document and close," then a code change is the wrong answer unless someone actually observed X failing. A conditional added for an unobserved condition is a finding even when CI is green.
+2. **Does the diff remove a guard or safety check?** Any deleted refusal, allowlist entry, symlink or redirect check, confirmation gate, or permission boundary on an admin or identity path is `blocked`, not `findings`. The builder cannot resolve it; the user decides. Never let a guard removal pass inside a larger refactor.
+3. **Did the issue pose an open question the worker answered alone?** If the issue body asks "rename or re-describe?", "keep the guard?", or "cutover or shims?" and the diff picked one, name which option it chose in the verdict and whether that matches the issue's stated preference.
+
+If the environment could not perform a verification the issue demanded, say so in the verdict. Do not let a green suite imply a measurement that never happened.
+
 ## 4. Post the review verdict
 
 When inspection is complete, post your verdict atomically:
