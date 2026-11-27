@@ -72,6 +72,7 @@ Match the user's explicit request to the operation below:
 | Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Return unblocked issues to definition | [sweep-blocked](references/tasks/sweep-blocked.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Revisit parked issues | [sweep-parked](references/tasks/sweep-parked.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) | [ghflow-coord](skills/coord/SKILL.md) |
 

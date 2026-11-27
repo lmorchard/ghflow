@@ -4536,6 +4536,7 @@ TRIAGE_STATUS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
       comments(last: 50) { nodes { url body createdAt author { login } } }
       blockedBy(first: 20) { nodes { number state url } }
       blocking(first: 20) { nodes { number state url } }
+      subIssues(first: 100) { totalCount nodes { number state url } }
     }
   }
 }"""
@@ -4664,23 +4665,48 @@ def triage_blockers(blocked_by):
     return {"blockers": edges, "open": open_edges, "cleared": len(open_edges) == 0}
 
 
-def triage_label_stale(bucket, blockers):
-    """Whether a ``triage:blocked`` label no longer matches the relationships.
+def triage_children(sub_issues):
+    """Summarise an issue's sub-issues into the counts a parent judgement needs.
 
-    The label says "waiting on open work" and the edges say nothing is open, so
-    the issue is stranded on a label that keeps it out of the refinement queues.
-    Reported as its own field because it is an actionable inconsistency rather
-    than a stage: one `gh issue edit` clears it, and leaving it unreported is how
-    a queue quietly loses work.
+    A parked *parent* is legitimate: the reason states that its children carry
+    the work. That justification expires on its own, because a parent whose
+    children have all closed is not carrying anything anymore. Telling the two
+    apart needs the rollup, not the label.
     """
-    if bucket != "blocked":
-        return None
-    if blockers.get("cleared"):
+    nodes = (sub_issues or {}).get("nodes") or []
+    children = [{"issue": node.get("number"), "url": node.get("url"), "state": node.get("state")}
+                for node in nodes if isinstance(node, dict) and node.get("number") is not None]
+    open_children = [child for child in children if (child.get("state") or "").upper() == "OPEN"]
+    total = (sub_issues or {}).get("totalCount")
+    if not isinstance(total, int):
+        total = len(children)
+    return {"total": total, "open": open_children, "closed_count": total - len(open_children),
+            "all_closed": total > 0 and len(open_children) == 0}
+
+
+def triage_label_stale(bucket, blockers, children=None):
+    """Whether a triage label no longer matches what the relationships say.
+
+    Two independent dead ends are reported, because both strand an issue outside
+    every refinement queue while looking deliberate:
+
+    - ``triage:blocked`` whose blocked-by edges have all closed.
+    - ``triage:parked`` that is a parent whose children have all closed. The
+      documented justification for parking a parent is that its open children
+      carry the work; once they are closed that justification is gone and the
+      issue needs a fresh judgement rather than silent rest.
+
+    A non-parent park cannot be stale: "nobody intends to work on this" is a
+    decision, and no amount of time passing turns it into a mistake.
+    """
+    if bucket == "blocked" and blockers.get("cleared"):
         return "triage:blocked is set but every blocked-by edge is closed"
+    if bucket == "parked" and children and children.get("all_closed"):
+        return "triage:parked on a parent whose children have all closed"
     return None
 
 
-def triage_eligibility(stage, bucket, blockers, evidence):
+def triage_eligibility(stage, bucket, blockers, evidence, children=None):
     """Return whether an autonomous pass can act, with a stated reason when it cannot.
 
     An open blocked-by edge dominates every other consideration, whatever the
@@ -4690,6 +4716,11 @@ def triage_eligibility(stage, bucket, blockers, evidence):
     waits on open work, and a pass that acts on it produces a definition written
     against code that is about to change.
 
+    A parked issue is normally left alone, with one exception: a parent whose
+    children have all closed is eligible for a fresh assessment. Its park reason
+    was "the children carry the work", and that has stopped being true. The label
+    is not wrong so much as expired, and nothing else in the system will notice.
+
     ``evidence`` is None when verification was not requested; an unverified
     citation only blocks eligibility when verification actually ran and failed.
     """
@@ -4697,12 +4728,16 @@ def triage_eligibility(stage, bucket, blockers, evidence):
     if open_edges:
         open_numbers = ", ".join(f"#{edge['issue']}" for edge in open_edges)
         return {"eligible": False, "reason": f"blocked by open issue(s): {open_numbers}"}
+    children = children or {}
+    if bucket == "parked":
+        if children.get("all_closed"):
+            return {"eligible": True,
+                    "reason": f"parked parent whose {children.get('total')} children all closed; reassess"}
+        return {"eligible": False, "reason": "parked; revisit only on request"}
     if stage == "ready":
         return {"eligible": False, "reason": "already at triage:ready; nothing to refine"}
     if bucket == "needs-input":
         return {"eligible": False, "reason": "waiting on a decision from the user"}
-    if bucket == "parked":
-        return {"eligible": False, "reason": "parked; revisit only on request"}
     if bucket == "agent-closed":
         return {"eligible": False, "reason": "closed by an agent; audit only"}
     if evidence is not None and not evidence.get("verified", True):
@@ -4810,6 +4845,7 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
         definition = triage_latest_comment(comments, TRIAGE_DEFINITION_HEADING)
         bucket = triage_bucket(labels)
         blockers = triage_blockers((issue.get("blockedBy") or {}).get("nodes"))
+        children = triage_children(issue.get("subIssues"))
 
         evidence = None
         if verify_evidence and assessment:
@@ -4838,13 +4874,14 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
             definition=({"url": definition.get("url"),
                          "created_at": definition.get("createdAt")} if definition else None),
             blockers=blockers,
+            children=children,
         )
         if evidence is not None:
             result["evidence"] = evidence
-        stale_label = triage_label_stale(bucket, blockers)
+        stale_label = triage_label_stale(bucket, blockers, children)
         if stale_label:
             result["label_stale"] = stale_label
-        result["next_step"] = triage_eligibility(stage, bucket, blockers, evidence)
+        result["next_step"] = triage_eligibility(stage, bucket, blockers, evidence, children)
     except (GhError, json.JSONDecodeError, KeyError, TypeError, ValueError) as error:
         result["errors"].append({"part": "triage_status", "error": str(error)})
         return result, 2

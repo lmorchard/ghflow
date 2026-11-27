@@ -7,7 +7,7 @@ Triage labels record where an open issue stands in refinement. Give each triaged
 | `triage:needs-input` | A product or design decision from the user blocks the issue. | [sweep-needs-input](../tasks/sweep-needs-input.md) |
 | `triage:needs-definition` | The goal is settled and the issue can be specified now against current code. | [sweep-needs-definition](../tasks/sweep-needs-definition.md) |
 | `triage:blocked` | The issue cannot be refined until other open issues land. | [sweep-blocked](../tasks/sweep-blocked.md) |
-| `triage:parked` | Nobody intends to work on the issue now, such as a parking lot or a parent whose children carry the work. | None. Revisit only on request. |
+| `triage:parked` | Nobody intends to work on the issue now, such as a parking lot or a parent whose children carry the work. | [sweep-parked](../tasks/sweep-parked.md) |
 | `triage:ready` | Scope and verification criteria are concrete enough to implement. | Prioritize or implement. |
 | `triage:agent-closed` | An agent closed the issue with cited evidence. | [sweep-audit-closed](../tasks/sweep-audit-closed.md) |
 
@@ -26,6 +26,20 @@ Do not label an issue blocked when only part of it waits. If an independent part
 ## Parked issues
 
 Park an issue only on the user's decision or when it is a parent whose open children carry all of its work. State the reason in a comment. A parked issue is not closed: it records an idea or a parent's scope.
+
+### Record a revisit trigger
+
+A park reason that cannot be tested is a park that outlives its reason, because nothing will ever reopen the question. Every park comment names **which kind of park it is**, so [sweep-parked](../tasks/sweep-parked.md) knows what to check:
+
+| Kind | What the comment must name | Revisit trigger |
+|---|---|---|
+| **Parent** | The children that carry the work | Children changing state. Expires when all children close. |
+| **Routing** | The capability, model class, label, or gate being waited on | That condition changing. Does not expire by time, so the comment must name something checkable. |
+| **Decision** | The decision and who made it | None on a schedule. Revisited only when a concrete change contradicts the stated reason. |
+
+Prefer the kind that has a checkable condition. "Nobody wants this now" cannot be re-examined and will sit forever; "gated on `impl:strong`, which no available model satisfies" can be re-examined and will clear on its own the day it stops being true.
+
+An issue parked without a stated reason is treated as unexplainable by the sweep, which reports it rather than acting on it. Say which kind it is and what would change your mind.
 
 ## Parked deliveries
 
