@@ -32,7 +32,7 @@ This view shows issues that someone can refine now. Use [sweep-needs-input](../r
 -label:triage:* status:Backlog -priority:P-null
 ```
 
-This view shows backlog issues that have no triage label. Use [triage-issues](../references/tasks/triage-issues.md) on them in batches.
+This view shows backlog issues that have no triage label. Run [sweep-triage](../references/tasks/sweep-triage.md) on them in batches.
 
 The term `-label:triage:*` removes every issue with a label that starts with `triage:`. A new triage label therefore needs no change to this filter.
 
@@ -44,7 +44,7 @@ On board 6, `P-null` is a literal Priority value for theme and epic issues. The 
 label:triage:blocked -status:Done
 ```
 
-This view shows issues that wait for other open issues. The board cannot show whether the blockers closed, because no dependency filter is documented. Use [sweep-blocked](../references/tasks/sweep-blocked.md) to read the native blocked-by relationships and return unblocked issues to `triage:needs-definition`.
+This view shows issues that wait for other open issues. The board cannot show whether the blockers closed, because no dependency filter is documented. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue blocked` to reconcile: `triage status` reads the native blocked-by edges, and a label whose edges have all closed is cleared back to untriaged rather than advanced, because a cleared dependency is not a readiness judgment.
 
 ### Parked
 
@@ -52,7 +52,7 @@ This view shows issues that wait for other open issues. The board cannot show wh
 label:triage:parked
 ```
 
-This view shows parking lots and parent issues whose children carry the work. No task acts on these issues automatically. Examine the view when project direction changes.
+This view shows parking lots and parent issues whose children carry the work. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue parked` to test whether each park reason still holds. A parent park expires when its children close; a decision park does not expire at all.
 
 ## Planning views
 

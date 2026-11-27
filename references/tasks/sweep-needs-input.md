@@ -1,50 +1,54 @@
 # Sweep issues needing input
 
-Conduct an interactive review of issues marked `triage:needs-input`. Settle the blocking product and design questions with the user, update the issue records, and advance each issue to its next state.
+Settle the product and design questions that are holding issues in `triage:needs-input`, then record the decision and move each issue to its next state. The distinct work here is the **conversation**; the classification and the write follow [Triage state](../shared/triage-state.md).
 
-Apply [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md) throughout. The parent agent conducts the conversation; subagents execute updates in the subject repository following [Agent identity](../shared/identity.md). Before changing GitHub records, apply [GitHub writes](../shared/github-writes.md).
+Apply [Triage state](../shared/triage-state.md), [Triage labels](../shared/triage-labels.md), [Authorization](../shared/authorization.md), and [Evidence](../shared/evidence.md). The parent agent conducts the conversation; subagents execute writes following [Agent identity](../shared/identity.md), and [GitHub writes](../shared/github-writes.md) before changing records.
 
 ## List pending issues
 
-Query open issues in the subject repository with the label `triage:needs-input`:
-
 ```bash
-python3 "$GHFLOW_CLI" triage needs-input --repo OWNER/REPO
+python3 "$GHFLOW_CLI" triage list needs-input --repo OWNER/REPO
 ```
 
-If no issues carry the label, report that the input backlog is clear and stop.
+If none carry the label, report that the input backlog is clear and stop.
 
 ## Present issues for review
 
-Group related issues into decision clusters when multiple issues share a common architectural pattern (such as replacing bespoke skills with standard MCP servers, deferring complex speculative infrastructure, or setting platform scope). Clustering allows the user to resolve related questions in a single decision rather than stepping through serial turns. For isolated issues, present them one at a time.
+Group issues that share a decision into one cluster, so the user resolves a pattern once rather than stepping through serial turns. Present isolated issues one at a time.
 
 For each issue or cluster:
 
-1. Read the issue title, body, and recent comments, focusing on the triage findings comment.
+1. Read the issue, its comments, and its latest assessment comment. Confirm the assessment still covers the issue; if `ghflow triage status ISSUE` reports `assessment.stale`, say so before asking anything, because the question may have moved.
 2. Present a short summary in conversation:
-   - Issue number, title, and URL.
-   - Core problem and current code status.
-   - The specific 1 to 2 questions needing the user's decision, with clear choices or trade-offs.
-3. If more background is needed, follow [interview-issue](interview-issue.md) to explore the tradeoffs.
+   - Number, title, URL.
+   - The core problem and where the code stands now.
+   - The one or two questions that need the user's decision, each with concrete choices or a named tradeoff.
+3. If the tradeoffs need exploring first, follow [interview-issue](../tasks/interview-issue.md).
 
-Do not ask the user to read raw code or diffs unless they ask.
+Do not ask the user to read code or diffs unless they ask.
 
 ## Record the decision
 
-Once the user provides a direction:
+The user's answer settles direction. It does not settle readiness, and the two are easy to conflate: a decision that unblocks a task is not a judgment that the task is specified.
 
-1. Dispatch a subagent to update the issue in the subject repository:
-   - Post a comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` recording the user's confirmed decision and rationale.
-   - Remove the `triage:needs-input` label with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --remove-label triage:needs-input`.
-2. Apply the resulting state:
-   - **User decided not to proceed**: Close the issue with `python3 "$GHFLOW_CLI" exec -- gh issue close ISSUE_URL --reason "not planned"` (and add `wontfix` if used).
-   - **Decision makes the task actionable as-is**: Add `triage:ready` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:ready`.
-   - **Decision settles direction, but technical details or criteria remain open**: Add `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:needs-definition`.
-   - **Decision makes the issue wait for other open issues**: Set native blocked-by relationships and add `triage:blocked` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...`.
-   - **User decided to keep the issue as a parking lot or a parent tracked by children**: Add `triage:parked` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --add-label triage:parked`.
-3. If the issue belongs to a parent theme, update the parent issue's rollup comment to reflect the new state.
-4. Report the updated status to the user and proceed to the next issue or cluster.
+Dispatch a subagent to:
 
-## Conclude or pause
+1. Post a comment recording the decision and its rationale, using the assessment format from [Triage state](../shared/triage-state.md#the-assessment-comment).
+2. Remove `triage:needs-input`.
+3. Apply the state that follows from the decision:
 
-Stop when all `triage:needs-input` issues have been resolved, or when the user requests a pause. Return a summary of issues updated, closed, or queued for technical definition.
+| Decision | Resulting state |
+|---|---|
+| Do not proceed | close `not planned` — record it as **Unnecessary**, per the closure rule |
+| Actionable as-is, and the evidence verifies | `triage:ready`, after `--verify-evidence` |
+| Direction settled, technical detail still open | `triage:needs-definition` |
+| Waits on other open issues | `triage:blocked`, with native blocked-by edges set first |
+| Parking lot, or a parent whose children carry the work | `triage:parked`, with the revisit trigger recorded |
+
+When a decision settles direction but the technical detail is open, prefer `triage:needs-definition` over `triage:ready`. Skipping the definition pass is how an issue arrives at implementation with an unanswered question.
+
+4. If the issue belongs to a parent theme, update the parent's rollup comment.
+
+## Return
+
+Summarize what was decided, what state each issue reached, and anything still waiting on the user. Hand off to [sweep-needs-definition](sweep-needs-definition.md) for anything that landed there.
