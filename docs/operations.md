@@ -7,10 +7,9 @@ Each operation links to its task procedure.
 ## Backlog and project boards
 
 - [bundle-issues](../references/tasks/bundle-issues.md) groups related issues into thematic initiatives under native GitHub parent issues labeled `theme`.
-- [triage-issues](../references/tasks/triage-issues.md) evaluates open issues against code and git history, applying triage labels and closing completed or obsolete items.
+- [sweep-triage](../references/tasks/sweep-triage.md) reconciles a queue's triage state against current code: assesses untriaged issues, clears expired blocks, and revisits parks.
 - [sweep-needs-input](../references/tasks/sweep-needs-input.md) interactively resolves blocking product and architectural decisions with the user.
 - [sweep-needs-definition](../references/tasks/sweep-needs-definition.md) develops accepted issues into bounded, actionable specifications with concrete file targets and test criteria.
-- [sweep-blocked](../references/tasks/sweep-blocked.md) returns `triage:blocked` issues to definition when all of their native blockers close.
 - [sweep-audit-closed](../references/tasks/sweep-audit-closed.md) reviews and confirms autonomously closed issues with cited evidence.
 - [sweep-prioritize](../references/tasks/sweep-prioritize.md) assigns Priority (`P0`–`P3`) and Size (`XS`–`XL`) fields on the project board and re-sweeps deferred items.
 - [curate-ready-queue](../references/tasks/curate-ready-queue.md) examines limits on work in progress (WIP) and stages high-priority Backlog items into the `Ready` column.
