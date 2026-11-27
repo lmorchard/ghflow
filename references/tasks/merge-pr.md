@@ -77,7 +77,7 @@ It runs the train with `--continue-on-conflict`, invokes the queue runner with
 base into the PR worktree, starts the build session, publishes the resolved
 head, and reviews it before the next train.
 
-To make a self-review usable by the batch or train, post a top-level PR comment whose first line is `<!-- ghflow-review head=SHA verdict=clean -->` (or `verdict=findings`/`blocked`). The command reads the marker at the reviewed head.
+To make a self-review usable by the batch or train, publish it with `review verdict PR_URL --verdict clean|findings|blocked --body-file FILE`. The command posts a native PR review whose body carries a visible `## Verdict: ...` heading, and the review's own commit records the head it covers. The batch and train read that review at the reviewed head.
 
 ## Merge the checked commit
 

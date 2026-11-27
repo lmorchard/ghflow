@@ -23,7 +23,7 @@ class BundleSkillTests(unittest.TestCase):
         content = bundle_skill.bundle_reviewer()
         self.assertIn("name: ghflow-review-slim", content)
         self.assertIn("review verdict", content)
-        self.assertIn("ghflow-review head=SHA", content)
+        self.assertNotIn("ghflow-review head=SHA", content, "the hidden HTML marker must be gone")
         self.assertIn("make check", content)
         self.assertIn("No blocking findings", content)
         self.assertNotIn("implement-issue", content)

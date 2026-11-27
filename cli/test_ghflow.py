@@ -2360,30 +2360,20 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(out["comments"][0]["body"], "Looks fine.")
 
     def test_pr_state_parses_review_verdicts(self):
-        comments = [
-            {
-                "id": 1,
-                "user": {"login": "rev1"},
-                "created_at": "2026-11-15T01:00:00Z",
-                "html_url": "https://github.com/o/r/pull/7#issuecomment-1",
-                "body": "<!-- ghflow-review head=abcdef123456 verdict=clean -->\n## Notes\n- LGTM",
-            },
-            {
-                "id": 2,
-                "user": {"login": "rev2"},
-                "created_at": "2026-11-15T02:00:00Z",
-                "html_url": "https://github.com/o/r/pull/7#issuecomment-2",
-                "body": "<!-- ghflow-review head=fedcba654321 verdict=findings -->\n## Blocking findings\n- Bug in foo",
-            },
-            {
-                "id": 3,
-                "user": {"login": "les"},
-                "created_at": "2026-11-15T03:00:00Z",
-                "html_url": "https://github.com/o/r/pull/7#issuecomment-3",
-                "body": "Normal comment with no marker.",
-            },
+        """Verdicts come from native reviews, keyed by the review's own commit.
+
+        The verdict and model live in the visible review body; the reviewed
+        head comes from `commit_id`. A review without a verdict heading is not a
+        verdict, and an HTML comment marker no longer counts.
+        """
+        reviews = [
+            review(1, "rev1", "abcdef123456", "2026-11-15T01:00:00Z",
+                   body="## Verdict: clean\n\n## Notes\n- LGTM"),
+            review(2, "rev2", "fedcba654321", "2026-11-15T02:00:00Z",
+                   body="## Verdict: findings\nmodel=lmstudio/reviewer\n\n## Blocking findings\n- Bug in foo"),
+            review(3, "les", "abcdef123456", "2026-11-15T03:00:00Z", body="Looks fine to me."),
         ]
-        h = self._harness(issue_comments=comments)
+        h = self._harness(reviews=reviews)
         result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
         self.assertEqual(result.returncode, 0, result.stderr)
         verdicts = out["review_verdicts"]
@@ -2391,9 +2381,38 @@ class PrStateSubprocessTests(unittest.TestCase):
         self.assertEqual(verdicts[0]["head"], "abcdef123456")
         self.assertEqual(verdicts[0]["verdict"], "clean")
         self.assertEqual(verdicts[0]["author"], "rev1")
+        self.assertIsNone(verdicts[0]["model"])
         self.assertEqual(verdicts[1]["head"], "fedcba654321")
         self.assertEqual(verdicts[1]["verdict"], "findings")
         self.assertEqual(verdicts[1]["author"], "rev2")
+        self.assertEqual(verdicts[1]["model"], "lmstudio/reviewer")
+
+    def test_pr_state_ignores_the_old_html_marker(self):
+        """A legacy comment marker is not a verdict any more.
+
+        Old PRs carry markers. Treating one as current would report a clean
+        review that no native review supports.
+        """
+        h = self._harness(
+            reviews=[], issue_comments=[{
+                "id": 1, "user": {"login": "rev1"}, "created_at": "2026-11-15T01:00:00Z",
+                "html_url": "u",
+                "body": "<!-- ghflow-review head=abcdef123456 verdict=clean -->\n## Notes\n- LGTM",
+            }])
+        result, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(out["review_verdicts"], [])
+
+    def test_pr_state_verdict_at_stale_head_keeps_its_own_commit(self):
+        """A verdict binds to the head it reviewed, not to the current head."""
+        reviews = [review(1, "rev1", "oldhead000000", "2026-11-15T01:00:00Z",
+                          body="## Verdict: clean\n\nLooks good.")]
+        h = self._harness(reviews=reviews)
+        _, out, _ = h.run(["pr-state", "7", "--repo", "o/r"])
+        verdicts = out["review_verdicts"]
+        self.assertEqual(len(verdicts), 1)
+        self.assertEqual(verdicts[0]["head"], "oldhead000000")
+        self.assertNotEqual(verdicts[0]["head"], out["head"])
 
     def test_pr_state_malformed_part_is_structured(self):
         h = self._harness()
@@ -3850,8 +3869,10 @@ class HandoffTests(unittest.TestCase):
                                        tmp / "review_verdict.md", facts=self.facts, verdict=True)
         self.assertEqual(status, 0, result.get("errors"))
         content = (tmp / "review_verdict.md").read_text()
-        self.assertIn("Verdict comment:", content)
-        self.assertIn("<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->", content)
+        # The handoff must point at the native-review verdict path and must not
+        # resurrect the hidden marker it replaced.
+        self.assertIn("review verdict PR_URL --verdict", content)
+        self.assertNotIn("ghflow-review head=SHA", content)
 
 
     def test_write_handoff_with_runner_tailors_scope_and_return(self):
@@ -4881,11 +4902,22 @@ class ReviewSummaryTests(unittest.TestCase):
 
 class ReviewVerdictMarkerTests(unittest.TestCase):
     def test_model_field_is_optional(self):
-        old = [{"id": 1, "author": "a", "body": "<!-- ghflow-review head=abc verdict=clean -->"}]
-        new = [{"id": 2, "author": "a",
-                "body": "<!-- ghflow-review head=abc verdict=clean model=m/x -->"}]
+        # `review()` is the shared fixture builder: (id, author, commit, submitted, state, body).
+        old = [review(1, "a", "abc", "t1", body="## Verdict: clean\n\nNo model recorded.")]
+        new = [review(2, "a", "abc", "t2", body="## Verdict: clean\nmodel=m/x\n\nRecorded.")]
         self.assertIsNone(parse_review_verdicts(old)[0]["model"])
         self.assertEqual(parse_review_verdicts(new)[0]["model"], "m/x")
+
+    def test_review_without_a_verdict_heading_is_not_a_verdict(self):
+        for body in ("LGTM", "## Notes\n- fine", "", "verdict: clean"):
+            with self.subTest(body=body):
+                self.assertEqual(parse_review_verdicts([review(1, "a", "abc", "t", body=body)]), [])
+
+    def test_verdict_heading_matches_any_level_and_case(self):
+        for body in ("## Verdict: clean", "# Verdict: Clean", "### verdict: CLEAN"):
+            with self.subTest(body=body):
+                verdicts = parse_review_verdicts([review(1, "a", "abc", "t", body=body)])
+                self.assertEqual(verdicts[0]["verdict"], "clean")
 
 
 class QueueSummaryTests(unittest.TestCase):
@@ -4954,12 +4986,10 @@ class QueueSummaryTests(unittest.TestCase):
     def test_current_head_verdict_is_shown_with_its_model(self):
         issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN",
                                           "isDraft": False, "headRefOid": HEAD}])}
-        marker = (f"<!-- ghflow-review head={HEAD} verdict=clean "
-                  f"model=lmstudio/qwen3.8-27b-mlx@4bit -->\n\nClean.")
+        verdict_body = f"## Verdict: clean\nmodel=lmstudio/qwen3.8-27b-mlx@4bit\n\nClean."
         deliveries = {10: {"pr": pr(number=10, url="pr/10"),
-                           "issue_comments": [{"id": 1, "user": {"login": "MokaGnome"},
-                                               "created_at": "2026-11-20T00:00:00Z",
-                                               "html_url": "c/1", "body": marker}]}}
+                           "reviews": [review(1, "MokaGnome", HEAD, "2026-11-20T00:00:00Z",
+                                              body=verdict_body)]}}
         gh, gh_paginated = summary_gh(issues, deliveries)
         result, status = queue_summary([("o/r", 1)], "o", 6, gh=gh, gh_paginated=gh_paginated)
         self.assertEqual(status, 0)
@@ -5311,78 +5341,117 @@ class BuildPublishTests(unittest.TestCase):
 
 
 class ReviewVerdictTests(unittest.TestCase):
-    def test_formats_marker_and_posts(self):
+    def _review_result(self, body_path, readback=None):
+        return {"pr": "o/r#5", "state": "comment", "writes": ["review"],
+                "readback": readback or {"author": True, "state": True, "body": True}}, 0
+
+    def test_posts_a_native_review_with_a_visible_verdict_heading(self):
         calls = []
-        def fake_comment(repo, number, path, identity=None):
-            calls.append((repo, number, Path(path).read_text()))
-            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+
+        def fake_review(repo, number, state, path, identity=None):
+            calls.append((repo, number, state, Path(path).read_text()))
+            return self._review_result(path)
 
         with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
-             patch("ghflow.pr_comment", side_effect=fake_comment):
+             patch("ghflow.pr_review_post", side_effect=fake_review):
             res, code = review_verdict("o/r", 5, "clean", body="## Blocking findings\n\nNone.\n")
         self.assertEqual(code, 0)
         self.assertTrue(res["success"])
         self.assertEqual(res["verdict"], "clean")
-        self.assertIn("<!-- ghflow-review head=abcd123 verdict=clean -->", calls[0][2])
+        repo, number, state, body = calls[0]
+        self.assertEqual(state, "comment")
+        self.assertTrue(body.startswith("## Verdict: clean"))
+        self.assertNotIn("<!--", body)
+
+    def test_never_approves_because_authors_cannot_approve_their_own_pr(self):
+        """The review event must stay `comment` for every verdict.
+
+        ghflow usually submits a PR as the user, and GitHub refuses an approval
+        from the PR author, so an `--approve` event would fail the whole write.
+        `commit_id` carries the head binding instead.
+        """
+        states = []
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_review_post",
+                   side_effect=lambda repo, number, state, path, identity=None: (
+                       states.append(state) or self._review_result(path))):
+            review_verdict("o/r", 5, "clean", body="LGTM")
+            review_verdict("o/r", 5, "findings",
+                           body="## Blocking findings\n- real bug")
+            review_verdict("o/r", 5, "blocked", body="Needs a human decision.")
+        self.assertEqual(states, ["comment", "comment", "comment"])
 
     def test_preserves_a_body_model(self):
-        calls = []
+        seen = {}
 
-        def fake_comment(repo, number, path, identity=None):
-            calls.append(Path(path).read_text())
-            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+        def fake_review(repo, number, state, path, identity=None):
+            seen["body"] = Path(path).read_text()
+            return self._review_result(path)
 
-        body = ("<!-- ghflow-review head=abcd123 verdict=clean model=m/x -->\n\n"
+        body = ("## Verdict: clean\nmodel=m/x\n\n"
                 "## Blocking findings\n\nNone.\n")
         with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
-             patch("ghflow.pr_comment", side_effect=fake_comment):
+             patch("ghflow.pr_review_post", side_effect=fake_review):
             res, code = review_verdict("o/r", 5, "clean", body=body)
         self.assertEqual(code, 0)
-        self.assertIn("model=m/x", calls[0])
-        self.assertEqual(calls[0].count("<!-- ghflow-review"), 1)
+        self.assertIn("model=m/x", seen["body"])
+        # Exactly one heading and one model line, regardless of what the caller wrote.
+        self.assertEqual(seen["body"].count("## Verdict:"), 1)
+        self.assertEqual(seen["body"].count("model=m/x"), 1)
 
     def test_model_option_is_written(self):
-        calls = []
+        seen = {}
 
-        def fake_comment(repo, number, path, identity=None):
-            calls.append(Path(path).read_text())
-            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+        def fake_review(repo, number, state, path, identity=None):
+            seen["body"] = Path(path).read_text()
+            return self._review_result(path)
 
         with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
-             patch("ghflow.pr_comment", side_effect=fake_comment):
+             patch("ghflow.pr_review_post", side_effect=fake_review):
             res, code = review_verdict("o/r", 5, "clean",
                                        body="## Blocking findings\n\nNone.\n", model="m/x")
         self.assertEqual(code, 0)
-        self.assertIn("head=abcd123 verdict=clean model=m/x", calls[0])
+        self.assertIn("## Verdict: clean", seen["body"])
+        self.assertIn("model=m/x", seen["body"])
 
     def test_coerces_clean_when_no_blocking_findings(self):
-        calls = []
-        def fake_comment(repo, number, path, identity=None):
-            calls.append((repo, number, Path(path).read_text()))
-            return {"comment_id": 123, "comment_url": "https://example.com/c/123"}, 0
+        seen = {}
+
+        def fake_review(repo, number, state, path, identity=None):
+            seen["body"] = Path(path).read_text()
+            return self._review_result(path)
 
         with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
-             patch("ghflow.pr_comment", side_effect=fake_comment):
-            res, code = review_verdict("o/r", 5, "findings", body="## Blocking findings\n\nNone.\n\n## Notes\n\n1. Minor note.")
+             patch("ghflow.pr_review_post", side_effect=fake_review):
+            res, code = review_verdict("o/r", 5, "findings",
+                                       body="## Blocking findings\n\nNone.\n\n## Notes\n\n1. Minor note.")
         self.assertEqual(code, 0)
         self.assertTrue(res["success"])
         self.assertEqual(res["verdict"], "clean")
-        self.assertIn("verdict=clean", calls[0][2])
+        self.assertIn("## Verdict: clean", seen["body"])
+
+    def test_a_failing_review_post_is_reported(self):
+        with patch("ghflow.pr_state", return_value=({"head": "abcd123"}, 0)), \
+             patch("ghflow.pr_review_post",
+                   return_value=({"errors": [{"part": "write", "error": "boom"}]}, 2)):
+            res, code = review_verdict("o/r", 5, "clean", body="LGTM")
+        self.assertEqual(code, 2)
+        self.assertNotIn("success", res)
 
     def test_review_verdict_cli_dispatch(self):
-        calls = []
-        def fake_comment(repo, number, path, identity=None):
-            calls.append((repo, number, Path(path).read_text()))
-            return {"comment_id": 456, "comment_url": "https://example.com/c/456"}, 0
+        seen = {}
+
+        def fake_review(repo, number, state, path, identity=None):
+            seen["body"] = Path(path).read_text()
+            return self._review_result(path)
 
         with patch("ghflow.pr_state", return_value=({"head": "feed123"}, 0)), \
-             patch("ghflow.pr_comment", side_effect=fake_comment):
+             patch("ghflow.pr_review_post", side_effect=fake_review):
             code = main(["review", "verdict", "https://github.com/o/r/pull/5", "--verdict", "clean",
                          "--body", "LGTM", "--model", "m/x"])
         self.assertEqual(code, 0)
-        self.assertEqual(len(calls), 1)
-        self.assertIn("verdict=clean", calls[0][2])
-        self.assertIn("model=m/x", calls[0][2])
+        self.assertIn("## Verdict: clean", seen["body"])
+        self.assertIn("model=m/x", seen["body"])
 
 
 class SessionCommandTests(unittest.TestCase):

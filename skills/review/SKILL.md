@@ -29,14 +29,14 @@ Open shared references when their conditions apply: [Evidence](../../references/
 ## Review discipline
 
 Inspect the commit diff (`git diff <base>..<head>`). Verify existing project test gates (`make check`, `make test`).
-Post the verdict comment with:
+Post the verdict as a native PR review:
 
 ```sh
-python3 "$GHFLOW_CLI" pr comment PR_URL --body-file VERDICT_FILE
+python3 "$GHFLOW_CLI" review verdict PR_URL --verdict clean|findings|blocked --body-file VERDICT_FILE --model MODEL_ID
 ```
 
-Verdict comment rules:
-- Start with `<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->`.
+Verdict rules:
+- Post the verdict as a native PR review with `review verdict PR_URL --verdict clean|findings|blocked --body-file FILE --model MODEL_ID`. The tool writes a visible `## Verdict: ...` heading and records the reviewed head on the review object. Do not write HTML comment markers.
 - `clean`: No blocking findings. If `## Blocking findings` is empty or None, verdict MUST be `clean`, even if non-blocking notes appear under `## Notes`.
 - `findings`: Actionable blocking defects that a builder can resolve.
 - `blocked`: Scope or requirement blockers requiring human decision.

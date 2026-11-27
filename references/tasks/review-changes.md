@@ -75,11 +75,9 @@ Do not post a GitHub review without authorization to publish it. When the user a
 
 ## Post a review verdict
 
-When the handoff requests a verdict comment, post it with `python3 "$GHFLOW_CLI" pr comment PR_URL --body-file FILE`. The command automatically reads back and verifies the comment author and body before exiting 0; do not spend extra turns running `pr-state` or custom polling scripts to re-verify it. The comment starts with a marker that names the reviewed head commit and the verdict:
+When the handoff requests a verdict, publish it with `python3 "$GHFLOW_CLI" review verdict PR_URL --verdict clean|findings|blocked --body-file FILE --model MODEL_ID`. The command posts a native PR review whose body opens with a visible `## Verdict: ...` heading and records the reviewed head on the review object, then reads back and verifies the author and body before exiting 0; do not spend extra turns running `pr-state` or custom polling scripts to re-verify it.
 
-```text
-<!-- ghflow-review head=SHA verdict=clean|findings|blocked -->
-```
+The verdict and the model are ordinary markdown in the review body, so a reader sees them in the web UI without inspecting raw markup. The reviewed head comes from the review's own commit, not from a hidden marker.
 
 Use:
 - `clean`: no blocking findings (even if non-blocking suggestions or observations are listed under `## Notes`).
