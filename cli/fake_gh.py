@@ -27,6 +27,7 @@ Call keys:
 
 import json
 import os
+import re
 import sys
 
 
@@ -36,6 +37,21 @@ def flag(argv, name):
         return argv[argv.index(name) + 1]
     except (ValueError, IndexError):
         return None
+
+
+def graphql_key(query):
+    """Return a stable short name for a GraphQL query body.
+
+    Tests need to name a query in the replies map without pasting the whole
+    document. The key is the first two field names of the selection set, which
+    is ``repository.issue`` for the issue-relationship and triage-status queries.
+    Argument lists are removed first, so ``issue(number: $number)`` contributes
+    ``issue`` rather than the parameter name.
+    """
+    body = re.sub(r"\([^()]*\)", "", query or "")
+    fields = [token for token in body.split() if token.isidentifier()
+              and token not in ("query", "nodes")]
+    return ".".join(fields[:2])
 
 
 def record(log, argv):
@@ -136,6 +152,21 @@ def main():
         sys.exit(1)
 
     cmd = argv[0]
+    # A replies entry keyed on the GraphQL query name wins over the board
+    # handler, so a test can serve an arbitrary query such as issue
+    # relationships without standing up a whole project board.
+    replies = {}
+    replies_path = os.environ.get("GHHOW_REPLIES")
+    if replies_path:
+        with open(replies_path, "r", encoding="utf-8") as out:
+            replies = json.load(out)
+    if cmd == "api" and len(argv) > 1 and argv[1] == "graphql":
+        query = next((a.split("=", 1)[1] for a in argv if a.startswith("query=")), "")
+        key = graphql_key(query)
+        if key and f"graphql:{key}" in replies:
+            reply(replies, f"graphql:{key}", None)
+            sys.exit(0)
+
     if cmd == "project" or (cmd == "api" and argv[1] == "graphql"):
         board_path = os.environ.get("GHHOW_BOARD")
         board = load_board(board_path)

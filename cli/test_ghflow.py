@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, worktree_prune_merged, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, worktree_prune_merged, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list, triage_status, triage_bucket, triage_citations, triage_verify_citations
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -3093,10 +3093,14 @@ class ProjectFactsTests(unittest.TestCase):
         def default_gh(args):
             if args[:2] == ["issue", "view"]:
                 return {"url": "https://github.com/o/r/issues/5", "title": "Fix it", "state": "OPEN",
-                        "labels": [{"name": "bug"}], "projectItems": [{"title": "Board", "status": {"name": "Ready"}}],
-                        "blockedBy": {"nodes": [{"number": 4, "state": "CLOSED",
-                                                 "url": "https://github.com/o/r/issues/4"}]},
-                        "blocking": {"nodes": []}}
+                        "labels": [{"name": "bug"}], "projectItems": [{"title": "Board", "status": {"name": "Ready"}}]}
+            if args[:3] == ["api", "graphql", "-f"]:
+                # Relationships are a separate GraphQL read; `gh issue view --json`
+                # has no blockedBy or blocking fields.
+                return {"data": {"repository": {"issue": {
+                    "blockedBy": {"nodes": [{"number": 4, "state": "CLOSED",
+                                             "url": "https://github.com/o/r/issues/4"}]},
+                    "blocking": {"nodes": []}}}}}
             if args[:2] == ["pr", "list"]:
                 return [{"number": 9, "url": "https://github.com/o/r/pull/9", "state": "OPEN", "isDraft": True,
                          "headRefName": "issue-5-fix", "headRefOid": HEAD, "title": "Fix #5"}]
@@ -3222,6 +3226,8 @@ class ProjectFactsTests(unittest.TestCase):
             "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
             "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
             "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "graphql:repository.issue": {"out": {"data": {"repository": {"issue": {
+                "blockedBy": {"nodes": []}, "blocking": {"nodes": []}}}}}},
             "issue.view:o/r:5": {
                 "out": {
                     "url": "https://github.com/o/r/issues/5",
@@ -3268,6 +3274,8 @@ class ProjectFactsTests(unittest.TestCase):
             "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
             "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
             "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "graphql:repository.issue": {"out": {"data": {"repository": {"issue": {
+                "blockedBy": {"nodes": []}, "blocking": {"nodes": []}}}}}},
             "issue.view:o/r:5": {
                 "out": {
                     "url": "https://github.com/o/r/issues/5",
@@ -3304,6 +3312,8 @@ class ProjectFactsTests(unittest.TestCase):
             "api:repos/o/r/commits/" + head + "/check-runs?per_page=100": {"out": {"check_runs": []}},
             "api:repos/o/r/commits/" + head + "/status": {"out": {"statuses": []}},
             "api.paginate:repos/o/r/rules/branches/main": {"out": []},
+            "graphql:repository.issue": {"out": {"data": {"repository": {"issue": {
+                "blockedBy": {"nodes": []}, "blocking": {"nodes": []}}}}}},
             "issue.view:o/r:5": {
                 "out": {
                     "url": "https://github.com/o/r/issues/5",
@@ -4730,6 +4740,262 @@ class TriageTests(unittest.TestCase):
         result, status = triage_list("blocked", repo="o/r", gh=repo)
         self.assertEqual(status, 2)
         self.assertFalse(result["complete"])
+
+
+def triage_status_issue(labels=(), comments=(), blocked_by=(), updated_at="2026-11-20T00:00:00Z",
+                        state="OPEN"):
+    """Build a GraphQL issue node shaped like TRIAGE_STATUS_QUERY returns."""
+    return {
+        "number": 7, "url": "https://github.com/o/r/issues/7", "title": "An issue",
+        "state": state, "updatedAt": updated_at,
+        "labels": {"nodes": [{"name": name} for name in labels]},
+        "comments": {"nodes": list(comments)},
+        "blockedBy": {"nodes": list(blocked_by)},
+        "blocking": {"nodes": []},
+    }
+
+
+def triage_comment(body, created_at="2026-11-20T00:00:00Z", url="c/1", author="MokaGnome"):
+    return {"url": url, "body": body, "createdAt": created_at, "author": {"login": author}}
+
+
+class FakeTriageStatusGh:
+    """Serve one TRIAGE_STATUS_QUERY response, and record every call."""
+
+    def __init__(self, issue=None, error=None, issues=None):
+        self.issue = issue
+        self.error = error
+        self.issues = issues or {}
+        self.calls = []
+
+    def __call__(self, args):
+        self.calls.append(args)
+        if "--graphql" in args or "graphql" in args:
+            if self.error:
+                raise GhError(self.error)
+            return {"data": {"repository": {"issue": self.issue}}}
+        if args[:2] == ["issue", "view"]:
+            number = args[2]
+            if number in self.issues:
+                return self.issues[number]
+            raise GhError(f"Could not resolve to an issue with the number of {number}.")
+        raise AssertionError(f"unexpected call {args}")
+
+
+class TriageStatusTests(unittest.TestCase):
+    def test_untriaged_issue_is_eligible_for_an_assessment(self):
+        gh = FakeTriageStatusGh(triage_status_issue())
+        result, status = triage_status("o/r", 7, gh=gh)
+        self.assertEqual(status, 0)
+        self.assertIsNone(result["bucket"])
+        self.assertEqual(result["stage"], "untriaged")
+        self.assertTrue(result["next_step"]["eligible"])
+        self.assertIn("no triage label", result["next_step"]["reason"])
+
+    def test_stage_derives_from_the_bucket_and_visible_headings(self):
+        cases = [
+            (("triage:needs-definition",), (), "assessed"),
+            (("triage:needs-definition",), ("## Triage definition\n\nScope.",), "defined"),
+            (("triage:blocked",), (), "blocked"),
+            (("triage:parked",), (), "parked"),
+            (("triage:agent-closed",), (), "closed"),
+            (("triage:ready",), (), "ready"),
+        ]
+        for labels, bodies, expected in cases:
+            with self.subTest(labels=labels, stage=expected):
+                gh = FakeTriageStatusGh(triage_status_issue(
+                    labels=labels, comments=[triage_comment(b) for b in bodies]))
+                result, _ = triage_status("o/r", 7, gh=gh)
+                self.assertEqual(result["stage"], expected)
+
+    def test_ready_issue_has_nothing_left_to_do(self):
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:ready",)))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("already at triage:ready", result["next_step"]["reason"])
+
+    def test_needs_input_is_not_eligible_until_the_user_replies(self):
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-input",)))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("waiting on a decision", result["next_step"]["reason"])
+
+    def test_blocked_with_an_open_blocker_is_not_eligible(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:blocked",),
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"},
+                        {"number": 12, "state": "CLOSED", "url": "u/12"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+        self.assertNotIn("#12", result["next_step"]["reason"])
+        self.assertEqual([e["issue"] for e in result["blockers"]["open"]], [11])
+
+    def test_blocked_with_every_blocker_closed_returns_to_definition(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:blocked",),
+            blocked_by=[{"number": 12, "state": "CLOSED", "url": "u/12"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertTrue(result["next_step"]["eligible"])
+        self.assertIn("all blockers are closed", result["next_step"]["reason"])
+        self.assertEqual(result["label_stale"], "triage:blocked is set but every blocked-by edge is closed")
+
+    def test_an_open_edge_blocks_a_ready_issue(self):
+        """A live blocked-by edge outranks the label, whatever the label says.
+
+        #1708 in decafclaw carried triage:ready while still blocked by an open
+        #1709. Trusting the label made the issue look like it could be
+        implemented, and a pass that acted on it would build against code about
+        to change.
+        """
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:ready",),
+            blocked_by=[{"number": 1709, "state": "OPEN", "url": "u/1709"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#1709", result["next_step"]["reason"])
+        self.assertIsNone(result.get("label_stale"))
+
+    def test_an_open_edge_blocks_a_needs_definition_issue(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+
+    def test_an_open_edge_blocks_an_untriaged_issue(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("#11", result["next_step"]["reason"])
+
+    def test_a_closed_edge_leaves_a_ready_issue_alone(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:ready",),
+            blocked_by=[{"number": 11, "state": "CLOSED", "url": "u/11"}]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("already at triage:ready", result["next_step"]["reason"])
+        self.assertIsNone(result.get("label_stale"))
+
+    def test_stale_assessment_is_detected_from_a_later_comment(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            comments=[triage_comment("## Triage assessment\n\nmodel=m/x\n\nFindings.",
+                                     created_at="2026-11-20T00:00:00Z"),
+                      triage_comment("A later question from Les.", created_at="2026-11-21T00:00:00Z",
+                                     url="c/2", author="lmorchard")],
+            updated_at="2026-11-21T00:00:00Z"))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertTrue(result["assessment"]["stale"])
+        self.assertEqual(result["assessment"]["model"], "m/x")
+
+    def test_fresh_assessment_is_not_stale(self):
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            comments=[triage_comment("## Triage assessment\n\nFindings.")],
+            updated_at="2026-11-20T00:00:00Z"))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["assessment"]["stale"])
+
+    def test_attempts_come_from_attempt_labels(self):
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-input", "triage:attempt-2",
+                                                            "triage:attempt-1")))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertEqual(result["attempts"], 2)
+
+    def test_failing_evidence_makes_the_issue_ineligible(self):
+        body = ("## Triage assessment\n\nmodel=m/x\n\n"
+                "The behavior lives in `src/r/does_not_exist.py` at deadbee.")
+        gh = FakeTriageStatusGh(triage_status_issue(
+            labels=("triage:needs-definition",),
+            comments=[triage_comment(body)]))
+        result, status = triage_status("o/r", 7, verify_evidence=True, gh=gh,
+                                       git=lambda args, cwd: None)
+        self.assertEqual(status, 0)
+        self.assertFalse(result["evidence"]["verified"])
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("does not verify", result["next_step"]["reason"])
+        failed = {item["citation"] for item in result["evidence"]["citations"] if not item["ok"]}
+        self.assertIn("src/r/does_not_exist.py", failed)
+        self.assertIn("deadbee", failed)
+
+    def test_passing_evidence_keeps_the_issue_eligible(self):
+        body = "## Triage assessment\n\nmodel=m/x\n\nSee #11 and `src/r/real.py`."
+        gh = FakeTriageStatusGh(
+            triage_status_issue(labels=("triage:needs-definition",),
+                                comments=[triage_comment(body)]),
+            issues={"11": {"number": 11, "state": "OPEN"}})
+        with tempfile.TemporaryDirectory() as tmp:
+            real = Path(tmp) / "src" / "r"
+            real.mkdir(parents=True)
+            (real / "real.py").write_text("x = 1\n")
+            cwd = os.getcwd()
+            os.chdir(tmp)
+            try:
+                result, _ = triage_status("o/r", 7, verify_evidence=True, gh=gh)
+            finally:
+                os.chdir(cwd)
+        self.assertTrue(result["evidence"]["verified"])
+        self.assertTrue(result["next_step"]["eligible"])
+
+    def test_verification_is_absent_from_the_payload_when_not_requested(self):
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-definition",),
+                                                    comments=[triage_comment(
+                                                        "## Triage assessment\n\n`src/r/x.py`")]))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertNotIn("evidence", result)
+
+    def test_an_unreadable_issue_exits_2_and_is_incomplete(self):
+        gh = FakeTriageStatusGh(error="Could not resolve to an Issue")
+        result, status = triage_status("o/r", 7, gh=gh)
+        self.assertEqual(status, 2)
+        self.assertFalse(result["complete"])
+        self.assertEqual(result["errors"][0]["part"], "triage_status")
+
+    def test_nothing_in_the_status_path_writes(self):
+        """The whole point is a read-only derivation, so no mutating command may appear.
+
+        Checked on the command verbs rather than raw text: the GraphQL query
+        legitimately contains the word "comments", and a substring scan would
+        flag the read that fetches them.
+        """
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-definition",),
+                                                    comments=[triage_comment(
+                                                        "## Triage assessment\n\nSee #11.")]),
+                                issues={"11": {"number": 11, "state": "OPEN"}})
+        triage_status("o/r", 7, verify_evidence=True, gh=gh)
+        for call in gh.calls:
+            self.assertNotIn("-X", call, f"no HTTP method override may be used: {call}")
+            self.assertNotIn("--method", call, f"no method override may be used: {call}")
+            if call[:1] == ["issue"]:
+                self.assertEqual(call[1], "view", f"issue reads only: {call}")
+            self.assertNotIn("comment", call[:2], f"no comment write: {call}")
+            self.assertNotIn("edit", call[:2], f"no edit: {call}")
+            self.assertNotIn("close", call[:2], f"no close: {call}")
+            self.assertNotIn("delete", call[:2], f"no delete: {call}")
+
+
+class TriageBucketHelpersTests(unittest.TestCase):
+    def test_bucket_picks_one_state_when_several_labels_are_present(self):
+        self.assertEqual(triage_bucket(["triage:needs-input", "triage:ready"]), "needs-input")
+        self.assertEqual(triage_bucket(["triage:ready", "triage:needs-definition"]), "needs-definition")
+        self.assertIsNone(triage_bucket(["enhancement", "bug"]))
+        self.assertIsNone(triage_bucket(["triage:attempt-1"]))
+
+    def test_citations_are_deduplicated_and_typed(self):
+        body = "See #11 and #11 again, commit deadbeef, and `src/r/a.py`."
+        found = triage_citations(body)
+        keys = [(item["kind"], item["citation"]) for item in found]
+        self.assertEqual(len(keys), len(set(keys)))
+        self.assertIn(("issue", "#11"), keys)
+        self.assertIn(("commit", "deadbeef"), keys)
+        self.assertIn(("path", "src/r/a.py"), keys)
+
+    def test_verification_of_no_citations_is_not_a_pass(self):
+        self.assertFalse(triage_verify_citations([], "o/r", gh=FakeTriageStatusGh())["verified"])
 
 
 def summary_issue(labels=(), prs=(), status="In review", project=6):
