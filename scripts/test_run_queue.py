@@ -2876,6 +2876,125 @@ class _StopAtValidation(Exception):
     """Sentinel that ends main() at model validation, before any worker exists."""
 
 
+class WorkerFlagTests(unittest.TestCase):
+    """``--standalone`` is an OpenCode 2.x flag; 1.x rejects it and prints help."""
+
+    def setUp(self):
+        run_queue._WORKER_MAJOR_CACHE.clear()
+
+    def tearDown(self):
+        run_queue._WORKER_MAJOR_CACHE.clear()
+
+    def test_parses_the_major_version(self):
+        for version, expected in (("1.19.6", 1), ("2.0.29", 2), ("10.4.0", 10),
+                                  ("opencode v3.1", 3), ("garbage", 1), ("", 1), (None, 1)):
+            with self.subTest(version=version):
+                self.assertEqual(run_queue.parse_worker_major(version), expected)
+
+    def test_probe_reads_the_worker_version_and_caches_it(self):
+        proc = SimpleNamespace(returncode=0, stdout="1.19.6\n", stderr="")
+        with patch("run_queue.subprocess.run", return_value=proc) as run:
+            self.assertEqual(run_queue.worker_major("opencode"), 1)
+            self.assertEqual(run_queue.worker_major("opencode"), 1)
+        run.assert_called_once()
+
+    def test_unreadable_worker_falls_back_to_one(self):
+        with patch("run_queue.subprocess.run", side_effect=OSError("no such file")):
+            self.assertEqual(run_queue.worker_major("missing-opencode"), 1)
+
+    def test_no_standalone_flag_for_opencode_1x(self):
+        with patch("run_queue.worker_major", return_value=1):
+            self.assertEqual(run_queue.worker_run_flags("opencode"), [])
+
+    def test_standalone_flag_for_opencode_2x(self):
+        with patch("run_queue.worker_major", return_value=2):
+            self.assertEqual(run_queue.worker_run_flags("opencode"), ["--standalone"])
+
+    def test_run_session_omits_standalone_for_opencode_1x(self):
+        """A 1.x worker must not receive --standalone, which it rejects."""
+        captured = {}
+
+        class FakeStdout:
+            def fileno(self):
+                return 0
+
+            def __iter__(self):
+                return iter(())
+
+            def readline(self):
+                return ""
+
+            def close(self):
+                pass
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return SimpleNamespace(stdout=FakeStdout(), poll=MagicMock(return_value=0),
+                                   wait=MagicMock(return_value=0), returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = Path(tmp)
+            skill = notes / "skill"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            options = {"cwd": str(notes), "session_cwd": str(notes), "skill_dir": str(skill),
+                       "model": None, "standalone": True}
+
+            def fake_cli(*args, cwd=None):
+                return {"dispatch_prompt": "do it"}, 0
+
+            with patch("run_queue.worker_major", return_value=1), \
+                 patch("run_queue.git_output", side_effect=["", "", "", ""]), \
+                 patch("run_queue.subprocess.Popen", side_effect=fake_popen), \
+                 patch("run_queue.subprocess.run"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                          notes, options, cli_fn=fake_cli)
+        self.assertIn("cmd", captured)
+        self.assertNotIn("--standalone", captured["cmd"])
+
+    def test_run_session_passes_standalone_for_opencode_2x(self):
+        captured = {}
+
+        class FakeStdout:
+            def fileno(self):
+                return 0
+
+            def __iter__(self):
+                return iter(())
+
+            def readline(self):
+                return ""
+
+            def close(self):
+                pass
+
+        def fake_popen(cmd, **kwargs):
+            captured["cmd"] = cmd
+            return SimpleNamespace(stdout=FakeStdout(), poll=MagicMock(return_value=0),
+                                   wait=MagicMock(return_value=0), returncode=0)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            notes = Path(tmp)
+            skill = notes / "skill"
+            skill.mkdir()
+            (skill / "SKILL.md").write_text("# skill\n", encoding="utf-8")
+            options = {"cwd": str(notes), "session_cwd": str(notes), "skill_dir": str(skill),
+                       "model": None, "standalone": True}
+
+            def fake_cli(*args, cwd=None):
+                return {"dispatch_prompt": "do it"}, 0
+
+            with patch("run_queue.worker_major", return_value=2), \
+                 patch("run_queue.git_output", side_effect=["", "", "", ""]), \
+                 patch("run_queue.subprocess.Popen", side_effect=fake_popen), \
+                 patch("run_queue.subprocess.run"):
+                with contextlib.redirect_stdout(io.StringIO()):
+                    run_queue.run_session("implement-issue", "https://github.com/o/r/issues/1",
+                                          notes, options, cli_fn=fake_cli)
+        self.assertIn("--standalone", captured["cmd"])
+
+
 class LocalModelMainTests(unittest.TestCase):
     """main uses the local implementation and review models."""
 

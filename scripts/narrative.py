@@ -10,6 +10,7 @@ write:discussion leaves the notebook unavailable, and the run continues.
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tempfile
@@ -94,6 +95,41 @@ def resolve_worker_cmd(options=None):
     )
 
 
+def parse_worker_major(version):
+    """Return the worker's major version from its --version text, or 1 when unreadable."""
+    match = re.search(r"(\d+)\.\d+", version or "")
+    return int(match.group(1)) if match else 1
+
+
+_WORKER_MAJOR_CACHE = {}
+
+
+def worker_major(worker_cmd=None):
+    """Return the OpenCode major version for worker_cmd, cached per command.
+
+    ``--standalone`` only exists in OpenCode 2.x; 1.x rejects it and prints help
+    instead of running. The probe is best-effort: an unreadable version falls
+    back to 1, the conservative choice.
+    """
+    worker = worker_cmd or resolve_worker_cmd()
+    if worker in _WORKER_MAJOR_CACHE:
+        return _WORKER_MAJOR_CACHE[worker]
+    version = ""
+    try:
+        proc = subprocess.run([worker, "--version"], capture_output=True, text=True, timeout=10)
+        version = (proc.stdout or "") + (proc.stderr or "")
+    except (OSError, subprocess.SubprocessError):
+        version = ""
+    major = parse_worker_major(version)
+    _WORKER_MAJOR_CACHE[worker] = major
+    return major
+
+
+def worker_run_flags(worker_cmd=None):
+    """Return the flags that start an isolated worker run for this OpenCode major."""
+    return ["--standalone"] if worker_major(worker_cmd) >= 2 else []
+
+
 def delete_summary_session(run, options, session_id, print_fn=print):
     """Delete one OpenCode session created by the summary call; never raise."""
     worker_cmd = resolve_worker_cmd(options)
@@ -136,7 +172,7 @@ def summarize_session(step, issue, success, info, log_path, options, run=subproc
     if options.get("model"):
         cmd += ["--model", options["model"]]
     if options.get("standalone"):
-        cmd.append("--standalone")
+        cmd += worker_run_flags(worker_cmd)
     cmd.append(summary_prompt(step, issue, success, info, excerpt))
     env = dict(os.environ, OPENCODE_DISABLE_AUTOUPDATE="1")
     try:

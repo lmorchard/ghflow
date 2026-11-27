@@ -65,6 +65,41 @@ def find_cli():
     raise FileNotFoundError("Could not locate cli/ghflow.py. Set GHFLOW_CLI.")
 
 
+def parse_worker_major(version):
+    """Return the worker's major version from its --version text, or 1 when unreadable."""
+    match = re.search(r"(\d+)\.\d+", version or "")
+    return int(match.group(1)) if match else 1
+
+
+_WORKER_MAJOR_CACHE = {}
+
+
+def worker_major(worker_cmd=None):
+    """Return the OpenCode major version for worker_cmd, cached per command.
+
+    ``--standalone`` only exists in OpenCode 2.x; 1.x rejects it and prints help
+    instead of running, which fails every session. The probe is best-effort: an
+    unreadable version falls back to 1, the conservative choice.
+    """
+    worker = worker_cmd or resolve_worker_cmd()
+    if worker in _WORKER_MAJOR_CACHE:
+        return _WORKER_MAJOR_CACHE[worker]
+    version = ""
+    try:
+        proc = subprocess.run([worker, "--version"], capture_output=True, text=True, timeout=10)
+        version = (proc.stdout or "") + (proc.stderr or "")
+    except (OSError, subprocess.SubprocessError):
+        version = ""
+    major = parse_worker_major(version)
+    _WORKER_MAJOR_CACHE[worker] = major
+    return major
+
+
+def worker_run_flags(worker_cmd=None):
+    """Return the flags that start an isolated worker run for this OpenCode major."""
+    return ["--standalone"] if worker_major(worker_cmd) >= 2 else []
+
+
 def run_cli(*args, cwd=None, cli_path=None):
     """Run a ghflow command as a subprocess and return parsed JSON output and exit code."""
     cli = str(cli_path or find_cli())
@@ -980,7 +1015,7 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     if options.get("model"):
         cmd += ["--model", options["model"]]
     if options.get("standalone"):
-        cmd.append("--standalone")
+        cmd += worker_run_flags(worker_cmd)
     cmd.append(prompt_text)
     if shutil.which("caffeinate") and sys.platform == "darwin":
         cmd = ["caffeinate", "-i", *cmd]
@@ -998,6 +1033,10 @@ def run_session(step, issue_url, notes_dir, options, cli_fn=run_cli, log_hook=No
     print(f"[{time.strftime('%X')}] Logging session output to {session_log}")
     if options.get("session_cwd"):
         print(f"[{time.strftime('%X')}] Session cwd: {options['session_cwd']}", flush=True)
+    if options.get("standalone"):
+        major = worker_major(worker_cmd)
+        print(f"[{time.strftime('%X')}] Worker {worker_cmd} is OpenCode {major}.x; "
+              f"{'passing --standalone' if major >= 2 else 'no --standalone (2.x only)'}", flush=True)
     log_fp = open(session_log, "w", encoding="utf-8")
     proc = subprocess.Popen(cmd, stdin=subprocess.DEVNULL, stdout=subprocess.PIPE,
                             stderr=subprocess.STDOUT, text=True, cwd=session_cwd, env=env, bufsize=1)
