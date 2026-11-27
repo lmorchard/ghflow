@@ -90,7 +90,8 @@ Run `python3 "$GHFLOW_CLI" pr merge PR_URL --method squash --expect-head SHA` wi
 ## Merging an authorized batch
 
 Run `python3 "$GHFLOW_CLI" pr merge-batch --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` after the user authorizes several merges at once. `TEXT` records that authorization; the command does not infer a new one. Each `--item` gives a PR URL or bare number and its reviewed head, in merge order.
-Every item is parsed before the first write. Each PR must be open, not a draft, mergeable, at the expected head, green on required checks, 0 commits behind its base, and covered by an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`. A pending, failing, missing, or incomplete check stops the batch, as does a moved head or a review that does not cover it.
+Every item is parsed before the first write. Each PR must be open, not a draft, mergeable, at the expected head, green on required checks, 0 commits behind its base, and covered by an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`.
+A `findings` verdict whose `## Blocking findings` section is empty also counts as non-blocking. A pending, failing, missing, or incomplete check stops the batch, as does a moved head or a review that does not cover it.
 The command merges in order and stops at the first failure. It reports each `merge_commit`, `stopped_at`, and `remaining`. With the board options it moves each issue a merged PR closes to Done and reports each board result; a board failure does not fail the batch.
 The command does not compare `author` or `commit_authors`; check attribution before the batch, as [merge-pr](tasks/merge-pr.md) requires. The queue runner never calls this command. Use it only in a session where the user authorized the batch.
 
@@ -99,7 +100,8 @@ The command does not compare `author` or `commit_authors`; check attribution bef
 Run `python3 "$GHFLOW_CLI" pr merge-train --repo OWNER/NAME --method METHOD --authorization TEXT --item PR=HEAD [--item PR=HEAD ...] [--owner OWNER --project NUMBER]` when several green,
 self-reviewed PRs are ready and each may need to be brought up to date with the
 new base before merging. The train checks the reviewed head, a clean review or
-`ghflow-review` verdict, and the linked issues' `merge:hold` veto. A transient `mergeable=UNKNOWN` after a base merge is polled for up to 120s before refusing. A PR behind
+`ghflow-review` verdict, and the linked issues' `merge:hold` veto. A `findings`
+verdict with an empty `## Blocking findings` section is non-blocking. A transient `mergeable=UNKNOWN` after a base merge is polled for up to 120s before refusing. A PR behind
 its base is updated with the API; the train waits for the required checks on the
 new head (bounded by `--timeout`, default 1800s) and accepts the reviewed head's
 clean verdict for the clean base update. It merges in order and stops at the

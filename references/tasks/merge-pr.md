@@ -47,7 +47,10 @@ Do not dismiss unresolved defects or human objections because formal approval is
 
 ## Merge an authorized batch
 
-When the user authorizes several green, clean pull requests at once, use `python3 "$GHFLOW_CLI" pr merge-batch` instead of a separate merge and state check for each. The command takes the authorization text and one `--item PR=HEAD` for each PR, in the order to merge. It parses every item before the first write, then checks the exact head, green required checks, `base_behind_by` 0, and an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`. It stops at the first failure and reports each merge commit, the stop, and the remaining PRs. With `--owner` and `--project` it moves each closed issue to Done and reports each board result; a board failure does not fail the batch.
+When the user authorizes several green, clean pull requests at once, use `python3 "$GHFLOW_CLI" pr merge-batch` instead of a separate merge and state check for each. The command takes the authorization text and one `--item PR=HEAD` for each PR, in the order to merge.
+It parses every item before the first write, then checks the exact head, green required checks, `base_behind_by` 0, and an APPROVED review or a current-head `ghflow-review` comment with `verdict=clean`.
+A `findings` verdict with an empty `## Blocking findings` section is non-blocking.
+It stops at the first failure and reports each merge commit, the stop, and the remaining PRs. With `--owner` and `--project` it moves each closed issue to Done and reports each board result; a board failure does not fail the batch.
 
 Do not include a PR that lacks one of those conditions, and do not use the batch command to create a new authorization. Check each PR's `author` and `commit_authors` against the expected accounts before the batch; the command does not compare them. The queue runner must not call it. Report the authorization you recorded, every merge commit, the board results, and the reason for any stop.
 
@@ -56,7 +59,8 @@ Do not include a PR that lacks one of those conditions, and do not use the batch
 When several green, self-reviewed PRs are ready but later ones will be behind the base after the
 first merge, use `python3 "$GHFLOW_CLI" pr merge-train` with the same authorization and attribution
 rules as the batch. It performs the update-branch → wait for required checks → merge cycle per PR,
-in order, and honors `merge:hold` on linked issues. A clean update from the base adds no change of
+in order, and honors `merge:hold` on linked issues. A `findings` verdict with an
+empty `## Blocking findings` section is non-blocking. A clean update from the base adds no change of
 its own, so the reviewed head's clean verdict still covers it; the train requires green checks on
 the new head. Right after a base merge GitHub can report the next PR's mergeability as `UNKNOWN`
 while it recomputes; the train polls that state for up to 120 seconds instead of refusing. It stops
