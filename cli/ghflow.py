@@ -2197,8 +2197,12 @@ def worktree_create(issue_url, branch, cwd=None, path=None, copy=(), setup=(), n
         board_result, board_status = board_write(repo, number, board[0], board[1], "In progress")
         result["board"] = {key: board_result.get(key) for key in ("before", "after", "readback_matches", "action")}
         if board_status != 0:
+            # The worktree is created and prepared by now. A board move that fails,
+            # such as a token without the ``project`` scope, is bookkeeping: report
+            # it as an error but keep the exit code off 2 so the caller does not
+            # discard the usable worktree (#272).
             result["errors"].append({"part": "board", "error": f"board set-status exited {board_status}."})
-            return result, 2
+            return result, 0
     return result, 2 if result["errors"] else 0
 
 
