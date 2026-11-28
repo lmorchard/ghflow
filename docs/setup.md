@@ -220,7 +220,7 @@ When `facts` reports stale sources on `origin`, the runner creates a refresh wor
 
 The runner writes `monitor.json` and `monitor.md` to the run notes directory. The report names the preflight, per-step, post-step, and final checks, their states, and their evidence. It prints one status line at each phase boundary and every `--monitor-interval` seconds (default 300). A stop-level failure stops the run; a data-only failure records an alert. `--monitor-endpoint` probes `LLAMA_CPP_BASE_URL` for the endpoint check. The run summary lists every alert.
 For a parent issue, pass `--parent OWNER/REPO#NUMBER`; repeat `--parent` for several parent issues.
-Parent selection skips children labeled `triage:needs-input` or `triage:needs-definition`, and children whose open native blocker has no open PR.
+Parent selection skips children labeled `triage:needs-attention`, and children whose open native blocker has no open PR.
 A child with one open native blocker starts when that blocker has an open PR. A child with more than one open blocker waits.
 It orders the rest by board Priority, then Size, then issue number.
 It creates a stack only for a native blocked-by link. A stacked PR stays a draft until the base merges and the operator retargets it.
@@ -237,7 +237,7 @@ When the repository has Discussions and a `Lab Notebook` category (slug `lab-not
 `make test-runner-integration` runs one real `opencode run` through `run_session` against `scripts/fake_model.py`, a scripted OpenAI-compatible server.
 It checks that the runner reads the session ID, counts a turn, writes the log, and deletes the session. It skips when `opencode` is absent or older than 2.x.
 It is not part of `make check`, because CI does not install OpenCode.
-In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-input view, or `gh issue list --label triage:needs-input`, lists the parked issues with their questions as comments. The park comment names the next step: fix the preparation, or retry with a different local model or a person. Do not use a cloud model.
+In the morning, `gh pr list --author MACHINE_LOGIN` lists the delivered PRs, and the project's needs-attention view, or `gh issue list --label triage:needs-attention`, lists the parked issues with their questions as comments. The park comment names the next step: fix the preparation, or retry with a different local model or a person. Do not use a cloud model.
 
 The runner runs one session at a time and deletes each OpenCode session after its step. It holds `~/.local/state/ghflow/runner.lock` for the run and refuses to start while another runner holds it. `GHFLOW_RUNNER_LOCK` names a different lock file. The runner tests use it so that they never take a live runner's lock. It also refuses to start while an unattended OpenCode session was active in the last 30 minutes; pass `--allow-concurrent` only on purpose. It starts OpenCode with `OPENCODE_DISABLE_AUTOUPDATE=1`.
 

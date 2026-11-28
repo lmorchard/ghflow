@@ -64,7 +64,7 @@ class PreflightTests(unittest.TestCase):
     def test_selection_flags_a_missing_required_label(self):
         running = monitor.Monitor(".", write=False)
         running.selection([{"number": 7, "labels": ["triage:ready"]},
-                           {"number": 8, "labels": ["triage:needs-input"]}],
+                           {"number": 8, "labels": ["triage:needs-attention"]}],
                           required_labels=["triage:ready"])
         names = {entry["name"]: entry for entry in running.checks}
         self.assertEqual(names["selection"]["state"], monitor.FAIL)

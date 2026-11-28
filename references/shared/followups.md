@@ -19,7 +19,7 @@ Do not fix the finding in the current task. A worker does not file an issue unle
 - File one issue for each independent finding. Keep related findings in one issue.
 - Use this body: Problem, Evidence, Source, Scope, Acceptance.
 - Link the source issue or pull request and the parent issue.
-- Apply the triage label that matches the state: `triage:ready`, `triage:needs-definition`, or `triage:needs-input`.
+- Apply the triage label that matches the state: `triage:ready` or `triage:needs-attention`.
 - Record the issue URL in the parent issue or the run report.
 
 ## Report the follow-ups

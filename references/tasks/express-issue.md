@@ -77,11 +77,11 @@ When resuming with an existing PR, use current independent review evidence if it
 When [Decisions](../shared/decisions.md#decide-in-an-unattended-flow) parks the task, or a blocker persists without progress in an unattended run, leave the issue in a state the user can pick up from GitHub. Write the question or blocker, its evidence, and the recommended answer, or for a time park the remaining steps, to a file, and run `python3 "$GHFLOW_CLI" park ISSUE_URL --pr PR_URL --kind question|blocker|time --text FILE`. It does steps 1 and 2 below in one command for committed work that is already published, with a read-back of each write:
 
 1. Have the implementation worker publish the committed work to the draft PR, if any is committed, and record the open question or blocker, its evidence, and the recommended answer when one exists, in the PR description under "Parked" and in the task notes.
-2. Post the same question or blocker as a comment on the issue, and replace `triage:ready` with `triage:needs-input`, following [Triage labels](../shared/triage-labels.md#parked-deliveries), so that the user's needs-input view shows it.
+2. Post the same question or blocker as a comment on the issue, and replace `triage:ready` with `triage:needs-attention`, following [Triage labels](../shared/triage-labels.md#parked-deliveries), so that the user's needs-attention view shows it.
 3. Leave the PR a draft and the board In progress. Preserve the worktree and branch.
 4. Return the issue as parked, with the question, the PR URL, and the head, to the queue coordinator or the user. Do not mark the PR ready, request review, or select the next issue yourself.
 
-[sweep-needs-input](sweep-needs-input.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence). A park for the time budget records the remaining steps instead of a question. The next burndown resumes it first, from the `parked` list of `queue select`, or a later request resumes it directly.
+[sweep-needs-attention](sweep-needs-attention.md) resolves the question with the user later, and the delivery resumes from the PR under [Resume from evidence](#resume-from-evidence). A park for the time budget records the remaining steps instead of a question. The next burndown resumes it first, from the `parked` list of `queue select`, or a later request resumes it directly.
 
 ## Submit and hand off
 

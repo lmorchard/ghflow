@@ -6,18 +6,19 @@ Triage labels record where an open issue stands in refinement. Give each triaged
 
 | Label | Meaning | Next step |
 |---|---|---|
-| `triage:needs-input` | A product or design decision from the user blocks the issue. | [sweep-needs-input](../tasks/sweep-needs-input.md) |
-| `triage:needs-definition` | The goal is settled and the issue can be specified now against current code. | [sweep-needs-definition](../tasks/sweep-needs-definition.md) |
+| `triage:needs-attention` | The autonomous pass could not reach a specification or a closure alone; one product, design, or tradeoff decision needs the user's attention in a live session. | [sweep-needs-attention](../tasks/sweep-needs-attention.md) |
 | `triage:blocked` | The issue cannot be refined until other open issues land. | [sweep-triage](../tasks/sweep-triage.md) `--queue blocked` |
 | `triage:parked` | Nobody intends to work on the issue now, such as a parking lot or a parent whose children carry the work. | [sweep-triage](../tasks/sweep-triage.md) `--queue parked` |
 | `triage:ready` | Scope and verification criteria are concrete enough to implement. | Prioritize or implement. |
 | `triage:agent-closed` | An agent closed the issue with cited evidence. | [sweep-audit-closed](../tasks/sweep-audit-closed.md) |
 
-`triage:needs-input` and `triage:needs-definition` mean that someone can act now. Keep blocked and parked issues off those labels, so that a query for them shows only actionable work.
+`triage:needs-attention` means a person is the only thing standing between the issue and `triage:ready`. Keep blocked and parked issues off that label, so that a query for it shows only work genuinely waiting on the user.
+
+There is no `triage:needs-definition`. An earlier vocabulary had one, for issues that were understood but not yet specified. It became a second waiting room: a specification pass would run, write a partial definition, stop, and nothing guaranteed a later pass would return. The autonomous pass now defines what it can and either promotes the issue or sends it to `triage:needs-attention`.
 
 ## Blocked issues
 
-An issue is blocked when its refinement depends on an open issue: the specification would describe code, a contract, or a decision that the other issue will change or supply. An open question for the user is `triage:needs-input`, not a blocker.
+An issue is blocked when its refinement depends on an open issue: the specification would describe code, a contract, or a decision that the other issue will change or supply. An open question for the user is `triage:needs-attention`, not a blocker.
 
 Record each blocker as a native GitHub blocked-by relationship, not only in text. **The relationship is the fact and the label is a claim**; `ghflow triage status` reads the edges and reports a label whose edges have all closed as `label_stale`. Check the installed `gh issue edit` help for the blocked-by option. <!-- allow-bare-gh: names the command for its help text, not a run instruction --> If the relationship cannot be set, report the failure and leave the issue on its previous label.
 
@@ -43,7 +44,7 @@ Three things look like parking and are not:
 |---|---|
 | An epic whose children carry the work | A **container**, not a shelf. Its state derives from the children rollup. Remove `triage:parked`; the board selection already exempts parents with open children. |
 | An issue waiting on another issue | **Blocked** — `triage:blocked` with a native blocked-by edge. |
-| A question the user has now twice declined to answer | A **failing needs-input loop**. Raise the attempt counter; do not shelve it quietly. |
+| A question the user has now twice declined to answer | A **failing needs-attention loop**. Raise the attempt counter; do not shelve it quietly. |
 
 ### Record a revisit trigger
 
@@ -62,7 +63,7 @@ An issue parked without a stated reason is treated as unexplainable by the sweep
 
 ## Parked deliveries
 
-An unattended delivery that cannot settle a question, that hits a blocker it cannot clear, or that is in progress when its time budget ends, replaces `triage:ready` with `triage:needs-input`, posts the question, blocker, or remaining steps as a comment on the issue, and leaves its draft PR and the In progress board status in place. The label puts the issue in the same view as other issues that need the user. [sweep-needs-input](../tasks/sweep-needs-input.md) resolves a question or blocker. A park for time has nothing to resolve. When the delivery resumes from the PR with no open question, it replaces `triage:needs-input` with `triage:ready` before it continues.
-This use of `triage:needs-input` is distinct from `triage:parked`, which means the issue needs more discussion or consideration and has been set aside for the user's own periodic review.
+An unattended delivery that cannot settle a question, that hits a blocker it cannot clear, or that is in progress when its time budget ends, replaces `triage:ready` with `triage:needs-attention`, posts the question, blocker, or remaining steps as a comment on the issue, and leaves its draft PR and the In progress board status in place. The label puts the issue in the same view as other issues that need the user. [sweep-needs-attention](../tasks/sweep-needs-attention.md) resolves a question or blocker. A park for time has nothing to resolve, and a resumed delivery with no open question replaces `triage:needs-attention` with `triage:ready` before it continues.
+This use of `triage:needs-attention` is distinct from `triage:parked`, which means the issue needs more discussion or consideration and has been set aside for the user's own periodic review.
 
 The park comment names the next step. For a well-defined issue, suggest a retry with a different local model or a person. For a partial or missing preparation, suggest a preparation fix first. For a time park, resume with the local model. Do not suggest a cloud model.
