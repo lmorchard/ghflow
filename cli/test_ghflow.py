@@ -4310,7 +4310,7 @@ class ParkTests(unittest.TestCase):
         fake = FakeParkGitHub()
         result, status = self.park(fake)
         self.assertEqual(status, 0, result["errors"])
-        self.assertIn("triage:needs-input", fake.labels)
+        self.assertIn("triage:needs-attention", fake.labels)
         self.assertNotIn("triage:ready", fake.labels)
         self.assertIn("**Parked (time budget)**", fake.comments[-1])
         self.assertIn("## Parked (time budget)", fake.body)
@@ -4334,7 +4334,7 @@ class ParkTests(unittest.TestCase):
                                        gh=fake.gh, gh_text=fake.gh_text, confirm=lambda: None)
         self.assertEqual(status, 0, result["errors"])
         self.assertIsNone(result["pr"])
-        self.assertIn("triage:needs-input", fake.labels)
+        self.assertIn("triage:needs-attention", fake.labels)
         self.assertNotIn("triage:ready", fake.labels)
         self.assertIn("**Parked (blocker)**", fake.comments[-1])
         self.assertEqual(fake.writes, [["issue", "edit"], ["issue", "comment"]])
@@ -4847,8 +4847,8 @@ class TriageStatusTests(unittest.TestCase):
 
     def test_stage_derives_from_the_bucket_and_visible_headings(self):
         cases = [
-            (("triage:needs-definition",), (), "assessed"),
-            (("triage:needs-definition",), ("## Triage definition\n\nScope.",), "defined"),
+            (("triage:needs-attention",), (), "assessed"),
+            (("triage:needs-attention",), ("## Triage definition\n\nScope.",), "defined"),
             (("triage:blocked",), (), "blocked"),
             (("triage:parked",), (), "parked"),
             (("triage:agent-closed",), (), "closed"),
@@ -4868,7 +4868,7 @@ class TriageStatusTests(unittest.TestCase):
         self.assertIn("already at triage:ready", result["next_step"]["reason"])
 
     def test_needs_input_is_not_eligible_until_the_user_replies(self):
-        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-input",)))
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-attention",)))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertFalse(result["next_step"]["eligible"])
         self.assertIn("waiting on a decision", result["next_step"]["reason"])
@@ -4911,7 +4911,7 @@ class TriageStatusTests(unittest.TestCase):
 
     def test_an_open_edge_blocks_a_needs_definition_issue(self):
         gh = FakeTriageStatusGh(triage_status_issue(
-            labels=("triage:needs-definition",),
+            labels=("triage:needs-attention",),
             blocked_by=[{"number": 11, "state": "OPEN", "url": "u/11"}]))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertFalse(result["next_step"]["eligible"])
@@ -4935,7 +4935,7 @@ class TriageStatusTests(unittest.TestCase):
 
     def test_stale_assessment_is_detected_from_a_later_comment(self):
         gh = FakeTriageStatusGh(triage_status_issue(
-            labels=("triage:needs-definition",),
+            labels=("triage:needs-attention",),
             comments=[triage_comment("## Triage assessment\n\nmodel=m/x\n\nFindings.",
                                      created_at="2026-11-20T00:00:00Z"),
                       triage_comment("A later question from Les.", created_at="2026-11-21T00:00:00Z",
@@ -4947,14 +4947,14 @@ class TriageStatusTests(unittest.TestCase):
 
     def test_fresh_assessment_is_not_stale(self):
         gh = FakeTriageStatusGh(triage_status_issue(
-            labels=("triage:needs-definition",),
+            labels=("triage:needs-attention",),
             comments=[triage_comment("## Triage assessment\n\nFindings.")],
             updated_at="2026-11-20T00:00:00Z"))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertFalse(result["assessment"]["stale"])
 
     def test_attempts_come_from_attempt_labels(self):
-        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-input", "triage:attempt-2",
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-attention", "triage:attempt-2",
                                                             "triage:attempt-1")))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertEqual(result["attempts"], 2)
@@ -4963,7 +4963,7 @@ class TriageStatusTests(unittest.TestCase):
         body = ("## Triage assessment\n\nmodel=m/x\n\n"
                 "The behavior lives in `src/r/does_not_exist.py` at deadbee.")
         gh = FakeTriageStatusGh(triage_status_issue(
-            labels=("triage:needs-definition",),
+            labels=("triage:blocked",),
             comments=[triage_comment(body)]))
         result, status = triage_status("o/r", 7, verify_evidence=True, gh=gh,
                                        git=lambda args, cwd: None)
@@ -4978,7 +4978,7 @@ class TriageStatusTests(unittest.TestCase):
     def test_passing_evidence_keeps_the_issue_eligible(self):
         body = "## Triage assessment\n\nmodel=m/x\n\nSee #11 and `src/r/real.py`."
         gh = FakeTriageStatusGh(
-            triage_status_issue(labels=("triage:needs-definition",),
+            triage_status_issue(labels=("triage:blocked",),
                                 comments=[triage_comment(body)]),
             issues={"11": {"number": 11, "state": "OPEN"}})
         with tempfile.TemporaryDirectory() as tmp:
@@ -4994,8 +4994,15 @@ class TriageStatusTests(unittest.TestCase):
         self.assertTrue(result["evidence"]["verified"])
         self.assertTrue(result["next_step"]["eligible"])
 
+    def test_needs_attention_is_never_eligible_for_an_autonomous_pass(self):
+        """An issue waiting on the user's attention is not work an agent can advance."""
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-attention",)))
+        result, _ = triage_status("o/r", 7, gh=gh)
+        self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("waiting on a decision from the user", result["next_step"]["reason"])
+
     def test_verification_is_absent_from_the_payload_when_not_requested(self):
-        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-definition",),
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-attention",),
                                                     comments=[triage_comment(
                                                         "## Triage assessment\n\n`src/r/x.py`")]))
         result, _ = triage_status("o/r", 7, gh=gh)
@@ -5015,7 +5022,7 @@ class TriageStatusTests(unittest.TestCase):
         legitimately contains the word "comments", and a substring scan would
         flag the read that fetches them.
         """
-        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-definition",),
+        gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:needs-attention",),
                                                     comments=[triage_comment(
                                                         "## Triage assessment\n\nSee #11.")]),
                                 issues={"11": {"number": 11, "state": "OPEN"}})
@@ -5082,7 +5089,7 @@ class TriageParkedParentTests(unittest.TestCase):
 
     def test_a_non_parked_issue_with_closed_children_is_not_flagged(self):
         gh = FakeTriageStatusGh(triage_status_issue(
-            labels=("triage:needs-definition",),
+            labels=("triage:needs-attention",),
             sub_issues=[{"number": 8, "state": "CLOSED", "url": "u/8"}]))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertIsNone(result.get("label_stale"))
@@ -5090,8 +5097,9 @@ class TriageParkedParentTests(unittest.TestCase):
 
 class TriageBucketHelpersTests(unittest.TestCase):
     def test_bucket_picks_one_state_when_several_labels_are_present(self):
-        self.assertEqual(triage_bucket(["triage:needs-input", "triage:ready"]), "needs-input")
-        self.assertEqual(triage_bucket(["triage:ready", "triage:needs-definition"]), "needs-definition")
+        self.assertEqual(triage_bucket(["triage:needs-attention", "triage:blocked"]), "needs-attention")
+        self.assertEqual(triage_bucket(["triage:blocked", "triage:ready"]), "blocked")
+        self.assertEqual(triage_bucket(["triage:parked", "triage:ready"]), "ready")
         self.assertIsNone(triage_bucket(["enhancement", "bug"]))
         self.assertIsNone(triage_bucket(["triage:attempt-1"]))
 
@@ -5128,7 +5136,7 @@ class FakeParkedBoard(FakeQueueBoard):
             number = int(next(a.split("=", 1)[1] for a in args if a.startswith("number=")))
             if number in self.fail:
                 raise GhError("network")
-            return {"data": {"repository": {"issue": {"labels": {"nodes": [{"name": "triage:needs-input"}]},
+            return {"data": {"repository": {"issue": {"labels": {"nodes": [{"name": "triage:needs-attention"}]},
                                                        "closedByPullRequestsReferences": {"nodes": self.prs_by_number.get(number, [])}}}}}
         return super().__call__(args)
 
@@ -5301,7 +5309,7 @@ class QueueSummaryTests(unittest.TestCase):
         issues = {
             "1": summary_issue(prs=[{"url": "pr/9", "number": 9, "state": "CLOSED", "isDraft": False, "headRefOid": "aaaaaaa1"},
                                     {"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}]),
-            "2": summary_issue(labels=["triage:needs-input"], status="In progress",
+            "2": summary_issue(labels=["triage:needs-attention"], status="In progress",
                                prs=[{"url": "pr/11", "number": 11, "state": "OPEN", "isDraft": True, "headRefOid": "c" * 40}]),
         }
         deliveries = {
@@ -5329,7 +5337,7 @@ class QueueSummaryTests(unittest.TestCase):
         self.assertTrue(second["parked"])
         self.assertIn("| pr/10 | aaaaaaa | open | green (test) | approved: alice | In review |", result["table"])
         self.assertIn("| pr/11 | ccccccc | draft | pending: test | pending: bob | "
-                      "In progress, parked (triage:needs-input) |", result["table"])
+                      "In progress, parked (triage:needs-attention) |", result["table"])
 
     def test_unread_review_is_incomplete_with_exit_2(self):
         issues = {"1": summary_issue(prs=[{"url": "pr/10", "number": 10, "state": "OPEN", "isDraft": False, "headRefOid": HEAD}])}

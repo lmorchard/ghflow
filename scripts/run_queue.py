@@ -435,7 +435,7 @@ def is_verdict_blocking(verdict_entry):
 def next_step(state, correction_limit=CORRECTION_LIMIT, machine_login="MokaGnome"):
     """Pure function returning the next operation for an observed issue state."""
     labels = state.get("labels") or []
-    if "triage:needs-input" in labels:
+    if "triage:needs-attention" in labels:
         return "PARKED"
     pr = state.get("pr")
     if not pr or not pr.get("url"):
@@ -557,7 +557,7 @@ def next_item(board, attempted=None, exclude=None):
             continue
         if denied(item):
             continue
-        if "triage:needs-input" in (item.get("labels") or []):
+        if "triage:needs-attention" in (item.get("labels") or []):
             continue
         step = item.get("step")
         if step not in ("DONE", "PARKED", "WAITING"):
@@ -581,7 +581,7 @@ def next_item(board, attempted=None, exclude=None):
             continue
         if denied(item):
             continue
-        if "triage:needs-input" in (item.get("labels") or []):
+        if "triage:needs-attention" in (item.get("labels") or []):
             continue
         return item
     return None
@@ -710,7 +710,7 @@ def next_item_for_parent(children, attempted=None, cli_fn=run_cli, cwd=None, exc
             continue
         st = observe_issue(ref, cli_fn=cli_fn, cwd=cwd)
         labels = st.get("labels") or []
-        if "triage:needs-input" in labels or "triage:needs-definition" in labels:
+        if "triage:needs-attention" in labels:
             continue
         if require_labels and not all(label in labels for label in require_labels):
             continue

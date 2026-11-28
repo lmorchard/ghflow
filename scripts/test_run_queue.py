@@ -91,7 +91,7 @@ class NextStepTableTests(unittest.TestCase):
     """Table tests for next_step pure function covering each observed state."""
 
     def test_needs_input_is_parked(self):
-        state = {"labels": ["triage:needs-input"], "pr": None}
+        state = {"labels": ["triage:needs-attention"], "pr": None}
         self.assertEqual(run_queue.next_step(state), "PARKED")
 
     def test_no_pr_is_implement(self):
@@ -392,10 +392,10 @@ class NextItemSelectionTests(unittest.TestCase):
 
     def test_skips_attempted_and_needs_input(self):
         board = {
-            "in_flight": [{"number": 1, "labels": ["triage:needs-input"]}],
+            "in_flight": [{"number": 1, "labels": ["triage:needs-attention"]}],
             "parked": [{"number": 3, "park_kind": "question"}],
             "selection": [
-                {"number": 4, "labels": ["triage:needs-input"]},
+                {"number": 4, "labels": ["triage:needs-attention"]},
                 {"number": 5, "issue": "o/r#5"},
             ],
         }
@@ -1383,7 +1383,7 @@ class ParentSubIssueTests(unittest.TestCase):
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
-            labels = (["triage:needs-definition"] if number == 101
+            labels = (["triage:needs-attention"] if number == 101
                       else ["triage:ready"])
             return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
 

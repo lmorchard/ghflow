@@ -4153,7 +4153,7 @@ PARK_MARKER = "## Parked"
 
 def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file, gh=run_gh, gh_text=run_gh_text,
                   confirm=confirm_write_identity):
-    """Record a parked unattended delivery: swap triage:ready for triage:needs-input, post the
+    """Record a parked unattended delivery: swap triage:ready for triage:needs-attention, post the
     question or remaining steps on the issue, and, when the delivery has a PR, add a Parked
     section to it. Each write is read back.
 
@@ -4194,8 +4194,8 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
     section = f"{heading}\n\n{text}\n"
     tmp = Path(tempfile.mkdtemp(prefix="ghflow-park-"))
     try:
-        if "triage:needs-input" not in labels:
-            edit = ["issue", "edit", str(issue_number), "--repo", issue_repo, "--add-label", "triage:needs-input"]
+        if "triage:needs-attention" not in labels:
+            edit = ["issue", "edit", str(issue_number), "--repo", issue_repo, "--add-label", "triage:needs-attention"]
             if "triage:ready" in labels:
                 edit += ["--remove-label", "triage:ready"]
             gh_text(edit)
@@ -4220,7 +4220,7 @@ def park_delivery(issue_repo, issue_number, pr_repo, pr_number, kind, text_file,
         last = (issue_after.get("comments") or [{}])[-1]
         result["after"] = {"labels": after_labels}
         result["readback"] = {
-            "labels": "triage:needs-input" in after_labels and "triage:ready" not in after_labels,
+            "labels": "triage:needs-attention" in after_labels and "triage:ready" not in after_labels,
             "comment": titles[kind] in str(last.get("body", "")),
         }
         if pr is not None:
@@ -4242,12 +4242,11 @@ NULL_PRIORITY = "P-null"
 TRIAGE_BOARD_CATEGORIES = ("untriaged", "ready")
 TRIAGE_LABELS = {
     "ready": "triage:ready",
-    "needs-input": "triage:needs-input",
-    "needs-definition": "triage:needs-definition",
+    "needs-attention": "triage:needs-attention",
     "blocked": "triage:blocked",
     "agent-closed": "triage:agent-closed",
 }
-TRIAGE_REPO_CATEGORIES = ("needs-input", "needs-definition", "blocked", "agent-closed")
+TRIAGE_REPO_CATEGORIES = ("needs-attention", "blocked", "agent-closed")
 
 BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
   node(id: $project_id) {
@@ -4584,7 +4583,7 @@ TRIAGE_PROMPT_LINE = re.compile(r"^prompt=(.+?)\s*$", re.MULTILINE)
 TRIAGE_ATTEMPT_LABEL = re.compile(r"^triage:attempt-(\d+)$")
 
 # Ordered refinement states. `none` means no triage label at all.
-TRIAGE_REFINEMENT_STATES = ("needs-input", "needs-definition", "blocked", "ready", "parked", "agent-closed")
+TRIAGE_REFINEMENT_STATES = ("needs-attention", "blocked", "ready", "parked", "agent-closed")
 
 
 def triage_bucket(labels):
@@ -4649,8 +4648,6 @@ def triage_stage(bucket, assessment, definition):
     """
     if bucket is None:
         return "untriaged"
-    if bucket == "needs-definition":
-        return "defined" if definition else "assessed"
     if bucket == "ready":
         return "ready"
     if bucket == "blocked":
@@ -4659,7 +4656,7 @@ def triage_stage(bucket, assessment, definition):
         return "parked"
     if bucket == "agent-closed":
         return "closed"
-    if bucket == "needs-input":
+    if bucket == "needs-attention":
         return "defined" if definition else "assessed"
     return "assessed"
 
@@ -4745,7 +4742,7 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
     An open blocked-by edge dominates every other consideration, whatever the
     label says. The label is a claim; the relationship is the fact. Checking the
     edge only inside the ``blocked`` bucket would report an issue at
-    ``triage:ready`` or ``triage:needs-definition`` as eligible while it still
+    ``triage:ready`` or ``triage:needs-attention`` as eligible while it still
     waits on open work, and a pass that acts on it produces a definition written
     against code that is about to change.
 
@@ -4770,7 +4767,7 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
         return {"eligible": False, "reason": "parked; revisit only on request"}
     if stage == "ready":
         return {"eligible": False, "reason": "already at triage:ready; nothing to refine"}
-    if bucket == "needs-input":
+    if bucket == "needs-attention":
         return {"eligible": False, "reason": "waiting on a decision from the user"}
     if bucket == "agent-closed":
         return {"eligible": False, "reason": "closed by an agent; audit only"}
@@ -4779,7 +4776,7 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
         detail = "; ".join(f"{item['citation']} ({item['detail']})" for item in failed[:3])
         return {"eligible": False, "reason": f"cited evidence does not verify: {detail}"}
     if stage == "blocked":
-        return {"eligible": True, "reason": "all blockers are closed; return to needs-definition"}
+        return {"eligible": True, "reason": "all blockers are closed; return to untriaged for a full assessment"}
     if stage == "untriaged":
         return {"eligible": True, "reason": "no triage label; needs an assessment"}
     if stage == "assessed":
@@ -5042,7 +5039,7 @@ def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginat
             if str(proj.get("number")) == str(project) and (proj.get("owner") or {}).get("login") == owner:
                 board_status = field_name({"s": item.get("fieldValueByName")}, "s")
         row.update(title=issue.get("title"), state=issue.get("state"), labels=labels, board_status=board_status,
-                   parked="triage:needs-input" in labels,
+                   parked="triage:needs-attention" in labels,
                    pr=pr and {"url": pr.get("url"), "state": pr.get("state"), "draft": pr.get("isDraft"),
                               "head": pr.get("headRefOid")},
                    other_prs=[p.get("url") for p in prs if p is not pr])
@@ -5071,7 +5068,7 @@ def queue_summary(issues, owner, project, gh=run_gh, gh_paginated=run_gh_paginat
             continue
         pr = row["pr"] or {}
         pr_state_text = ("draft" if pr.get("draft") else (pr.get("state") or "").lower()) if pr else "none"
-        board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-input)" if row["parked"] else "")
+        board_text = (row["board_status"] or "not on board") + (", parked (triage:needs-attention)" if row["parked"] else "")
         review_text = review_cell(row["review"])
         verdict_text = verdict_cell(row.get("verdict"))
         if verdict_text:
@@ -5532,7 +5529,7 @@ def main(argv=None):
     triage_commands = triage_cmd.add_subparsers(dest="triage_command")
     triage_list_cmd = triage_commands.add_parser("list", help="List the issue selection for one sweep category.")
     triage_list_cmd.add_argument("category", choices=sorted(set(TRIAGE_BOARD_CATEGORIES) | set(TRIAGE_REPO_CATEGORIES)),
-                                 help="sweep category: untriaged and ready read the board; needs-input, needs-definition, blocked, and agent-closed read one label")
+                                 help="sweep category: untriaged and ready read the board; needs-attention, blocked, and agent-closed read one label")
     triage_list_cmd.add_argument("--repo", help="OWNER/NAME for a label-based category")
     triage_list_cmd.add_argument("--owner", help="project owner login for a board-based category")
     triage_list_cmd.add_argument("--project", type=int, help="project number for a board-based category")

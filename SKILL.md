@@ -69,8 +69,7 @@ Match the user's explicit request to the operation below:
 | Group related issues under themes | [bundle-issues](references/tasks/bundle-issues.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Reconcile triage state for a queue | [sweep-triage](references/tasks/sweep-triage.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Prioritize a requested board scope | [sweep-prioritize](references/tasks/sweep-prioritize.md) | [ghflow-coord](skills/coord/SKILL.md) |
-| Resolve issues needing input | [sweep-needs-input](references/tasks/sweep-needs-input.md) | [ghflow-coord](skills/coord/SKILL.md) |
-| Define accepted issues | [sweep-needs-definition](references/tasks/sweep-needs-definition.md) | [ghflow-coord](skills/coord/SKILL.md) |
+| Resolve issues needing attention | [sweep-needs-attention](references/tasks/sweep-needs-attention.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Audit closed issues | [sweep-audit-closed](references/tasks/sweep-audit-closed.md) | [ghflow-coord](skills/coord/SKILL.md) |
 | Write or refresh the project facts file | [prepare-project-facts](references/tasks/prepare-project-facts.md) | [ghflow-coord](skills/coord/SKILL.md) |
 

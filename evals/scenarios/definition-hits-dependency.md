@@ -1,6 +1,6 @@
 ---
-skills: [sweep-needs-definition]
-source: references/tasks/sweep-needs-definition.md; decafclaw triage sweep, 2026-10-08
+skills: [sweep-triage]
+source: references/tasks/sweep-triage.md; decafclaw triage sweep, 2026-10-08
 ---
 
 ## Situation

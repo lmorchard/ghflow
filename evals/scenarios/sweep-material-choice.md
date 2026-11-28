@@ -1,5 +1,5 @@
 ---
-skills: [sweep-needs-definition]
+skills: [sweep-triage]
 source: https://github.com/lmorchard/gh-project-workflow/issues/31
 ---
 

@@ -21,10 +21,10 @@ The [GitHub filter reference](https://docs.github.com/en/issues/planning-and-tra
 ### Needs attention
 
 ```text
-label:triage:needs-input,triage:needs-definition -status:Done
+label:triage:needs-attention -status:Done
 ```
 
-This view shows issues that someone can refine now. Use [sweep-needs-input](../references/tasks/sweep-needs-input.md) for `triage:needs-input`. Use [sweep-needs-definition](../references/tasks/sweep-needs-definition.md) for `triage:needs-definition`. Blocked and parked issues have other labels, so they do not appear.
+This view shows issues that are waiting on the user. Use [sweep-needs-attention](../references/tasks/sweep-needs-attention.md) to work through them one at a time in a live session. Blocked and parked issues have other labels, so they do not appear.
 
 ### Untriaged
 

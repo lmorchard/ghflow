@@ -4,6 +4,24 @@ The single contract for how an issue's triage state is recorded, read, and verif
 
 State lives on GitHub and nowhere else. No local state file, no hidden marker. A reader looking at the issue timeline sees exactly what the agent saw.
 
+## A sweep is a reconciliation loop
+
+Each sweep is one pass of a control loop, not a one-shot report. It reads the
+current state of its queue, and for every issue it either **advances the state**
+or **records why it could not**. Both are progress. Then it reports what moved
+and stops, and the next sweep reads the state it left behind.
+
+The loop is idle when no issue in its queue can advance on its own. That state is
+reachable, and it is the goal: everything that could become `triage:ready` has,
+and everything left is `triage:needs-attention` (waiting on a person),
+`triage:blocked` (waiting on another issue), or `triage:parked` (waiting by
+choice). A sweep that leaves issues in an intermediate state no one is scheduled
+to pick up is not a shorter loop — it is a dropped one.
+
+This is why there is no "needs definition" state below. A pass that can specify
+an issue specifies it in the same breath rather than leaving it for a later
+pass that nothing guarantees will come.
+
 ## The state is derived, never stored
 
 `ghflow triage status ISSUE` reads the issue and reports its state. Nothing is bookkept:
@@ -47,19 +65,28 @@ The heading is plain markdown. Never an HTML comment marker: a state nobody can 
 
 ## Classification
 
-Nine classes. Each maps to exactly one label. This is the only place the vocabulary is defined.
+Eight classes. Each maps to exactly one label or one closure. This is the only place the vocabulary is defined.
+
+A single autonomous pass attempts to reach `triage:ready` for every issue. The classes below are its outcomes, and only two of them need a person.
 
 | Class | Label | Test |
 |---|---|---|
 | **Already done** | none — close `completed` | Current code or merged PRs already satisfy the request |
-| **Obsolete-superseded** | none — close `not planned` | The work was built another way and the goal is met, or the request is an exact duplicate |
-| **Obsolete-stale-contract** | `triage:needs-definition` | The goal still stands, but the issue's specification describes components or assumptions that no longer exist. Do **not** close: the body needs rewriting |
+| **Obsolete-superseded** | none — close `not planned` | The work was built another way and the goal is met, the request is an exact duplicate, or the issue was split into children |
+| **Obsolete-stale-contract** | define and rewrite | The goal still stands, but the issue's specification describes components or assumptions that no longer exist. Do **not** close: the body needs rewriting, which the pass does |
 | **Unnecessary** | none — close `not planned` | Valid in principle, but the cost clearly exceeds the value, or another issue supersedes it |
-| **Needs input** | `triage:needs-input` | The core scope turns on a product, design, or tradeoff decision only the user can make |
-| **Needs definition** | `triage:needs-definition` | The goal is settled and it can be specified now against current code |
+| **Needs attention** | `triage:needs-attention` | The pass could not reach a specification or a closure alone. A product, design, or tradeoff decision requires an interactive session with the user |
 | **Blocked** | `triage:blocked` | A useful specification depends on open issues that will change the code or supply a contract |
-| **Ready** | `triage:ready` | Problem, scope, and verification criteria are clear and accurate against current code |
+| **Ready** | `triage:ready` | Problem, scope, and verification criteria are clear and accurate against current code, and the evidence verifies |
 | **Parked** | `triage:parked` | Needs more discussion or consideration; set aside deliberately until the user reviews it |
+
+`triage:needs-attention` is the only state that spends the user's attention, and it is the pass's honest admission of a limit: everything discoverable was researched, the options and their consequences are named, and one specific decision remains that only the user can make. It is not a holding pen for issues the pass found hard.
+
+### Obsolete-stale-contract is a rewrite, not a state
+
+The class is named for the diagnosis, not the destination. An issue whose goal stands but whose specification has rotted is **not** parked in a state waiting for a later specification pass: the same autonomous pass that found the rot rewrites the body against current code and promotes it. If the rewrite uncovers a genuine decision, the issue goes to `triage:needs-attention` like any other.
+
+That is why there are eight classes and not nine. An earlier vocabulary had a separate "needs definition" class and label for work that was understood but not yet specified. Observed in practice, it degenerated into a second waiting room: issues sat there because a specification pass had run and stopped, and nothing guaranteed a later pass would return. One pass that defines what it can removes the hop.
 
 ### Superseded versus stale
 
@@ -100,7 +127,7 @@ Four situations, four different answers:
 | Situation | Answer |
 |---|---|
 | Children all closed, and the goal statement is **demonstrably met** | **Already done** — close `completed`, naming the evidence for the goal, not the child count |
-| Children all closed, goal **not** demonstrably met | **Needs definition** — the remaining gap needs a child. Do not close |
+| Children all closed, goal **not** demonstrably met | **Needs attention** — the remaining gap needs a child, and naming that child is a decision for the user. Do not close |
 | Children all closed, goal **abandoned** | **Unnecessary** — close `not planned`, naming why the goal was dropped |
 | Children still open | no label — the board selection exempts a parent while it has open children |
 | Children all closed, parent carries `triage:parked` | remove the label first, then judge by the goal. A parent is never parked; the label was a loop-escape hatch and does not belong on a container |
@@ -108,7 +135,7 @@ Four situations, four different answers:
 A parent with **no children at all** is never auto-classified. Decomposing a goal
 into children is a design act that needs the user's intent, and it belongs to
 [decompose-parent-issue](../tasks/decompose-parent-issue.md) as an interactive
-session, not to a sweep. Classify it `triage:needs-input` and stop.
+session, not to a sweep. Classify it `triage:needs-attention` and stop.
 
 The asymmetry is deliberate: a child can be assessed against code, which is
 concrete and checkable. A parent must be assessed against an intention, which is
@@ -128,7 +155,7 @@ An agent may close an issue only when the assessment establishes **one of**:
 
 Three things that are **not** grounds for closure:
 
-- **It looks hard.** Difficulty is not obsolescence. Label `triage:needs-input` if a tradeoff is involved.
+- **It looks hard.** Difficulty is not obsolescence. Label `triage:needs-attention` if a tradeoff is involved.
 - **It is old.** Age is not evidence.
 - **Nothing has happened on it.** Silence is not a decision.
 
@@ -154,23 +181,35 @@ An assessment with **no** citations is not verified either. "Nothing false" is n
 
 Prose findings are not citation-checked and are not expected to be. Prose claims are where a wrong conclusion hides that no regex can catch.
 
-## The needs-input round trip
+## The needs-attention round trip
 
-A `triage:needs-input` issue is a promise: the agent could not settle it, so the
-user was asked, and once answered the issue proceeds. Verify that promise holds,
-or the label becomes a place issues go to die.
+A `triage:needs-attention` issue is a promise: the autonomous pass could not
+settle it, so the user will be asked, and once answered the issue proceeds.
+Verify that promise holds, or the label becomes a place issues go to die.
 
-The path has two hops and both must close:
+**The session ends the issue.** A needs-attention session terminates in one of
+three ways and there is no fourth:
 
-1. **needs-input → needs-definition.** A decision usually settles *direction*, not
-   *specification*. Unless the answer makes the issue implementable with its
-   existing body and verification criteria, it lands on `triage:needs-definition`.
-2. **needs-definition → ready.** The definition pass writes the criteria and must
-   pass `--verify-evidence` before `triage:ready`.
+| Outcome | Where the issue ends |
+|---|---|
+| Answered, specified, and the evidence verifies | `triage:ready` |
+| The answer shows it is invalid, or not worth doing | closed `not planned`, per the closure rule |
+| Too broad, holding several separable goals | parent closed as **Obsolete-superseded**, children filed to `untriaged` |
+
+The session does not hand work to another queue. Whatever it settles, it
+finishes: the definition is written there and then, and the evidence is verified
+there and then. An issue that leaves a session still unspecified is a session
+that did not do its job.
+
+Splitting is available and has its own rule below. A split parent is
+**superseded**, not abandoned: the work moved rather than vanished, and the
+children are the evidence.
+
+### The attempt counter
 
 An issue is genuinely stuck when the *same* question returns. The signal for that
 is the attempt counter: `triage status` reports `attempts`, read from a
-`triage:attempt-N` label. Increment it when a needs-input pass produces a
+`triage:attempt-N` label. Increment it when a needs-attention session produces a
 question the issue has already asked.
 
 **No automation increments `attempts` today.** `triage_attempts()` reads the
@@ -186,6 +225,23 @@ one resource the triage system exists to conserve.
 
 Record the attempt in the comment as well as the label, so a reader sees the
 history in the timeline rather than inferring it from label archaeology.
+
+### Splitting
+
+A split is available in any pass, not only a needs-attention session, and is the
+right answer in one situation: **the issue holds several separable goals**. It is
+not the answer for a single goal that is merely large — that is still one issue,
+and it is still `triage:needs-attention`.
+
+| Rule | |
+|---|---|
+| Preserve the original | The original body goes verbatim into the child that inherits it. A split must not discard detail its author wrote |
+| Children land `untriaged` | A new child is new work. The next autonomous pass assesses it like anything else. No child is born `ready` |
+| The parent closes | As **Obsolete-superseded** — the work moved, the issue is done |
+| Name the reason | The closing comment lists the children by number so the trail survives |
+
+A split that would duplicate the same paragraph into every child is a sign the
+issue is one goal, not several.
 
 ## Authority
 

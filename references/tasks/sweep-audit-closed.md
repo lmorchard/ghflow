@@ -38,7 +38,7 @@ Collect the user's evaluation:
     1. Reopen the issue: `python3 "$GHFLOW_CLI" exec -- gh issue reopen ISSUE_URL`.
     2. Remove the `triage:agent-closed` label with `python3 "$GHFLOW_CLI" exec -- gh issue edit ISSUE_URL --remove-label triage:agent-closed`.
     3. Post a comment with `python3 "$GHFLOW_CLI" exec -- gh issue comment ...` explaining why the issue was reopened and the user's intent.
-    4. Apply `triage:needs-input` or `triage:needs-definition` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...` based on the user's direction.
+    4. Apply `triage:needs-attention` with `python3 "$GHFLOW_CLI" exec -- gh issue edit ...` based on the user's direction.
 
 ## Conclude the sweep
 
