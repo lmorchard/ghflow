@@ -4260,7 +4260,7 @@ BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
             __typename
             ... on Issue { url number title state repository { nameWithOwner }
               labels(first: 50) { nodes { name } }
-              subIssues(first: 1) { totalCount } }
+              subIssues(first: 100) { totalCount nodes { state } } }
             ... on PullRequest { url repository { nameWithOwner } }
           }
           status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
@@ -4445,6 +4445,35 @@ def triage_labels(content):
     return [label.get("name") for label in nodes if isinstance(label, dict) and label.get("name")]
 
 
+def triage_open_children(content):
+    """Return the number of OPEN sub-issues, or None when the count is unknown.
+
+    ``totalCount`` includes closed children, so a parent whose children all
+    closed still reports a positive total. That made every completed epic
+    invisible to the ``untriaged`` queue forever: the filter below excluded it on
+    a number that never drops. Counting open children is what lets a finished
+    parent surface for the "is the goal met?" question.
+
+    Returns None when the issue has no sub-issue data at all, so callers can
+    distinguish "no children" from "could not tell".
+    """
+    sub_issues = content.get("subIssues")
+    if not isinstance(sub_issues, dict):
+        return None
+    total = sub_issues.get("totalCount")
+    if not isinstance(total, int):
+        return None
+    if total == 0:
+        return 0
+    nodes = sub_issues.get("nodes")
+    if not isinstance(nodes, list):
+        # The count is positive but the states did not come back; callers must
+        # treat an unknown child state as "still has children" rather than
+        # letting a parent slip into the untriaged queue.
+        return None
+    return sum(1 for node in nodes if isinstance(node, dict) and node.get("state") == "OPEN")
+
+
 def triage_select_board(items, category):
     """Filter whole-board items to one board-based triage category.
 
@@ -4463,7 +4492,7 @@ def triage_select_board(items, category):
             continue
         labels = triage_labels(content)
         priority = field_name(item, "priority")
-        sub_issues = (content.get("subIssues") or {}).get("totalCount")
+        open_children = triage_open_children(content)
         if category == "untriaged":
             if any(label.startswith(TRIAGE_LABEL_PREFIX) for label in labels):
                 continue
@@ -4472,7 +4501,10 @@ def triage_select_board(items, category):
             # prioritized yet, so it stays in the selection.
             if priority == NULL_PRIORITY:
                 continue
-            if isinstance(sub_issues, int) and sub_issues > 0:
+            # A parent is exempt only while it still has open children. Once they
+            # all close, the parent's own goal needs the "are we done?" question,
+            # which only this queue asks. Unknown counts stay exempt.
+            if open_children is None or open_children > 0:
                 continue
         else:  # ready
             if TRIAGE_LABELS["ready"] not in labels:
@@ -4668,10 +4700,10 @@ def triage_blockers(blocked_by):
 def triage_children(sub_issues):
     """Summarise an issue's sub-issues into the counts a parent judgement needs.
 
-    A parked *parent* is legitimate: the reason states that its children carry
-    the work. That justification expires on its own, because a parent whose
-    children have all closed is not carrying anything anymore. Telling the two
-    apart needs the rollup, not the label.
+    A parent is a container, not a shelf. Its state derives from this rollup
+    rather than from a triage label, so the counts are what a parent judgement
+    reads: a parent whose children have all closed needs the "is the goal met?"
+    question, and the board selection surfaces it for exactly that.
     """
     nodes = (sub_issues or {}).get("nodes") or []
     children = [{"issue": node.get("number"), "url": node.get("url"), "state": node.get("state")}
@@ -4687,22 +4719,23 @@ def triage_children(sub_issues):
 def triage_label_stale(bucket, blockers, children=None):
     """Whether a triage label no longer matches what the relationships say.
 
-    Two independent dead ends are reported, because both strand an issue outside
-    every refinement queue while looking deliberate:
+    Two dead ends are reported, because both strand an issue outside every
+    refinement queue while looking deliberate:
 
     - ``triage:blocked`` whose blocked-by edges have all closed.
-    - ``triage:parked`` that is a parent whose children have all closed. The
-      documented justification for parking a parent is that its open children
-      carry the work; once they are closed that justification is gone and the
-      issue needs a fresh judgement rather than silent rest.
+    - ``triage:parked`` on a parent. A parent is a container, not a shelf: its
+      state derives from the children rollup, and parking one was a way to keep
+      it out of triage loops. The label does not belong there, whatever the
+      children are doing.
 
-    A non-parent park cannot be stale: "nobody intends to work on this" is a
-    decision, and no amount of time passing turns it into a mistake.
+    A non-parent park cannot be stale. ``triage:parked`` now means "needs more
+    discussion or consideration, set aside for the user's review", which is a
+    decision that does not expire on its own.
     """
     if bucket == "blocked" and blockers.get("cleared"):
         return "triage:blocked is set but every blocked-by edge is closed"
-    if bucket == "parked" and children and children.get("all_closed"):
-        return "triage:parked on a parent whose children have all closed"
+    if bucket == "parked" and children and children.get("total", 0) > 0:
+        return "triage:parked on a parent; a parent's state derives from its children"
     return None
 
 
@@ -4716,10 +4749,11 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
     waits on open work, and a pass that acts on it produces a definition written
     against code that is about to change.
 
-    A parked issue is normally left alone, with one exception: a parent whose
-    children have all closed is eligible for a fresh assessment. Its park reason
-    was "the children carry the work", and that has stopped being true. The label
-    is not wrong so much as expired, and nothing else in the system will notice.
+    A parked issue is left alone. ``triage:parked`` means "needs more discussion
+    or consideration, set aside for the user's review", which is a judgement an
+    autonomous pass must not make or unmake. A parked parent is the one case a
+    pass should refuse loudly rather than defer: its state derives from the
+    children rollup, so the label is a loop-escape that must come off first.
 
     ``evidence`` is None when verification was not requested; an unverified
     citation only blocks eligibility when verification actually ran and failed.
@@ -4730,9 +4764,9 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
         return {"eligible": False, "reason": f"blocked by open issue(s): {open_numbers}"}
     children = children or {}
     if bucket == "parked":
-        if children.get("all_closed"):
+        if children.get("total", 0) > 0:
             return {"eligible": True,
-                    "reason": f"parked parent whose {children.get('total')} children all closed; reassess"}
+                    "reason": "parked parent; a parent's state derives from its children, so remove the label"}
         return {"eligible": False, "reason": "parked; revisit only on request"}
     if stage == "ready":
         return {"eligible": False, "reason": "already at triage:ready; nothing to refine"}

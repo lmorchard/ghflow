@@ -84,9 +84,9 @@ A blocker closed as `not planned` still counts as closed, but it may have invali
 
 Read the park comment and classify the park by what it recorded. The kinds differ in whether they can expire:
 
-- **Parent park** — the comment names children that carry the work. Per the status: if `children.all_closed`, the justification is gone, and the parent must be judged against [Parents are not their children](../shared/triage-state.md#parents-are-not-their-children) rather than reassessed like an ordinary issue. Read the parent's own goal statement: close `completed` only when that goal is demonstrably met, classify `triage:needs-definition` when a gap remains, and close `not planned` only when the goal was abandoned. A closed child count is not the test. If children remain open, leave the park and report the counts.
+- **Parent with `triage:parked`** — the label does not belong on a container. A parent's state derives from its children rollup, and the board selection already exempts it while any child is open. Remove the label and report it. If the children have all closed, judge the parent against [Parents are not their children](../shared/triage-state.md#parents-are-not-their-children) instead of parking it again.
 - **Routing park** — the comment names a capability, model class, label, or gate being waited on. Check whether that condition still holds. If it has changed, remove the label and name what changed. If it holds, leave it.
-- **Decision park** — nobody intends to work on it. This does not expire. Leave it. The one exception is a concrete change that contradicts the recorded reason; raise that for the user rather than relabelling.
+- **Decision park** — needs more discussion or consideration. This does not expire. Leave it. The one exception is a concrete change that contradicts the recorded reason; raise that for the user rather than relabelling.
 - **Unexplained park** — no reason recorded. Report it. Do not invent a reason and do not relabel.
 
 Parking rules and the revisit-trigger requirement live in [Triage labels](../shared/triage-labels.md#parked-issues).

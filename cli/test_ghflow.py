@@ -14,7 +14,7 @@ from pathlib import Path
 from unittest.mock import MagicMock, patch
 
 import ghflow
-from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, worktree_prune_merged, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list, triage_status, triage_bucket, triage_citations, triage_verify_citations
+from ghflow import discussion_post, issue_comment, GhError, guard_primary_checkout, git_subcommand, is_git_write_command, audit_issue, cited_paths, pr_merge_train, review_covers_head, merge_hold_reason, worktree_prune_merged, board_set_status_guarded, budget, estimate_tokens, preamble_text, queue_items, queue_select, queue_summary, review_summary, park_delivery, review_cleanup, review_prepare, review_inspect, review_verdict, build_finish, build_publish, run_gate, pr_body, pr_review_post, pr_comment, pr_merge, pr_merge_batch, merge_block_reason, pr_create, worktree_create, worktree_prepare, write_handoff, board_set_field, read_runtime, read_skill_source, strip_jsonc, board_set_status, identity_env, IdentityError, main, parse_facts_sources, parse_facts_worktree, parse_issue, parse_remote, parse_review_verdicts, pr_ready, pr_state, project_facts, PREAMBLE_TOKEN_BUDGET, resolve_identity, run_gh, verify_commit, triage_list, triage_status, triage_bucket, triage_open_children, triage_citations, triage_verify_citations
 
 HEAD = "a" * 40
 OLD = "b" * 40
@@ -4645,15 +4645,23 @@ class ReviewInspectTests(unittest.TestCase):
         gate.assert_not_called()
 
 
-def triage_item(number, priority=None, labels=(), sub_issues=0, status="Backlog", size=None, state="OPEN", kind="Issue"):
+def triage_item(number, priority=None, labels=(), sub_issues=0, status="Backlog", size=None, state="OPEN", kind="Issue", child_states=None):
     content = {"__typename": kind, "url": f"https://github.com/o/r/issues/{number}",
                "repository": {"nameWithOwner": "o/r"}}
     if kind == "Issue":
         content.update(number=number, title=f"Issue {number}", state=state,
                        labels={"nodes": [{"name": name} for name in labels]},
-                       subIssues={"totalCount": sub_issues})
+                       subIssues=triage_sub_issues(sub_issues, child_states))
     named = lambda value: {"name": value} if value else None
     return {"id": f"I{number}", "content": content, "status": named(status), "priority": named(priority), "size": named(size)}
+
+
+def triage_sub_issues(total, child_states=None):
+    """Build a subIssues payload. ``child_states`` given means the states came back."""
+    if child_states is None:
+        return {"totalCount": total}
+    return {"totalCount": len(child_states),
+            "nodes": [{"number": 900 + index, "state": child} for index, child in enumerate(child_states)]}
 
 
 def issue_node(number, state="OPEN"):
@@ -4701,6 +4709,49 @@ class TriageTests(unittest.TestCase):
         board = FakeQueueBoard([{"nodes": [triage_item(1), triage_item(2, priority="P-null")]}])
         result, status = triage_list("untriaged", owner="o", project=6, gh=board)
         self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1]))
+
+    def test_untriaged_surfaces_a_parent_whose_children_all_closed(self):
+        """A finished epic must reach the queue that asks whether its goal is met.
+
+        ``totalCount`` includes closed children, so the old filter hid every
+        completed parent forever. Only OPEN children should exclude a parent.
+        """
+        board = FakeQueueBoard([{"nodes": [
+            triage_item(1, priority="P0"),
+            triage_item(2, priority="P0", sub_issues=3, child_states=["CLOSED", "CLOSED", "CLOSED"]),
+        ]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1, 2]))
+
+    def test_untriaged_excludes_a_parent_with_one_open_child(self):
+        board = FakeQueueBoard([{"nodes": [
+            triage_item(1, priority="P0"),
+            triage_item(2, priority="P0", sub_issues=3, child_states=["CLOSED", "OPEN", "CLOSED"]),
+        ]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, [1]))
+
+    def test_untriaged_excludes_a_parent_whose_child_states_did_not_come_back(self):
+        """A positive count with no nodes is unknown, not zero. Unknown stays excluded."""
+        board = FakeQueueBoard([{"nodes": [triage_item(2, priority="P0", sub_issues=3)]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, []))
+
+    def test_triage_open_children_counts_only_open(self):
+        self.assertEqual(triage_open_children({"subIssues": triage_sub_issues(3, ["CLOSED", "OPEN", "OPEN"])}), 2)
+        self.assertEqual(triage_open_children({"subIssues": triage_sub_issues(2, ["CLOSED", "CLOSED"])}), 0)
+        self.assertEqual(triage_open_children({"subIssues": triage_sub_issues(0)}), 0)
+        self.assertIsNone(triage_open_children({"subIssues": triage_sub_issues(2)}))
+        self.assertIsNone(triage_open_children({}))
+
+    def test_a_parked_parent_still_needs_its_label_cleared_first(self):
+        """Labelling a parent does not hide it forever; the label check runs first."""
+        board = FakeQueueBoard([{"nodes": [
+            triage_item(1, priority="P0", labels=("triage:parked",),
+                        sub_issues=2, child_states=["CLOSED", "CLOSED"]),
+        ]}])
+        result, status = triage_list("untriaged", owner="o", project=6, gh=board)
+        self.assertEqual((status, [e["number"] for e in result["selection"]]), (0, []))
 
     def test_ready_selects_unprioritized_ready_issues(self):
         board = FakeQueueBoard([{"nodes": [
@@ -4981,7 +5032,8 @@ class TriageStatusTests(unittest.TestCase):
 
 
 class TriageParkedParentTests(unittest.TestCase):
-    def test_parked_parent_with_open_children_stays_parked(self):
+    def test_parked_parent_with_open_children_still_has_its_label_removed(self):
+        """A parent is a container; the label is a loop-escape whether or not children closed."""
         gh = FakeTriageStatusGh(triage_status_issue(
             labels=("triage:parked",),
             sub_issues=[{"number": 8, "state": "OPEN", "url": "u/8"},
@@ -4990,16 +5042,13 @@ class TriageParkedParentTests(unittest.TestCase):
         self.assertEqual(result["children"]["total"], 2)
         self.assertEqual([c["issue"] for c in result["children"]["open"]], [8])
         self.assertFalse(result["children"]["all_closed"])
-        self.assertFalse(result["next_step"]["eligible"])
-        self.assertIn("revisit only on request", result["next_step"]["reason"])
-        self.assertIsNone(result.get("label_stale"))
+        self.assertTrue(result["next_step"]["eligible"])
+        self.assertIn("remove the label", result["next_step"]["reason"])
+        self.assertEqual(result["label_stale"],
+                         "triage:parked on a parent; a parent's state derives from its children")
 
-    def test_parked_parent_with_every_child_closed_is_worth_reassessing(self):
-        """The park reason was "the children carry the work". That stopped being true.
-
-        A parent parked on that basis is not wrong, it is expired, and nothing
-        else in the system notices the children finished.
-        """
+    def test_parked_parent_with_every_child_closed_also_needs_the_label_removed(self):
+        """Whether the children are open or closed, a parent is never a shelf."""
         gh = FakeTriageStatusGh(triage_status_issue(
             labels=("triage:parked",),
             sub_issues=[{"number": 8, "state": "CLOSED", "url": "u/8"},
@@ -5008,16 +5057,18 @@ class TriageParkedParentTests(unittest.TestCase):
         self.assertTrue(result["children"]["all_closed"])
         self.assertEqual(result["children"]["closed_count"], 2)
         self.assertTrue(result["next_step"]["eligible"])
-        self.assertIn("children all closed", result["next_step"]["reason"])
-        self.assertEqual(result["label_stale"], "triage:parked on a parent whose children have all closed")
+        self.assertIn("remove the label", result["next_step"]["reason"])
+        self.assertEqual(result["label_stale"],
+                         "triage:parked on a parent; a parent's state derives from its children")
 
     def test_parked_leaf_with_no_children_is_never_stale(self):
-        """"Nobody intends to work on this" is a decision; time does not undo it."""
+        """A deliberate shelf is a decision; time does not undo it."""
         gh = FakeTriageStatusGh(triage_status_issue(labels=("triage:parked",)))
         result, _ = triage_status("o/r", 7, gh=gh)
         self.assertEqual(result["children"]["total"], 0)
         self.assertFalse(result["children"]["all_closed"])
         self.assertFalse(result["next_step"]["eligible"])
+        self.assertIn("revisit only on request", result["next_step"]["reason"])
         self.assertIsNone(result.get("label_stale"))
 
     def test_a_parked_parent_with_an_open_blocker_is_still_not_eligible(self):

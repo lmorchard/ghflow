@@ -46,13 +46,22 @@ label:triage:blocked -status:Done
 
 This view shows issues that wait for other open issues. The board cannot show whether the blockers closed, because no dependency filter is documented. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue blocked` to reconcile: `triage status` reads the native blocked-by edges, and a label whose edges have all closed is cleared back to untriaged rather than advanced, because a cleared dependency is not a readiness judgment.
 
-### Parked
+### Parked — needs more discussion
 
 ```text
-label:triage:parked
+label:triage:parked -status:Done
 ```
 
-This view shows parking lots and parent issues whose children carry the work. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue parked` to test whether each park reason still holds. A parent park expires when its children close; a decision park does not expire at all.
+This is the shelf: issues deliberately set aside that need more discussion or consideration. Nothing in triage acts on them, and they never reach Ready. Review this view on your own schedule.
+
+Two reasons the set exists, and the view is only useful if it holds both:
+
+- **Routing parks** clear themselves when the named condition changes.
+- **Decision parks** wait for you.
+
+Keep the view small enough to read in one sitting. If it grows without you remembering what is in it, that is the signal that the label has drifted back into being a place work goes to be forgotten.
+
+An epic should never appear here. A parent is a container, not a shelf; the board selection already exempts it while its children are open. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue parked` to reconcile: it removes the label from any parent and checks whether each remaining park reason still holds.
 
 ## Planning views
 
