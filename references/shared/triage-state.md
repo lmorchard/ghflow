@@ -162,6 +162,19 @@ An agent may close an issue only when the assessment establishes **one of**:
 - **Already done** — and it cites the commit, merged PR, or test that does the work.
 - **Obsolete** — and it cites the removal, the direction change, or the primary issue it duplicates.
 - **Unnecessary** — and it says plainly why, in terms a reader can disagree with.
+- **Accepted risk** — the defect is real, unfixed, and deliberately lived with. This is a decision, not a finding, and it is the only class that closes live work by choice.
+
+The first three are conclusions an agent can reach from the code. **Accepted risk requires a human.** An agent may propose it, record it, and file it under `triage:needs-attention` — it may not close an issue on its own judgment that the cost of a fix exceeds the risk.
+
+Accepted-risk closures must carry all of:
+
+- **What was verified** — the defect reproduces at HEAD, with the same evidence discipline as any other assessment. An accepted risk is still a confirmed risk.
+- **Why each candidate fix was rejected** — layer by layer, not "too expensive". #1992 is the model: four candidate layers named, each with its reason, so a later reader sees the reasoning rather than the verdict.
+- **The deciding fact.** Often one fact dissolves the whole decision space — for #1992 it was file ownership (`-rw-rw-r-- lmorchard:lmorchard` with `ProtectHome=no`), which showed every in-process guard is advisory. If a deciding fact exists, it belongs here.
+- **Residual risk, stated plainly**, including what does *not* mitigate it. For #1992 the record says explicitly that approval prompts do not help, because the secret is in context before a human sees the prompt.
+- **What would reopen it** — the conditions that change the trade (a service-user migration, multi-tenant use, observed exploitation).
+
+Distinguishing this from **Unnecessary** matters: "we looked and it wasn't a problem" and "it is a problem and we are choosing to live with it" produce the same closure state and the same absence of work, but they carry opposite obligations. Without this class, an accepted risk files as `Unnecessary` and its residual risk disappears from the record.
 
 Three things that are **not** grounds for closure:
 
@@ -171,7 +184,7 @@ Three things that are **not** grounds for closure:
 
 When in doubt, do not close. An issue left open costs a line in a query; an issue closed wrongly costs the work behind it and the trust in the sweep that closed it. A `not planned` closure of live work is the single most expensive mistake this system can make, because the recovery requires someone remembering the issue existed.
 
-The closure comment names the class, the evidence, and states that a human may reopen without discussion.
+The closure comment names the class, the evidence, and states that a human may reopen without discussion. For an accepted risk it additionally carries the five elements above, because the reasoning *is* the artifact — there is no code to read later.
 
 ## Evidence
 
