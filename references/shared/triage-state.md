@@ -79,6 +79,42 @@ Obsolete-superseded would have been the honest-sounding wrong answer.
 A single word for both conditions is a trap: an agent holding the closure
 checklist matches the class to the action and closes the second kind.
 
+## Parents are not their children
+
+A parent issue — an epic, a theme, a bundle — is judged by a different test than
+a child. Its completeness is a claim about a **goal**, and the closure of its
+children is not evidence about that goal.
+
+[Evidence](evidence.md) already states this: a closed child or merged PR does not
+prove that its parent is complete. The triage consequence is worth spelling out,
+because it is the case where a confident wrong answer is most expensive.
+
+**Closed children do not justify closing a parent.** They prove the planned work
+shipped. They do not prove the plan covered the goal, and the difference is
+usually visible: a child closed as `not planned`, a child split into something
+out of scope, a goal statement broad enough that the children only met part of
+it. Read the parent's own goal statement and ask whether it is now true.
+
+Four situations, four different answers:
+
+| Situation | Answer |
+|---|---|
+| Children all closed, and the goal statement is **demonstrably met** | **Already done** — close `completed`, naming the evidence for the goal, not the child count |
+| Children all closed, goal **not** demonstrably met | **Needs definition** — the remaining gap needs a child. Do not close |
+| Children all closed, goal **abandoned** | **Unnecessary** — close `not planned`, naming why the goal was dropped |
+| Children still open | **Parked**, `triage:parked` — the children carry the work |
+
+A parent with **no children at all** is never auto-classified. Decomposing a goal
+into children is a design act that needs the user's intent, and it belongs to
+[decompose-parent-issue](../tasks/decompose-parent-issue.md) as an interactive
+session, not to a sweep. Classify it `triage:needs-input` and stop.
+
+The asymmetry is deliberate: a child can be assessed against code, which is
+concrete and checkable. A parent must be assessed against an intention, which is
+reconstructed from prose the issue author wrote once. The cheapest safe answer
+for an all-closed parent is not "close it" but "state what the remaining gap is
+and let the user decide whether it matters."
+
 Exactly one label. Replace the previous one; never accumulate.
 
 ## Closure: only when the issue looks closed
