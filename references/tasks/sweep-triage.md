@@ -10,15 +10,17 @@ Apply [Authorization](../shared/authorization.md), [Evidence](../shared/evidence
 
 ```bash
 python3 "$GHFLOW_CLI" triage list untriaged --owner OWNER --project NUMBER
-python3 "$GHFLOW_CLI" triage list blocked   --repo OWNER/REPO
+python3 "$GHFLOW_CLI" triage list blocked   --owner OWNER --project NUMBER
 python3 "$GHFLOW_CLI" triage list parked    --repo OWNER/REPO
 ```
 
 | Queue | Selects | What a pass does |
 |---|---|---|
-| `untriaged` | open issues with no `triage:*` label, a real Priority, no open children | assess, define, and classify |
-| `blocked` | open `triage:blocked` | reconcile the blocked-by edges |
+| `untriaged` | open issues with no `triage:*` label, a real Priority, no open children, and no open blocked-by edge | assess, define, and classify |
+| `blocked` | open issues with an open blocked-by edge, whatever label they carry | reconcile the edges |
 | `parked` | open `triage:parked` | test whether the park reason still holds |
+
+`untriaged` and `blocked` come out of the same board read and partition the unlabelled issues between them: an issue with an open edge never appears in `untriaged`. `blocked` is not label-scoped on purpose — a labelled issue holding an open edge is a contradiction worth surfacing, not hiding.
 
 If the queue is empty, say so and stop. An empty queue is a result, not a failure to find work.
 
@@ -62,7 +64,7 @@ Then take one of five exits:
 
 1. **Close it** — Already done, Obsolete-superseded, or Unnecessary, per the closure rule in [Triage state](../shared/triage-state.md#closure-only-when-the-issue-looks-closed). Closures need cited evidence.
 2. **Define it and promote it** — write the scope, the file targets, and the verification criteria into the body, then run the gate below. This is the common case and the one to reach for.
-3. **Record the block** — the work depends on other open issues. Set native blocked-by edges, apply `triage:blocked`, optionally leave an outline naming the contract it consumes. Do not guess at a specification that a blocker will invalidate.
+3. **Record the block** — the work depends on other open issues. Set native blocked-by edges with `ghflow triage block`, optionally leaving an outline naming the contract it consumes. Apply **no label**: an open edge is the blocked state. Do not guess at a specification that a blocker will invalidate, and do not clear a triage label the issue already earned — an issue that is `triage:ready` *and* blocked should keep both facts, and `triage status` reports the contradiction as `stage: blocked`.
 4. **Split it** — the issue holds several separable goals. Rules are in [Triage state](../shared/triage-state.md#splitting): the original body goes verbatim into the child that inherits it, children land `untriaged`, the parent closes as Obsolete-superseded naming the children.
 5. **Ask** — the pass cannot reach a specification or a closure, because a product, design, or tradeoff decision is genuinely the user's. Apply `triage:needs-attention` and write the question per `sweep-needs-attention`, including a recommendation where the evidence supports one.
 
@@ -82,13 +84,15 @@ A parent issue in this queue is judged by [Parents are not their children](../sh
 
 ### `blocked` — reconcile the edges
 
-Read `blockers` and `label_stale` from the status, not from raw `gh` output.
+Read `blockers` from the status, not from raw `gh` output. There is no `label_stale` for blocking any more, because no label records it.
 
-- **`label_stale` set** (every edge closed): remove `triage:blocked` and return the issue to `untriaged`. Do **not** advance it to `triage:ready` or to any other state. The label recorded a dependency, not a readiness judgment; nothing has been checked against current code since the blockers landed, so it goes back through a full assessment.
+- **Edges all closed**: remove any stale `triage:blocked` label a human or an older sweep left behind — `ghflow triage unblock` is not needed, the edges are already closed, just clear the label. Then return the issue to `untriaged` **unless it already carries `triage:ready`**, in which case leave the label and let the next pass judge it: the dependency cleared, but nothing has been checked against current code since it did, so a `ready` label from before the blocker landed is a claim to re-verify, not to trust.
 - **Open edges remain**: leave it. Report the open blockers by number.
-- **No edges at all**: the blocker may exist only in text. Read the body and comments; if they name blocking issues, report them so the relationships can be set. Do not relabel on text alone.
+- **No edges at all**: the issue is only in this queue because something set an edge that has since been removed, or it was selected by a stale label. Report it and clear any `triage:blocked` label.
 
 A blocker closed as `not planned` still counts as closed, but it may have invalidated the issue's premise. Say so in the comment.
+
+Note what this queue is *for* now: it is not "issues wearing the blocked label", it is "issues with an open edge", which includes labelled ones. If a `triage:ready` issue shows up here, that is the signal the old label scheme used to hide — report it rather than quietly clearing its label.
 
 ### `parked` — test whether the reason still holds
 

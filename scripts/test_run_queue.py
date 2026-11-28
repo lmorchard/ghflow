@@ -1324,7 +1324,7 @@ class ParentSubIssueTests(unittest.TestCase):
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
-            labels = {"101": ["triage:blocked"],
+            labels = {"101": ["triage:ready"],
                       "102": ["triage:ready"],
                       "103": ["triage:ready"],
                       "104": ["triage:ready"]}[str(number)]
@@ -1334,7 +1334,7 @@ class ParentSubIssueTests(unittest.TestCase):
         board = {101: {"priority": "P1", "size": "S"}, 102: {"priority": "P0", "size": "S"},
                  103: {"priority": "P1", "size": "S"}, 104: {"priority": "P1", "size": "XS"}}
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            # The blocked child is out of scope; 102 is blocked by the still-open 101.
+            # 101 is out of scope for this selection; 102 is blocked by the still-open 101.
             chosen = run_queue.next_item_for_parent(children, require_labels=["triage:ready"],
                                                     board_index=board)
             self.assertEqual(chosen["number"], 104)  # XS before the P1/S child 103
@@ -1344,13 +1344,15 @@ class ParentSubIssueTests(unittest.TestCase):
                                                     board_index=board, exclude={101})
             self.assertEqual(chosen["number"], 102)
 
-    def test_next_item_for_parent_keeps_a_triage_blocked_child(self):
+    def test_next_item_for_parent_keeps_a_child_blocked_by_an_open_issue_with_a_base_pr(self):
         children = [{"number": 101, "state": "OPEN", "url": "https://github.com/o/r/issues/101"}]
 
         def fake_observe(ref, cli_fn=None, cwd=None):
-            return {"issue": str(ref), "number": 101, "labels": ["triage:ready", "triage:blocked"], "pr": None}
+            return {"issue": str(ref), "number": 101, "labels": ["triage:ready"], "pr": None,
+                    "blocked_by": [{"number": 99, "state": "OPEN"}]}
 
-        with patch("run_queue.observe_issue", side_effect=fake_observe):
+        with patch("run_queue.observe_issue", side_effect=fake_observe), \
+                patch("run_queue.find_base_pr", return_value="https://github.com/o/r/pull/9"):
             chosen = run_queue.next_item_for_parent(children)
         self.assertEqual(chosen["number"], 101)
 
@@ -1399,11 +1401,11 @@ class ParentSubIssueTests(unittest.TestCase):
 
         def fake_observe(ref, cli_fn=None, cwd=None):
             number = int(str(ref).rstrip("/").split("/")[-1])
-            labels = ["triage:blocked"] if number == 101 else ["triage:ready"]
+            labels = ["on-hold"] if number == 101 else ["triage:ready"]
             return {"issue": str(ref), "number": number, "labels": labels, "pr": None}
 
         with patch("run_queue.observe_issue", side_effect=fake_observe):
-            chosen = run_queue.next_item_for_parent(children, exclude_labels=["triage:blocked"])
+            chosen = run_queue.next_item_for_parent(children, exclude_labels=["on-hold"])
         self.assertEqual(chosen["number"], 102)
 
     def test_find_base_pr_stacked_branch(self):
