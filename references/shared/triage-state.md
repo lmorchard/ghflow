@@ -47,18 +47,37 @@ The heading is plain markdown. Never an HTML comment marker: a state nobody can 
 
 ## Classification
 
-Seven classes. Each maps to exactly one label. This is the only place the vocabulary is defined.
+Nine classes. Each maps to exactly one label. This is the only place the vocabulary is defined.
 
 | Class | Label | Test |
 |---|---|---|
 | **Already done** | none — close `completed` | Current code or merged PRs already satisfy the request |
-| **Obsolete** | none — close `not planned` | The component is gone, the direction changed, or it is an exact duplicate |
+| **Obsolete-superseded** | none — close `not planned` | The work was built another way and the goal is met, or the request is an exact duplicate |
+| **Obsolete-stale-contract** | `triage:needs-definition` | The goal still stands, but the issue's specification describes components or assumptions that no longer exist. Do **not** close: the body needs rewriting |
 | **Unnecessary** | none — close `not planned` | Valid in principle, but the cost clearly exceeds the value, or another issue supersedes it |
 | **Needs input** | `triage:needs-input` | The core scope turns on a product, design, or tradeoff decision only the user can make |
 | **Needs definition** | `triage:needs-definition` | The goal is settled and it can be specified now against current code |
 | **Blocked** | `triage:blocked` | A useful specification depends on open issues that will change the code or supply a contract |
 | **Ready** | `triage:ready` | Problem, scope, and verification criteria are clear and accurate against current code |
 | **Parent tracked by children** | `triage:parked` | Open sub-issues carry all the remaining work |
+
+### Superseded versus stale
+
+The two Obsolete classes are easy to collapse and must not be. Ask: **is the goal
+met, or only the specification broken?**
+
+- *Met another way* → **Obsolete-superseded**. Close it.
+- *Goal intact, spec dead* → **Obsolete-stale-contract**. Keep it; it needs a rewrite.
+
+decafclaw#927 is the worked example. It proposed operation adapters for core
+`shell`, premised on reusing #956's per-VM SSH key and connection code. #956 was
+closed as superseded by the scavenger skill, so the object that issue was
+specified around no longer exists — but the owner re-affirmed the underlying
+question as open. Closing it would have destroyed live intent; labelling it
+Obsolete-superseded would have been the honest-sounding wrong answer.
+
+A single word for both conditions is a trap: an agent holding the closure
+checklist matches the class to the action and closes the second kind.
 
 Exactly one label. Replace the previous one; never accumulate.
 
@@ -97,6 +116,39 @@ Verification is a gate, not advice. `--verify-evidence` returns `verified: false
 An assessment with **no** citations is not verified either. "Nothing false" is not "something true."
 
 Prose findings are not citation-checked and are not expected to be. Prose claims are where a wrong conclusion hides that no regex can catch.
+
+## The needs-input round trip
+
+A `triage:needs-input` issue is a promise: the agent could not settle it, so the
+user was asked, and once answered the issue proceeds. Verify that promise holds,
+or the label becomes a place issues go to die.
+
+The path has two hops and both must close:
+
+1. **needs-input → needs-definition.** A decision usually settles *direction*, not
+   *specification*. Unless the answer makes the issue implementable with its
+   existing body and verification criteria, it lands on `triage:needs-definition`.
+2. **needs-definition → ready.** The definition pass writes the criteria and must
+   pass `--verify-evidence` before `triage:ready`.
+
+An issue is genuinely stuck when the *same* question returns. The signal for that
+is the attempt counter: `triage status` reports `attempts`, read from a
+`triage:attempt-N` label. Increment it when a needs-input pass produces a
+question the issue has already asked.
+
+**No automation increments `attempts` today.** `triage_attempts()` reads the
+label and nothing writes it, and no task reference mentions it. Until something
+does, the counter is available but inert, and a resumption loop has no guard
+except a human noticing the same question twice.
+
+When the counter does get wired, the rule should be: at `attempt-N` with N ≥ 2
+on the same question, stop asking and label `triage:parked` with a revisit
+trigger naming what would have to change. Repeating a question the user already
+declined to answer is not progress, and it spends the user's attention on the
+one resource the triage system exists to conserve.
+
+Record the attempt in the comment as well as the label, so a reader sees the
+history in the timeline rather than inferring it from label archaeology.
 
 ## Authority
 
