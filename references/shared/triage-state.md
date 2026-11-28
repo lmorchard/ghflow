@@ -59,7 +59,7 @@ Nine classes. Each maps to exactly one label. This is the only place the vocabul
 | **Needs definition** | `triage:needs-definition` | The goal is settled and it can be specified now against current code |
 | **Blocked** | `triage:blocked` | A useful specification depends on open issues that will change the code or supply a contract |
 | **Ready** | `triage:ready` | Problem, scope, and verification criteria are clear and accurate against current code |
-| **Parent tracked by children** | `triage:parked` | Open sub-issues carry all the remaining work |
+| **Parked** | `triage:parked` | Needs more discussion or consideration; set aside deliberately until the user reviews it |
 
 ### Superseded versus stale
 
@@ -102,7 +102,8 @@ Four situations, four different answers:
 | Children all closed, and the goal statement is **demonstrably met** | **Already done** — close `completed`, naming the evidence for the goal, not the child count |
 | Children all closed, goal **not** demonstrably met | **Needs definition** — the remaining gap needs a child. Do not close |
 | Children all closed, goal **abandoned** | **Unnecessary** — close `not planned`, naming why the goal was dropped |
-| Children still open | **Parked**, `triage:parked` — the children carry the work |
+| Children still open | no label — the board selection exempts a parent while it has open children |
+| Children all closed, parent carries `triage:parked` | remove the label first, then judge by the goal. A parent is never parked; the label was a loop-escape hatch and does not belong on a container |
 
 A parent with **no children at all** is never auto-classified. Decomposing a goal
 into children is a design act that needs the user's intent, and it belongs to
