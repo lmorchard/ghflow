@@ -48,7 +48,7 @@ If `next_step.eligible` is false, act on its **reason**:
 | waiting on a decision from the user | skip: that is `triage:needs-input`'s job, not this pass |
 | blocked by open issue(s) | skip, unless this is the `blocked` queue and they have since closed |
 | cited evidence does not verify | re-assess; the earlier assessment is wrong or stale |
-| parked parent whose children all closed | reassess, per the parked rules below |
+| parked parent whose children all closed | judge against the parent rules below, not as an ordinary issue |
 
 ## The pass, by queue
 
@@ -59,6 +59,8 @@ Investigate before classifying. Read the issue, then search git history and merg
 Classify into exactly one class from [Triage state](../shared/triage-state.md#classification), write the assessment comment, apply the label.
 
 Closure is available here and is subject to the closure rule: close only when the issue looks genuinely closed, obsolete, or unnecessary. Hard, old, and quiet are not grounds.
+
+A parent issue in this queue is judged by [Parents are not their children](../shared/triage-state.md#parents-are-not-their-children), not by the assessments its children received. A parent with no children at all is `triage:needs-input`, never an auto-classification: decomposing it is an interactive design session.
 
 Before advancing anything to `triage:ready`, re-run with verification:
 
@@ -82,7 +84,7 @@ A blocker closed as `not planned` still counts as closed, but it may have invali
 
 Read the park comment and classify the park by what it recorded. The kinds differ in whether they can expire:
 
-- **Parent park** — the comment names children that carry the work. Per the status: if `children.all_closed`, the justification is gone. Remove `triage:parked` for a fresh assessment. If children remain open, leave it and report the counts.
+- **Parent park** — the comment names children that carry the work. Per the status: if `children.all_closed`, the justification is gone, and the parent must be judged against [Parents are not their children](../shared/triage-state.md#parents-are-not-their-children) rather than reassessed like an ordinary issue. Read the parent's own goal statement: close `completed` only when that goal is demonstrably met, classify `triage:needs-definition` when a gap remains, and close `not planned` only when the goal was abandoned. A closed child count is not the test. If children remain open, leave the park and report the counts.
 - **Routing park** — the comment names a capability, model class, label, or gate being waited on. Check whether that condition still holds. If it has changed, remove the label and name what changed. If it holds, leave it.
 - **Decision park** — nobody intends to work on it. This does not expire. Leave it. The one exception is a concrete change that contradicts the recorded reason; raise that for the user rather than relabelling.
 - **Unexplained park** — no reason recorded. Report it. Do not invent a reason and do not relabel.
