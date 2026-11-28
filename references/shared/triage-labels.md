@@ -7,26 +7,41 @@ Triage labels record where an open issue stands in refinement. Give each triaged
 | Label | Meaning | Next step |
 |---|---|---|
 | `triage:needs-attention` | The autonomous pass could not reach a specification or a closure alone; one product, design, or tradeoff decision needs the user's attention in a live session. | [sweep-needs-attention](../tasks/sweep-needs-attention.md) |
-| `triage:blocked` | The issue cannot be refined until other open issues land. | [sweep-triage](../tasks/sweep-triage.md) `--queue blocked` |
 | `triage:parked` | Nobody intends to work on the issue now, such as a parking lot or a parent whose children carry the work. | [sweep-triage](../tasks/sweep-triage.md) `--queue parked` |
 | `triage:ready` | Scope and verification criteria are concrete enough to implement. | Prioritize or implement. |
 | `triage:agent-closed` | An agent closed the issue with cited evidence. | [sweep-audit-closed](../tasks/sweep-audit-closed.md) |
 
-`triage:needs-attention` means a person is the only thing standing between the issue and `triage:ready`. Keep blocked and parked issues off that label, so that a query for it shows only work genuinely waiting on the user.
+`triage:needs-attention` means a person is the only thing standing between the issue and `triage:ready`. Keep parked issues off that label, so that a query for it shows only work genuinely waiting on the user.
 
-There is no `triage:needs-definition`. An earlier vocabulary had one, for issues that were understood but not yet specified. It became a second waiting room: a specification pass would run, write a partial definition, stop, and nothing guaranteed a later pass would return. The autonomous pass now defines what it can and either promotes the issue or sends it to `triage:needs-attention`.
+Two labels were retired rather than renamed, and neither is valid any more:
+
+- `triage:needs-definition` was for issues that were understood but not yet specified. It became a second waiting room: a specification pass would run, write a partial definition, stop, and nothing guaranteed a later pass would return. The autonomous pass now defines what it can and either promotes the issue or sends it to `triage:needs-attention`.
+- `triage:blocked` restated a relationship as a label. See [Blocked issues](#blocked-issues).
+
+There is also no label for **blocked**. Blocking is a native blocked-by edge, and no label records it.
 
 ## Blocked issues
 
 An issue is blocked when its refinement depends on an open issue: the specification would describe code, a contract, or a decision that the other issue will change or supply. An open question for the user is `triage:needs-attention`, not a blocker.
 
-Record each blocker as a native GitHub blocked-by relationship, not only in text. **The relationship is the fact and the label is a claim**; `ghflow triage status` reads the edges and reports a label whose edges have all closed as `label_stale`. Check the installed `gh issue edit` help for the blocked-by option. <!-- allow-bare-gh: names the command for its help text, not a run instruction --> If the relationship cannot be set, report the failure and leave the issue on its previous label.
+**There is no `triage:blocked` label.** An open edge *is* the blocked state: `ghflow triage status` reports `stage: blocked`, and `triage list blocked` derives the queue from the edges. An earlier vocabulary had a label for it, and that label was a cache of a fact GitHub already held — one that drifted. Two issues were found carrying `triage:ready` while holding open blockers, invisible to the label-based query. Nothing now records blocking, so nothing can record it wrongly.
+
+Set and clear the edge with the CLI:
+
+```bash
+python3 "$GHFLOW_CLI" triage block   ISSUE BLOCKER --repo OWNER/NAME
+python3 "$GHFLOW_CLI" triage unblock ISSUE BLOCKER --repo OWNER/NAME
+```
+
+`block` means "ISSUE waits on BLOCKER". Both commands resolve issue node ids, write through GitHub's `addBlockedBy`/`removeBlockedBy` mutations, and re-read the issue to report the resulting edges. Both are idempotent: a duplicate add reports `already_present` and a missing edge reports `already_absent`, each with exit 0, so a sweep can re-run over its own earlier work.
+
+`gh issue edit` has **no** blocked-by flag. The CLI above is the supported write path; do not tell a reader to look for a flag that does not exist. <!-- allow-bare-gh: names the command to deny a flag it does not have, not a run instruction -->
 
 Do not read blocked-by edges with `gh issue view --json blockedBy`: that field does not exist, and the read fails with `Unknown JSON field` on current `gh`. Use `ghflow triage status` or the GraphQL `blockedBy` connection.
 
 A blocked issue can carry an outline that names the contract it consumes, its scope, and its acceptance criteria, without file targets. Note in the outline that the full specification waits for the blocker.
 
-Do not label an issue blocked when only part of it waits. If an independent part can be specified now, propose a split instead.
+Do not record a block when only part of the issue waits. If an independent part can be specified now, propose a split instead.
 
 ## Parked issues
 
@@ -43,7 +58,7 @@ Three things look like parking and are not:
 | Looks like parking | Actually |
 |---|---|
 | An epic whose children carry the work | A **container**, not a shelf. Its state derives from the children rollup. Remove `triage:parked`; the board selection already exempts parents with open children. |
-| An issue waiting on another issue | **Blocked** — `triage:blocked` with a native blocked-by edge. |
+| An issue waiting on another issue | **Blocked** — a native blocked-by edge. No label. |
 | A question the user has now twice declined to answer | A **failing needs-attention loop**. Raise the attempt counter; do not shelve it quietly. |
 
 ### Record a revisit trigger

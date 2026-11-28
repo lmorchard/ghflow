@@ -4239,14 +4239,15 @@ PRIORITY_ORDER = ("P0", "P1")
 SIZE_ORDER = ("XS", "S", "M", "L", "XL")
 TRIAGE_LABEL_PREFIX = "triage:"
 NULL_PRIORITY = "P-null"
-TRIAGE_BOARD_CATEGORIES = ("untriaged", "ready")
+TRIAGE_BOARD_CATEGORIES = ("untriaged", "blocked", "ready")
 TRIAGE_LABELS = {
     "ready": "triage:ready",
     "needs-attention": "triage:needs-attention",
-    "blocked": "triage:blocked",
     "agent-closed": "triage:agent-closed",
 }
-TRIAGE_REPO_CATEGORIES = ("needs-attention", "blocked", "agent-closed")
+# Categories selected by label. ``blocked`` is not one: it is derived from
+# native blocked-by edges and shares the board query with ``untriaged``.
+TRIAGE_REPO_CATEGORIES = ("needs-attention", "agent-closed")
 
 BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
   node(id: $project_id) {
@@ -4259,6 +4260,7 @@ BOARD_ITEMS_QUERY = """query($project_id: ID!, $page: String) {
             __typename
             ... on Issue { url number title state repository { nameWithOwner }
               labels(first: 50) { nodes { name } }
+              blockedBy(first: 20) { nodes { number state } }
               subIssues(first: 100) { totalCount nodes { state } } }
             ... on PullRequest { url repository { nameWithOwner } }
           }
@@ -4473,12 +4475,33 @@ def triage_open_children(content):
     return sum(1 for node in nodes if isinstance(node, dict) and node.get("state") == "OPEN")
 
 
+def triage_board_blocked(content):
+    """Whether a board item has an open blocked-by edge."""
+    nodes = (content.get("blockedBy") or {}).get("nodes") or []
+    return any((node.get("state") or "").upper() == "OPEN" for node in nodes if isinstance(node, dict))
+
+
 def triage_select_board(items, category):
     """Filter whole-board items to one board-based triage category.
 
-    ``untriaged`` selects open issues with no triage label, a real Priority (not the
-    ``P-null`` marker), and no open sub-issues. ``ready`` selects open issues carrying
-    ``triage:ready`` that still lack a Priority.
+    Three categories share this one board read, because they are three answers
+    to the same question about the same issues:
+
+    ``untriaged`` selects open issues with no triage label, a real Priority (not
+    the ``P-null`` marker), no open sub-issues, and **no open blocked-by edge**.
+
+    ``blocked`` selects open issues with an open blocked-by edge, whatever label
+    they carry. It is deliberately not restricted to unlabelled issues: a
+    ``triage:ready`` issue with an open edge is a contradiction worth seeing, and
+    the alternative — a label-scoped query — would hide exactly the case that
+    proves the label approach was unsafe.
+
+    ``ready`` selects open issues carrying ``triage:ready`` that still lack a
+    Priority.
+
+    Blocking was a ``triage:blocked`` label, and deriving it here instead removes
+    the class of bug where the label and the edge disagree. Nothing records
+    blocking now, so nothing can record it wrongly.
     """
     selection = []
     for item in items:
@@ -4492,7 +4515,11 @@ def triage_select_board(items, category):
         labels = triage_labels(content)
         priority = field_name(item, "priority")
         open_children = triage_open_children(content)
-        if category == "untriaged":
+        blocked = triage_board_blocked(content)
+        if category == "blocked":
+            if not blocked:
+                continue
+        elif category == "untriaged":
             if any(label.startswith(TRIAGE_LABEL_PREFIX) for label in labels):
                 continue
             # A literal ``P-null`` Priority marks an epic or tracking issue; an
@@ -4504,6 +4531,8 @@ def triage_select_board(items, category):
             # all close, the parent's own goal needs the "are we done?" question,
             # which only this queue asks. Unknown counts stay exempt.
             if open_children is None or open_children > 0:
+                continue
+            if blocked:
                 continue
         else:  # ready
             if TRIAGE_LABELS["ready"] not in labels:
@@ -4572,6 +4601,106 @@ TRIAGE_STATUS_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
   }
 }"""
 
+# The blocked-by edge is a native GitHub relationship, so it is the fact. These
+# two mutations are the only supported write path: `gh issue edit` has no
+# blocked-by flag, and inventing one in a label was the shadow this replaced.
+TRIAGE_EDGE_QUERY = """query($owner: String!, $name: String!, $number: Int!) {
+  repository(owner: $owner, name: $name) {
+    issue(number: $number) { id number }
+  }
+}"""
+
+TRIAGE_ADD_BLOCKED_BY = """mutation($issueId: ID!, $blockingIssueId: ID!) {
+  addBlockedBy(input: {issueId: $issueId, blockingIssueId: $blockingIssueId}) {
+    issue { number }
+  }
+}"""
+
+TRIAGE_REMOVE_BLOCKED_BY = """mutation($issueId: ID!, $blockingIssueId: ID!) {
+  removeBlockedBy(input: {issueId: $issueId, blockingIssueId: $blockingIssueId}) {
+    issue { number }
+  }
+}"""
+
+
+def triage_issue_node(repo, number, gh=run_gh):
+    """Return an issue's node id and number, raising when it cannot be read."""
+    owner, name = repo.split("/", 1)
+    data = response_type(gh(["api", "graphql", "-f", f"query={TRIAGE_EDGE_QUERY}",
+                             "-f", f"owner={owner}", "-f", f"name={name}",
+                             "-F", f"number={number}"]), dict, "The issue lookup response")
+    if data.get("errors"):
+        raise ValueError(f"The issue lookup has GraphQL errors: {data['errors']}")
+    repository = response_type(response_type(data.get("data"), dict, "The issue lookup data").get("repository"),
+                               dict, "The repository")
+    issue = response_type(repository.get("issue"), dict, "The issue")
+    node_id = response_string(issue.get("id"), "The issue node id")
+    return {"id": node_id, "number": response_type(issue.get("number"), int, "The issue number")}
+
+
+def triage_edit_edge(action, issue_repo, number, blocker_repo, blocker_number,
+                     gh=run_gh, confirm=confirm_write_identity):
+    """Add or remove one native blocked-by edge between two issues.
+
+    ``action`` is ``add`` or ``remove``. The edge is written through GitHub's
+    ``addBlockedBy``/``removeBlockedBy`` mutations, then the issue is re-read and
+    the post-write edges are reported, so a caller sees the result rather than a
+    success message. Blocking is a fact about relationships, not a triage label:
+    nothing here applies or clears ``triage:*``.
+
+    Both actions are idempotent. GitHub rejects a duplicate add and a remove of a
+    missing edge with a validation error; that is reported as ``already_present``
+    or ``already_absent`` with exit 0, because the caller asked for a state and
+    got it. A sweep re-running over the same issues must not fail on its own
+    earlier work.
+    """
+    result = {"action": action, "issue": f"{issue_repo}#{number}",
+              "blocker": f"{blocker_repo}#{blocker_number}", "writes": [], "errors": []}
+    if action not in ("add", "remove"):
+        result["errors"].append({"part": "action", "error": f"Unknown action {action!r}."})
+        return result, 1
+    try:
+        issue_node = triage_issue_node(issue_repo, number, gh=gh)
+        blocker_node = triage_issue_node(blocker_repo, blocker_number, gh=gh)
+        if issue_node["id"] == blocker_node["id"]:
+            result["errors"].append({"part": "edge", "error": "An issue cannot block itself."})
+            return result, 1
+        confirm()
+        mutation = TRIAGE_ADD_BLOCKED_BY if action == "add" else TRIAGE_REMOVE_BLOCKED_BY
+        written = response_type(gh(["api", "graphql", "-f", f"query={mutation}",
+                                    "-f", f"issueId={issue_node['id']}",
+                                    "-f", f"blockingIssueId={blocker_node['id']}"]),
+                                dict, "The blocked-by mutation response")
+        if written.get("errors"):
+            raise ValueError(f"The blocked-by mutation has GraphQL errors: {written['errors']}")
+        result["writes"].append(action)
+    except GhError as error:
+        message = str(error).lower()
+        duplicate = action == "add" and "already been taken" in message
+        missing = action == "remove" and ("does not have" in message or "not found" in message)
+        if not (duplicate or missing):
+            result["errors"].append({"part": "write", "error": str(error)})
+            return result, 1
+        result["unchanged"] = "already_present" if duplicate else "already_absent"
+    except (IdentityError, OSError, KeyError, TypeError, ValueError) as error:
+        result["errors"].append({"part": "write", "error": str(error)})
+        return result, 1
+    try:
+        after, _ = triage_status(issue_repo, number, gh=gh)
+        edges = [edge["issue"] for edge in (after.get("blockers") or {}).get("blockers") or []]
+        result["after"] = {"blocked_by": edges,
+                           "open": [edge["issue"] for edge in (after.get("blockers") or {}).get("open") or []]}
+        present = blocker_node["number"] in edges
+        result["readback"] = {"edge_present": present} if action == "add" else {"edge_absent": not present}
+        if not (present if action == "add" else not present):
+            result["errors"].append({"part": "readback",
+                                     "error": f"the edge did not reach the requested state after {action}"})
+            return result, 2
+    except (GhError, OSError, KeyError, TypeError, ValueError) as error:
+        result["errors"].append({"part": "readback", "error": str(error)})
+        return result, 2
+    return result, 0
+
 # Comment headings that carry triage state. They are ordinary markdown, so a
 # reader sees them in the issue timeline. Nothing is hidden in an HTML comment:
 # that is the pattern this project moved away from for review verdicts, and the
@@ -4583,7 +4712,12 @@ TRIAGE_PROMPT_LINE = re.compile(r"^prompt=(.+?)\s*$", re.MULTILINE)
 TRIAGE_ATTEMPT_LABEL = re.compile(r"^triage:attempt-(\d+)$")
 
 # Ordered refinement states. `none` means no triage label at all.
-TRIAGE_REFINEMENT_STATES = ("needs-attention", "blocked", "ready", "parked", "agent-closed")
+#
+# ``blocked`` is deliberately absent. Blocking is a native blocked-by
+# relationship, and a label recording it was a cache of that fact that needed
+# continuous auditing (`triage_label_stale`) to stay honest. The state is now
+# derived: an open edge makes an issue blocked whatever its label says.
+TRIAGE_REFINEMENT_STATES = ("needs-attention", "ready", "parked", "agent-closed")
 
 
 def triage_bucket(labels):
@@ -4638,20 +4772,25 @@ def triage_comment_fields(body):
     }
 
 
-def triage_stage(bucket, assessment, definition):
+def triage_stage(bucket, assessment, definition, blocked=False):
     """Derive the refinement stage from observable issue state.
 
-    The stage is never stored. It follows from the bucket and whether an
-    assessment and definition comment are present. Staleness is reported
-    separately by ``triage_assessment_stale`` rather than folded in here,
-    because a stale assessment still tells you which stage the issue reached.
+    The stage is never stored. It follows from the bucket, whether an assessment
+    and definition comment are present, and whether an open blocked-by edge
+    exists. Staleness is reported separately by ``triage_assessment_stale``
+    rather than folded in here, because a stale assessment still tells you which
+    stage the issue reached.
+
+    ``blocked`` outranks the label because the relationship is the fact and the
+    label is a claim. An issue with an open edge is blocked regardless of what
+    triage label it carries, which is the whole reason no label records it.
     """
+    if blocked:
+        return "blocked"
     if bucket is None:
         return "untriaged"
     if bucket == "ready":
         return "ready"
-    if bucket == "blocked":
-        return "blocked"
     if bucket == "parked":
         return "parked"
     if bucket == "agent-closed":
@@ -4716,10 +4855,11 @@ def triage_children(sub_issues):
 def triage_label_stale(bucket, blockers, children=None):
     """Whether a triage label no longer matches what the relationships say.
 
-    Two dead ends are reported, because both strand an issue outside every
-    refinement queue while looking deliberate:
+    With ``triage:blocked`` gone, the label/relationship disagreement that this
+    function existed to report has no way to arise for blocking: an open edge is
+    read directly, and no label claims otherwise. What remains is the park on a
+    parent — the one label that still contradicts a relationship.
 
-    - ``triage:blocked`` whose blocked-by edges have all closed.
     - ``triage:parked`` on a parent. A parent is a container, not a shelf: its
       state derives from the children rollup, and parking one was a way to keep
       it out of triage loops. The label does not belong there, whatever the
@@ -4729,8 +4869,6 @@ def triage_label_stale(bucket, blockers, children=None):
     discussion or consideration, set aside for the user's review", which is a
     decision that does not expire on its own.
     """
-    if bucket == "blocked" and blockers.get("cleared"):
-        return "triage:blocked is set but every blocked-by edge is closed"
     if bucket == "parked" and children and children.get("total", 0) > 0:
         return "triage:parked on a parent; a parent's state derives from its children"
     return None
@@ -4775,8 +4913,6 @@ def triage_eligibility(stage, bucket, blockers, evidence, children=None):
         failed = [item for item in evidence.get("citations") or [] if not item.get("ok")]
         detail = "; ".join(f"{item['citation']} ({item['detail']})" for item in failed[:3])
         return {"eligible": False, "reason": f"cited evidence does not verify: {detail}"}
-    if stage == "blocked":
-        return {"eligible": True, "reason": "all blockers are closed; return to untriaged for a full assessment"}
     if stage == "untriaged":
         return {"eligible": True, "reason": "no triage label; needs an assessment"}
     if stage == "assessed":
@@ -4851,8 +4987,8 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
     """Derive one issue's triage state from labels, comments, and relationships.
 
     Nothing here is stored: the bucket comes from labels, the stage from the
-    bucket plus visible comment headings, the blockers from native relationships,
-    and evidence verification is recomputed every call. That is what lets a
+    bucket, the visible comment headings, and the open blocked-by edges, and
+    evidence verification is recomputed every call. That is what lets a
     reconciliation loop re-read state instead of bookkeeping it locally.
     """
     result = {"issue": f"{repo}#{number}", "repo": repo, "number": number, "complete": False, "errors": []}
@@ -4877,6 +5013,8 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
         bucket = triage_bucket(labels)
         blockers = triage_blockers((issue.get("blockedBy") or {}).get("nodes"))
         children = triage_children(issue.get("subIssues"))
+        # An open blocked-by edge is the fact; no label records it.
+        is_blocked = bool(blockers.get("open"))
 
         evidence = None
         if verify_evidence and assessment:
@@ -4885,7 +5023,7 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
                 "verified": False, "citations": [],
                 "detail": "the assessment cites no commit, path, or issue to verify"}
 
-        stage = triage_stage(bucket, assessment, definition)
+        stage = triage_stage(bucket, assessment, definition, blocked=is_blocked)
         result.update(
             url=issue.get("url"),
             title=issue.get("title"),
@@ -4923,9 +5061,14 @@ def triage_status(repo, number, verify_evidence=False, gh=run_gh, git=None):
 def triage_list(category, repo=None, owner=None, project=None, gh=run_gh):
     """Return the deterministic issue selection for one triage sweep category.
 
-    Board categories (``untriaged``, ``ready``) read the whole board and need ``owner``
-    and ``project``. Repo categories read one label from one repository and need
-    ``repo``. Exits 2 on an incomplete read and returns no selection then.
+    Board categories (``untriaged``, ``blocked``, ``ready``) read the whole board
+    and need ``owner`` and ``project``. ``blocked`` is not a label: it is the
+    subset of unlabelled issues carrying an open blocked-by edge, so it comes out
+    of the same board read as ``untriaged``.
+
+    Repo categories (``needs-attention``, ``agent-closed``) read one label from
+    one repository and need ``repo``. Exits 2 on an incomplete read and returns
+    no selection then.
     """
     result = {"category": category, "complete": False, "errors": []}
     try:
@@ -5539,6 +5682,18 @@ def main(argv=None):
     triage_status_cmd.add_argument("--repo", help="OWNER/NAME when giving an issue number")
     triage_status_cmd.add_argument("--verify-evidence", action="store_true",
                                    help="resolve each commit, path, and issue cited by the latest assessment")
+    triage_block_cmd = triage_commands.add_parser(
+        "block", help="Record a native blocked-by edge: ISSUE waits on BLOCKER.")
+    triage_block_cmd.add_argument("issue", help="the blocked issue: URL, or a number with --repo")
+    triage_block_cmd.add_argument("blocker", help="the blocking issue: URL, or a number with --blocker-repo")
+    triage_block_cmd.add_argument("--repo", help="OWNER/NAME for the blocked issue when giving a number")
+    triage_block_cmd.add_argument("--blocker-repo", help="OWNER/NAME for the blocker when giving a number")
+    triage_unblock_cmd = triage_commands.add_parser(
+        "unblock", help="Remove a native blocked-by edge: ISSUE no longer waits on BLOCKER.")
+    triage_unblock_cmd.add_argument("issue", help="the blocked issue: URL, or a number with --repo")
+    triage_unblock_cmd.add_argument("blocker", help="the blocking issue: URL, or a number with --blocker-repo")
+    triage_unblock_cmd.add_argument("--repo", help="OWNER/NAME for the blocked issue when giving a number")
+    triage_unblock_cmd.add_argument("--blocker-repo", help="OWNER/NAME for the blocker when giving a number")
     budget_cmd = commands.add_parser("budget", help="Read the clock, mark task starts and ends in a log, and report time left and measured durations.")
     budget_cmd.add_argument("--log", required=True, metavar="FILE", help="JSON-lines log, such as budget.jsonl in the coordinator notes directory")
     budget_cmd.add_argument("--deadline", help="record the deadline: ISO 8601 or YYYY-MM-DD HH:MM [ZONE], read as local time")
@@ -5724,7 +5879,16 @@ def main(argv=None):
     elif args.command == "queue":
         result, status = queue_summary([parse_issue(ref, args.repo) for ref in args.issues], args.owner, args.project)
     elif args.command == "triage":
-        if args.triage_command == "status":
+        if args.triage_command in ("block", "unblock"):
+            issue_repo = args.repo or checkout_repo()
+            blocker_repo = args.blocker_repo or issue_repo
+            if not issue_repo:
+                parser.error(f"triage {args.triage_command} needs --repo OWNER/NAME outside a checkout.")
+            issue_repo, number = parse_issue(args.issue, issue_repo)
+            blocker_repo, blocker_number = parse_issue(args.blocker, blocker_repo)
+            result, status = triage_edit_edge("add" if args.triage_command == "block" else "remove",
+                                              issue_repo, number, blocker_repo, blocker_number)
+        elif args.triage_command == "status":
             repo = args.repo or checkout_repo()
             if not repo:
                 parser.error("triage status needs --repo OWNER/NAME outside a checkout.")

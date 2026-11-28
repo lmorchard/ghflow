@@ -13,8 +13,8 @@ and stops, and the next sweep reads the state it left behind.
 
 The loop is idle when no issue in its queue can advance on its own. That state is
 reachable, and it is the goal: everything that could become `triage:ready` has,
-and everything left is `triage:needs-attention` (waiting on a person),
-`triage:blocked` (waiting on another issue), or `triage:parked` (waiting by
+and everything left is `triage:needs-attention` (waiting on a person), an open
+blocked-by edge (waiting on another issue), or `triage:parked` (waiting by
 choice). A sweep that leaves issues in an intermediate state no one is scheduled
 to pick up is not a shorter loop — it is a dropped one.
 
@@ -65,7 +65,7 @@ The heading is plain markdown. Never an HTML comment marker: a state nobody can 
 
 ## Classification
 
-Eight classes. Each maps to exactly one label or one closure. This is the only place the vocabulary is defined.
+Seven classes. Each maps to exactly one label or one closure. This is the only place the vocabulary is defined.
 
 A single autonomous pass attempts to reach `triage:ready` for every issue. The classes below are its outcomes, and only two of them need a person.
 
@@ -76,11 +76,21 @@ A single autonomous pass attempts to reach `triage:ready` for every issue. The c
 | **Obsolete-stale-contract** | define and rewrite | The goal still stands, but the issue's specification describes components or assumptions that no longer exist. Do **not** close: the body needs rewriting, which the pass does |
 | **Unnecessary** | none — close `not planned` | Valid in principle, but the cost clearly exceeds the value, or another issue supersedes it |
 | **Needs attention** | `triage:needs-attention` | The pass could not reach a specification or a closure alone. A product, design, or tradeoff decision requires an interactive session with the user |
-| **Blocked** | `triage:blocked` | A useful specification depends on open issues that will change the code or supply a contract |
+| **Blocked** | none — an open blocked-by edge | A useful specification depends on open issues that will change the code or supply a contract |
 | **Ready** | `triage:ready` | Problem, scope, and verification criteria are clear and accurate against current code, and the evidence verifies |
 | **Parked** | `triage:parked` | Needs more discussion or consideration; set aside deliberately until the user reviews it |
 
 `triage:needs-attention` is the only state that spends the user's attention, and it is the pass's honest admission of a limit: everything discoverable was researched, the options and their consequences are named, and one specific decision remains that only the user can make. It is not a holding pen for issues the pass found hard.
+
+### Blocked is a relationship, not a label
+
+An issue is blocked when it has an open **native blocked-by edge**. Nothing records that in a label. `triage status` reads the edges and reports `stage: blocked`, and an open edge outranks whatever label the issue carries.
+
+This was a label once, `triage:blocked`, and it was removed because a label restating a relationship is a cache that must be continuously audited against the thing it restates. `triage_label_stale()` existed only to catch that label lying. The relationship is the fact; a label claiming the same fact adds a way to be wrong, not a way to be right.
+
+Live evidence for the difference: two issues were carrying `triage:ready` while holding open blocked-by edges, so the label-scoped query never listed them and they read as Ready on the board. Nothing in the system was wrong except the cache; deriving the state reports both as `stage: blocked`.
+
+`triage:blocked` is therefore not a valid label any more. Applying it does nothing, and no task writes it. Set the relationship with `ghflow triage block`.
 
 ### Obsolete-stale-contract is a rewrite, not a state
 

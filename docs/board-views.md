@@ -40,11 +40,9 @@ On board 6, `P-null` is a literal Priority value for theme and epic issues. The 
 
 ### Blocked
 
-```text
-label:triage:blocked -status:Done
-```
+There is no board view for blocked issues. Blocking is a native blocked-by relationship and the project board has no documented dependency filter, so the label that used to stand in for it is gone rather than approximated.
 
-This view shows issues that wait for other open issues. The board cannot show whether the blockers closed, because no dependency filter is documented. Run [sweep-triage](../references/tasks/sweep-triage.md) with `--queue blocked` to reconcile: `triage status` reads the native blocked-by edges, and a label whose edges have all closed is cleared back to untriaged rather than advanced, because a cleared dependency is not a readiness judgment.
+Run `python3 "$GHFLOW_CLI" triage list blocked --owner OWNER --project NUMBER` to enumerate them: it derives the set from the edges, including issues that carry a triage label. Use it with [sweep-triage](../references/tasks/sweep-triage.md) `--queue blocked` to reconcile — a cleared edge returns the issue to untriaged rather than advancing it, because a cleared dependency is not a readiness judgment.
 
 ### Parked — needs more discussion
 
